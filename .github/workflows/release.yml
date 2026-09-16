@@ -31,7 +31,7 @@ jobs:
             os: macos-latest
             cross: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -86,7 +86,7 @@ jobs:
             os: macos-latest
             manylinux: ""
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v3
         if: runner.os == 'Linux'
       - uses: Swatinem/rust-cache@v2
@@ -135,7 +135,7 @@ jobs:
   #   needs: release
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v7
   #     - uses: dtolnay/rust-toolchain@stable
   #     - run: cargo publish --locked
   #       env:
@@ -149,7 +149,7 @@ jobs:
   #   needs: release
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v7
   #     - uses: PyO3/maturin-action@v1
   #       with:
   #         command: publish
