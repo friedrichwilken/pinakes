@@ -3,6 +3,14 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- A `justfile`: `just install` (cargo install from the checkout), `just check` (the offline CI
+  gates), `just e2e` (the example against the network), `just update-golden`, `just wheel`,
+  `just audit`, and `just skill <project>` to symlink the curate skill into a project.
+
 ## [1.1.0] - 2026-09-16
 
 ### Added

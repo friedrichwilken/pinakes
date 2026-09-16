@@ -19,7 +19,8 @@ mkdir -p .claude/skills
 ln -s /path/to/pinakes/skills/curate .claude/skills/curate
 ```
 
-or copy it once (simpler, but drifts from this repository over time):
+(`just skill /path/to/project` from this repository does exactly that), or copy it once (simpler,
+but drifts from this repository over time):
 
 ```sh
 mkdir -p .claude/skills

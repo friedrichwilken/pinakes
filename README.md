@@ -718,6 +718,14 @@ logging a trail yet.
 ## Development
 
 ```sh
+just check      # the offline CI gates: rustfmt check, clippy, rustdoc, all tests
+just install    # cargo install --path . --locked; puts `pinakes` on PATH
+just            # every recipe: build, release, fmt, lint, test, e2e, update-golden, wheel, audit, skill
+```
+
+Without [`just`](https://github.com/casey/just), the gates are:
+
+```sh
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
