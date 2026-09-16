@@ -3,6 +3,38 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.3] - 2026-09-16
+
+### Added
+
+- Every page mentioned in `residue.jsonl`, `duplicates.jsonl` and `report.md` now carries its
+  upstream URL pinned to the fetched commit; an unresolved link points at the navigation file
+  that linked it instead, since the target does not exist. `report.md` renders these as Markdown
+  links, falling back to the id in code when there is no title.
+- Every `residue.jsonl` entry now carries a `rule` (`{"key", "text"}`) naming the mechanism that
+  placed it: one key per built-in resolver's unlinked/unlisted case, `glob:extension`,
+  `glob:outside-include`, `external:not-selected`, `external:unmatched`, `nav:dangling-link`,
+  `external:dangling-link`, `policy:deny`, `resolver:exclude`, `decision:exclude`,
+  `source:archived` and `source:new`. The external resolver contract gained an optional
+  per-candidate `rule` a script can report instead of the generic `external:not-selected`.
+- Files kept out by `policy.deny` or a resolver's `exclude`, and the would-be pages of a source
+  dropped by `policy.archived: drop`, are now reported as residue too (reason `excluded`)
+  instead of disappearing with no record. They are never candidates for `decide`; `residue list`
+  hides them by default and gains `--include-excluded` to show them; `report.md` always
+  accounts for their current count in a collapsed `<details>` block.
+
+### Changed
+
+- `residue.jsonl` is now written sorted by `(source, path)`, and `duplicates.jsonl` by
+  `(canonical, duplicate)`, so both files are byte-for-byte identical across runs of the same
+  inputs.
+- The near-duplicate winner rule's last, network-dependent step (the source's commit date) is
+  replaced with a final, deterministic tie-break: the lexically first page id. `suggested` still
+  reads `"review"` when priority and `selected_by` both tie, since neither page actually
+  outranks the other; the lexical step itself never yields `"exclude"`.
+- `report.md`'s "New residue" section now groups entries by rule instead of by reason, each
+  group headed by the rule's own sentence.
+
 ## [1.0.2] - 2026-09-16
 
 ### Fixed
