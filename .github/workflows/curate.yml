@@ -55,7 +55,7 @@ jobs:
     name: curate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # `github.workflow_ref` names the repository and ref that *this* reusable workflow file
       # lives on, regardless of which repository called it, e.g.
