@@ -17,14 +17,14 @@ const DEFAULT_PATHS: [&str; 2] = ["sidebars.js", "sidebars.ts"];
 /// Content root doc ids resolve under (SPEC §12: `doc` ids resolve to `docs/<id>.md(x)`).
 const DOCS_DIR: &str = "docs";
 
-/// Build the candidate map and residue scope for a `docusaurus` source.
+/// Build the candidate map, residue scope and navigation file path for a `docusaurus` source.
 pub(super) fn plan(
     source: &Source,
     checkout: &Checkout,
     files: &[String],
     path: Option<&str>,
     scope: &[String],
-) -> Result<(BTreeMap<String, Candidate>, GlobSet), ResolveError> {
+) -> Result<(BTreeMap<String, Candidate>, GlobSet, String), ResolveError> {
     let nav_path = locate(&source.name, files, path)?;
     let text = read_file(checkout, &nav_path)?;
     let file_set: BTreeSet<String> = files.iter().cloned().collect();
@@ -44,6 +44,7 @@ pub(super) fn plan(
             section: entry.section.clone(),
             selected,
             context: String::new(),
+            rule: None,
         };
         match resolve_doc_id(&entry.target, &file_set) {
             LinkTarget::Resolved(p) => {
@@ -72,12 +73,13 @@ pub(super) fn plan(
                     section: section.clone(),
                     selected: true,
                     context: String::new(),
+                    rule: None,
                 });
             }
         }
     }
     let scope_set = navigation::scope_set(DOCS_DIR, scope)?;
-    Ok((candidates, scope_set))
+    Ok((candidates, scope_set, nav_path))
 }
 
 /// Find the navigation file: `path` verbatim when given, else the first of [`DEFAULT_PATHS`]
@@ -255,7 +257,7 @@ module.exports = {
             ("docs/orphan.md", "# Orphan\n"),
         ]);
         let src = source("      type: docusaurus\n");
-        let (candidates, scope) = plan(&src, &co, &fixture_files(), None, &[]).unwrap();
+        let (candidates, scope, nav_path) = plan(&src, &co, &fixture_files(), None, &[]).unwrap();
 
         let intro = &candidates["docs/intro.md"];
         assert_eq!(intro.section, "", "top-level shorthand has no section");
@@ -283,6 +285,7 @@ module.exports = {
             "orphan is residue, not selected"
         );
         assert!(scope.is_match("docs/orphan.md"));
+        assert_eq!(nav_path, "sidebars.js");
     }
 
     #[test]

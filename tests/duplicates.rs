@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 
 use pinakes::commands::{DuplicatesOptions, Paths, duplicates};
 use pinakes::duplicates::{DEFAULT_THRESHOLD, DuplicateKind, Suggested};
-use pinakes::sources::testing::FakeFetcher;
 
 const CANONICAL: &str = "handbook::docs/concepts/notifications.md";
 const DUPLICATE: &str = "cookbook::docs/recipes/notification-templates.md";
@@ -22,12 +21,8 @@ fn fixture() -> PathBuf {
 #[test]
 fn finds_the_near_duplicate_pair_with_the_higher_priority_page_as_canonical() {
     let paths = Paths::for_config(&fixture().join("pinakes.yaml"));
-    let pairs = duplicates(
-        &paths,
-        &DuplicatesOptions::default(),
-        &FakeFetcher::default(),
-    )
-    .expect("duplicates runs on the manifest-less golden fixture");
+    let pairs = duplicates(&paths, &DuplicatesOptions::default())
+        .expect("duplicates runs on the manifest-less golden fixture");
 
     let pair = pairs
         .iter()
@@ -45,7 +40,6 @@ fn finds_the_near_duplicate_pair_with_the_higher_priority_page_as_canonical() {
 #[test]
 fn a_stricter_threshold_still_finds_it_but_an_impossible_one_does_not() {
     let paths = Paths::for_config(&fixture().join("pinakes.yaml"));
-    let fetcher = FakeFetcher::default();
 
     let strict = duplicates(
         &paths,
@@ -53,7 +47,6 @@ fn a_stricter_threshold_still_finds_it_but_an_impossible_one_does_not() {
             threshold: 0.85,
             json: None,
         },
-        &fetcher,
     )
     .unwrap();
     assert!(
@@ -68,7 +61,6 @@ fn a_stricter_threshold_still_finds_it_but_an_impossible_one_does_not() {
             threshold: 1.01,
             json: None,
         },
-        &fetcher,
     )
     .unwrap();
     assert!(

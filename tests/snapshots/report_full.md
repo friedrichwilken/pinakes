@@ -26,29 +26,29 @@
 
 ## Added pages
 
-- `handbook::docs/new.md` — New Page
+- [New Page](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/new.md)
 
 ## Removed pages
 
-- `handbook::docs/dropped.md` — Dropped Page (excluded by decision)
-- `handbook::docs/old.md` — Old Page (gone upstream)
-- `removed-src::docs/x.md` — X (source removed)
+- [Dropped Page](https://github.com/example-org/handbook/blob/1111111111111111111111111111111111111111/docs/dropped.md) (excluded by decision)
+- [Old Page](https://github.com/example-org/handbook/blob/1111111111111111111111111111111111111111/docs/old.md) (gone upstream)
+- [X](https://github.com/example-org/handbook/blob/9999999999999999999999999999999999999999/docs/x.md) (source removed)
 
 ## Changed pages
 
-- `handbook::docs/changed.md` — Changed Page (+2/-1) ([compare](https://github.com/example-org/handbook/compare/1111111111111111111111111111111111111111...2222222222222222222222222222222222222222))
+- [Changed Page](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/changed.md) (+2/-1) ([compare](https://github.com/example-org/handbook/compare/1111111111111111111111111111111111111111...2222222222222222222222222222222222222222))
 
 ## New residue
 
-### not_selected
+### linked from `docs/_sidebar.md` but the file does not exist
 
-- `handbook::docs/fresh.md` — (untitled)
-  > word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word …
-
-### unresolved_link
-
-- `handbook::docs/ghost.md` — Ghost
+- [Ghost](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/ghost.md)
   - context: Sidebar > Ghost
+
+### outside the configured include patterns
+
+- `handbook::docs/fresh.md`
+  > word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word …
 
 ## Expired decisions
 
@@ -57,7 +57,7 @@
 
 ## Unresolved links
 
-- `handbook::docs/ghost.md`
+- [Ghost](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/ghost.md)
 
 ## Archived sources
 
@@ -67,9 +67,9 @@
 
 ### mirror
 
-- `handbook::docs/new.md` ← `handbook::docs/getting-started.md` (similarity 0.710, suggested: review) — same priority, selected_by and commit date
+- [New Page](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/new.md) ← [Getting Started](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/getting-started.md) (similarity 0.710, suggested: review) — priority and selected_by tie; handbook::docs/new.md sorts first
 
 ### near
 
-- `handbook::docs/getting-started.md` ← `removed-src::docs/x.md` (similarity 0.930, suggested: exclude) — priority 10 > 1
+- [Getting Started](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/getting-started.md) ← `removed-src::docs/x.md` (similarity 0.930, suggested: exclude) — priority 10 > 1
 

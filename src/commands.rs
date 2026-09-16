@@ -257,15 +257,12 @@ fn resolve_fresh(
     for source in &config.sources {
         let slug = source.slug();
         let archived = fetcher.archived(&slug);
+        let dropped = archived == Some(true) && config.policy.archived == ArchivedPolicy::Drop;
         if archived == Some(true) {
-            match config.policy.archived {
-                ArchivedPolicy::Drop => {
-                    warnings.push(format!("{}: repository is archived; dropped", source.name));
-                    continue;
-                }
-                ArchivedPolicy::Warn => {
-                    warnings.push(format!("{}: repository is archived", source.name));
-                }
+            if dropped {
+                warnings.push(format!("{}: repository is archived; dropped", source.name));
+            } else {
+                warnings.push(format!("{}: repository is archived", source.name));
             }
         }
         let dest = checkout_dir(work, &source.name);
@@ -277,6 +274,7 @@ fn resolve_fresh(
         })?;
         let ctx = ResolveContext {
             deny: &deny,
+            deny_patterns: &config.policy.deny,
             decisions: &effective,
             config_dir: &config_dir,
             is_new_source: previous
@@ -284,6 +282,12 @@ fn resolve_fresh(
                 .is_some_and(|p| !p.sources.contains_key(&source.name)),
         };
         let resolved = resolve::resolve_source(source, &checkout, &ctx)?;
+        if dropped {
+            // The whole source is left out of the corpus; its would-be pages are still
+            // accounted for, as residue with `source:archived` (SPEC §2.1, §2.4).
+            all_residue.extend(resolve::archived_residue(source, &checkout, resolved));
+            continue;
+        }
         let residue_paths = resolved
             .residue
             .iter()
@@ -331,7 +335,7 @@ fn resolve_fresh(
                 .map(|r| r.sha256.clone())
         })
     });
-    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts, fetcher)?;
+    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts)?;
     Ok(ResolveOutcome {
         manifest,
         residue: all_residue,
@@ -376,7 +380,7 @@ fn reproduce(
         all_residue.extend(recorded_residue(name, source, &checkout)?);
         checkouts.insert(name.clone(), checkout);
     }
-    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts, fetcher)?;
+    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts)?;
     Ok(ResolveOutcome {
         manifest,
         residue: all_residue,
@@ -436,6 +440,8 @@ fn recorded_residue(
             title: title_of("", &text),
             excerpt: residue::excerpt(strip_frontmatter(&text), residue::EXCERPT_TOKENS),
             context: String::new(),
+            url: source.page_url(path).unwrap_or_default(),
+            rule: Some(residue::Rule::reproduced()),
         });
     }
     for path in &source.unresolved {
@@ -448,6 +454,8 @@ fn recorded_residue(
             title: String::new(),
             excerpt: String::new(),
             context: String::new(),
+            url: source.page_url(path).unwrap_or_default(),
+            rule: Some(residue::Rule::reproduced()),
         });
     }
     Ok(entries)
@@ -458,17 +466,11 @@ fn write_outputs(
     manifest: &Manifest,
     all_residue: &[ResidueEntry],
     checkouts: &BTreeMap<String, Checkout>,
-    fetcher: &dyn Fetcher,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     artifact::materialise(&paths.artifact, manifest, checkouts)?;
     manifest.save(&paths.manifest)?;
     residue::write_jsonl(&paths.residue, all_residue)?;
-    let pairs = compute_duplicates(
-        paths,
-        Some(manifest),
-        fetcher,
-        duplicates::DEFAULT_THRESHOLD,
-    )?;
+    let pairs = compute_duplicates(paths, Some(manifest), duplicates::DEFAULT_THRESHOLD)?;
     duplicates::write_jsonl(&paths.duplicates, &pairs)?;
     Ok(pairs)
 }
@@ -486,13 +488,12 @@ fn sha256_of_page(paths: &Paths, manifest: Option<&Manifest>, id: &str) -> Optio
 }
 
 /// Find duplicate pairs in the artifact at `paths.artifact` (SPEC §11). `manifest`, when given,
-/// supplies exact `sha256`, `selected_by` and (via `fetcher`) commit dates for the winner rule;
-/// without one (a manifest-less artifact) exact duplicates still work from the file bytes, and
-/// the winner rule falls back to source priority alone.
+/// supplies exact `sha256`, `selected_by` and page urls for the winner rule and the reported
+/// pairs; without one (a manifest-less artifact) exact duplicates still work from the file
+/// bytes, and the winner rule falls back to source priority alone.
 fn compute_duplicates(
     paths: &Paths,
     manifest: Option<&Manifest>,
-    fetcher: &dyn Fetcher,
     threshold: f64,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     let priorities = if paths.config.is_file() {
@@ -501,27 +502,20 @@ fn compute_duplicates(
         Priorities::default()
     };
     let pages = index::load_pages(&paths.artifact, &priorities)?;
-    let commit_dates: BTreeMap<String, Option<String>> = manifest
-        .map(|m| {
-            m.sources
-                .iter()
-                .map(|(name, source)| {
-                    let date = RepoSlug::from_slug(&source.repo)
-                        .and_then(|slug| fetcher.commit_date(&slug, &source.commit));
-                    (name.clone(), date)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
     let sha256 = |id: &str| sha256_of_page(paths, manifest, id);
     let selected_by = |id: &str| manifest.and_then(|m| m.page(id)).map(|p| p.selected_by);
-    let commit_date = |source: &str| commit_dates.get(source).cloned().flatten();
     let context = DuplicateContext {
         sha256: &sha256,
         selected_by: &selected_by,
-        commit_date: &commit_date,
     };
-    Ok(duplicates::find_duplicates(&pages, &context, threshold))
+    let mut pairs = duplicates::find_duplicates(&pages, &context, threshold);
+    if let Some(manifest) = manifest {
+        for pair in &mut pairs {
+            pair.canonical_url = manifest.page_url(&pair.canonical).unwrap_or_default();
+            pair.duplicate_url = manifest.page_url(&pair.duplicate).unwrap_or_default();
+        }
+    }
+    Ok(pairs)
 }
 
 /// Options for `duplicates`.
@@ -543,18 +537,18 @@ impl Default for DuplicatesOptions {
 }
 
 /// Run `duplicates`: find exact, mirror and near-duplicate pairs in the artifact (SPEC §11).
-/// Uses the committed manifest when present for `selected_by` and (via `fetcher`) commit dates.
+/// Uses the committed manifest when present for `selected_by` and page urls; this never touches
+/// the network.
 pub fn duplicates(
     paths: &Paths,
     options: &DuplicatesOptions,
-    fetcher: &dyn Fetcher,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     let manifest = if paths.manifest.is_file() {
         Some(Manifest::load(&paths.manifest)?)
     } else {
         None
     };
-    let pairs = compute_duplicates(paths, manifest.as_ref(), fetcher, options.threshold)?;
+    let pairs = compute_duplicates(paths, manifest.as_ref(), options.threshold)?;
     if let Some(path) = &options.json {
         duplicates::write_jsonl(path, &pairs)?;
     }
@@ -1568,7 +1562,12 @@ mod tests {
         assert_eq!(handbook.commit, SHA);
         assert_eq!(handbook.archived, Some(false));
         assert_eq!(handbook.pages.len(), 2);
-        assert!(outcome.residue.is_empty());
+        assert_eq!(
+            outcome.residue.iter().map(|r| r.reason).collect::<Vec<_>>(),
+            [Reason::Excluded, Reason::Excluded],
+            "docs/_sidebar.md matches resolver.exclude and docs/adr/1.md matches policy.deny, \
+             both now residue in their own right (SPEC §2.4) instead of vanishing silently"
+        );
         assert!(outcome.warnings.is_empty());
         assert!(paths.manifest.is_file() && paths.residue.is_file());
         assert!(paths.artifact.join("handbook/docs/a.md").is_file());
@@ -1609,16 +1608,17 @@ mod tests {
             CommandError::UnknownId(_)
         ));
 
-        // The exclude decision now removes the page and reports it as residue.
+        // The exclude decision now removes the page and reports it as residue, alongside the
+        // ongoing policy.deny and resolver.exclude residue (SPEC §2.4).
         let outcome = resolve(&paths, &opts(), &fetcher).unwrap();
         assert_eq!(outcome.manifest.sources["handbook"].pages.len(), 1);
-        assert_eq!(outcome.residue.len(), 1);
+        assert_eq!(outcome.residue.len(), 3, "{:#?}", outcome.residue);
         assert_eq!(outcome.residue[0].id, "handbook::docs/a.md");
         assert!(
             residue_list(&paths, &ListFilter::default())
                 .unwrap()
                 .is_empty(),
-            "decided → hidden"
+            "decided → hidden; the excluded ones are hidden by default regardless of decisions"
         );
         assert!(paths.artifact.join("_residue/handbook/docs/a.md").is_file());
         assert!(outcome.expired.is_empty());
@@ -1681,6 +1681,27 @@ mod tests {
             outcome.warnings,
             ["handbook: repository is archived; dropped"]
         );
+        // The source's would-be pages are still accounted for, as residue with `source:archived`
+        // (SPEC §2.1, §2.4); its own residue (excluded/denied files) keeps its own rule.
+        let by_path: std::collections::BTreeMap<&str, &str> = outcome
+            .residue
+            .iter()
+            .map(|r| (r.path.as_str(), r.rule.as_ref().unwrap().key.as_str()))
+            .collect();
+        assert_eq!(
+            by_path,
+            [
+                ("docs/_sidebar.md", "resolver:exclude"),
+                ("docs/a.md", "source:archived"),
+                ("docs/adr/1.md", "policy:deny"),
+                ("docs/b.md", "source:archived"),
+            ]
+            .into_iter()
+            .collect(),
+            "{:#?}",
+            outcome.residue
+        );
+        assert!(outcome.residue.iter().all(|r| r.reason == Reason::Excluded));
     }
 
     #[test]
@@ -1763,7 +1784,9 @@ type: object\n              properties:\n                size:\n                
         let outcome = resolve(&paths, &opts(), &fetcher).unwrap();
         assert_eq!(
             outcome.residue.iter().map(|r| r.reason).collect::<Vec<_>>(),
-            [Reason::NotSelected]
+            [Reason::NotSelected, Reason::Excluded, Reason::Excluded],
+            "docs/b.md is not selected; docs/_sidebar.md matches resolver.exclude and \
+             docs/adr/1.md matches policy.deny, both now residue in their own right (SPEC §2.4)"
         );
         // Rename the source: it is now new relative to the committed manifest.
         fs::write(
@@ -2205,6 +2228,8 @@ type: object\n              properties:\n                size:\n                
                 title: "X".to_string(),
                 excerpt: "some text".to_string(),
                 context: String::new(),
+                url: String::new(),
+                rule: None,
             }],
         )
         .unwrap();

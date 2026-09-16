@@ -128,9 +128,58 @@ This layout is a stable contract that consumers rely on; keep it exact.
 ### 2.4 `residue.jsonl` — what was left out (machine-written, reviewable)
 
 One object per line:
-`{"id": "handbook::docs/user/x.md", "source": "handbook", "path": "docs/user/x.md", "reason": "not_selected", "sha256": "…", "title": "…", "excerpt": "first ~600 tokens", "context": "sidebar section or TOC branch if the resolver gave one"}`
+`{"id": "handbook::docs/user/x.md", "source": "handbook", "path": "docs/user/x.md", "reason": "not_selected", "sha256": "…", "title": "…", "excerpt": "first ~600 tokens", "context": "sidebar section or TOC branch if the resolver gave one", "url": "https://github.com/example-org/handbook/blob/4427d7ba863973c2cea9da74ed8675c5c74aee77/docs/user/x.md", "rule": {"key": "glob:outside-include", "text": "outside the configured include patterns"}}`
 
-Reasons: `not_selected`, `unresolved_link` (a navigation link with no file), `new_source`.
+`url` is the page's upstream URL pinned to the fetched commit, `https://github.com/<owner>/
+<repo>/blob/<commit>/<path>` — the same `base_url` the source's `meta.json` carries (§2.3),
+derived from the manifest's `repo` and `commit`; empty when it cannot be derived (the source's
+`repo` does not parse as a GitHub URL). For reason `unresolved_link` there is no file at `path`
+to point at, so `url` instead names the navigation file itself (the sidebar, `sidebars.js`,
+`SUMMARY.md` or sitemap a built-in resolver read, §12) at the fetched commit; the `glob` and
+`external` resolvers have no navigation file, so `url` falls back to the (nonexistent) target
+path for them.
+
+Reasons: `not_selected`, `unresolved_link` (a navigation link with no file), `new_source`,
+`excluded` (kept out by `policy.deny`, a resolver's `exclude`, a decision, or an archived source
+dropped by `policy.archived` — see below).
+
+`rule` names the mechanism that decided, as `{"key": "...", "text": "one sentence"}`. pinakes
+assigns these keys itself:
+
+| key | when | text names |
+|---|---|---|
+| `sidebar:unlinked` | `vitepress`: in scope, not linked from the sidebar | the navigation file |
+| `docusaurus:unlinked` | `docusaurus`: in scope, not linked from the sidebar | the navigation file |
+| `mdbook:unlinked` | `mdbook`: in scope, not linked from `SUMMARY.md` | the navigation file |
+| `sitemap:unlisted` | `sitemap`: in scope, not listed in the sitemap | the navigation file |
+| `nav:dangling-link` | any of the four above: linked but the file does not exist (reason `unresolved_link`) | the navigation file |
+| `glob:extension` | `glob`: matches `include` but not the configured `extensions` | the configured extensions |
+| `glob:outside-include` | `glob`: matches `residue_scope` but not `include` | — |
+| `external:not-selected` | `external`: the command reported the path with `selected: false` and no `rule` of its own | — |
+| `external:unmatched` | `external`: in `residue_scope` but the command's output never mentioned it at all | — |
+| `external:dangling-link` | `external`: the command selected a path that does not exist (reason `unresolved_link`); there is no navigation file to name | — |
+| `policy:deny` | matches `policy.deny`, beating every other mechanism | the pattern that matched |
+| `resolver:exclude` | matches the source's own `resolver.exclude` | the pattern that matched |
+| `decision:exclude` | an active decision with verdict `exclude` (§2.5) | who decided and their reason |
+| `source:archived` | the whole source was dropped by `policy.archived: drop` (§2.1); its would-be pages become residue, reason `excluded` | — |
+| `source:new` | the source is new since the previous manifest (reason `new_source`), overriding the mechanism-specific key above | — |
+
+The external resolver contract (§3) accepts an optional `rule` on a candidate line, used
+verbatim instead of `external:not-selected` when given — `toc:outside-match` and
+`tutorials:no-match` are examples a resolver script might use for its own selection logic;
+pinakes does not validate these keys. `resolve --from-manifest` (§4) has no resolver plan to
+recover the original mechanism from, so its rebuilt residue carries `reproduced:from-manifest`
+instead.
+
+Pages kept out by `policy.deny` or a resolver's `exclude` were previously dropped with no
+record; they are now residue (reason `excluded`) so nothing disappears without a trace. They are
+never candidates for `decide` (precedence, §2.1, checks `policy.deny` and `exclude` before any
+decision, so one would have no effect anyway); `residue list` hides them by default (`--include-
+excluded` shows them, and `--reason excluded` shows them regardless), and `report` (§2.7) always
+accounts for their count in a collapsed block.
+
+`residue.jsonl` is written sorted by `(source, path)`, so re-running `resolve` against
+unchanged inputs reproduces the file byte for byte.
 
 ### 2.5 `decisions.jsonl` — verdicts on residue (human- or agent-written, committed)
 
@@ -151,17 +200,34 @@ and the page is residue again. Later lines override earlier ones for the same id
 Sections, in order: summary counts; eval before/after (overall and per kind, held-out separately);
 added pages; removed pages (with reason: gone upstream, dropped by resolver, excluded by decision);
 changed pages (hash changed; link to upstream compare when both commits known); new residue grouped
-by reason with excerpt; expired decisions; unresolved links; archived sources.
+by rule with excerpt; expired decisions; unresolved links; archived sources.
+
+"New residue" groups undecided entries new since the previous report by `rule` (§2.4), not by
+`reason`: each group's heading is the rule's own sentence, e.g. "not linked from
+`docs/.vitepress/config.ts`". Reason `excluded` entries are never "new" in this sense; they are
+instead always accounted for, grouped by rule the same way, inside one collapsed `<details>`
+block placed after the ordinary groups (or alone, when there are no others), headed by their
+total count, e.g. "12 pages excluded by policy or resolver rules" — present only when that count
+is above zero, but never filtered by report history, so the count is always current.
+
+Every page mentioned in "New residue", "Duplicates", "Added pages", "Removed pages" and
+"Unresolved links" renders as a Markdown link `[title](url)` using the entry's or page's `url`
+(§2.4, §11, §2.2); a mention with no title renders as `path` in code instead. "Unresolved
+links" links the navigation file the dangling link came from, not the missing target, since the
+target does not exist (§2.4).
 
 ## 3. External resolver contract
 
 pinakes runs `command + args` with cwd = the checked-out repository, env `PINAKES_SOURCE=<name>`,
 `PINAKES_COMMIT=<sha>`. The command writes JSONL to stdout, one object per candidate:
 
-`{"path": "docs/user/x.md", "title": "…", "doc_type": "concept|tutorial|reference|troubleshooting|release-notes|", "section": "…", "selected": true}`
+`{"path": "docs/user/x.md", "title": "…", "doc_type": "concept|tutorial|reference|troubleshooting|release-notes|", "section": "…", "selected": true, "rule": {"key": "toc:outside-match", "text": "outside the table-of-contents subtrees matching docs/guide/**"}}`
 
 - `selected: false` lines are residue candidates with context; files under the resolver's scope that
   the command never mentions are residue too if `residue_scope` (optional glob list in config) covers them.
+- `rule` (optional; SPEC §2.4) names the mechanism behind a `selected: false` line for the
+  residue entry's own `rule` field, in place of the generic `external:not-selected`; pinakes
+  passes it through verbatim and does not validate the key. Ignored on a selected line.
 - Exit code ≠ 0 fails the resolve for that source with the command's stderr in the message.
 - Missing `title` → pinakes takes the first H1, then a frontmatter `title:`, else empty.
 - Config accepts optional `include` and `exclude` glob lists (§2.1): `include` selects files the
@@ -176,7 +242,7 @@ All commands take `--config pinakes.yaml` (default) and print human output to st
 |---|---|---|---|
 | `resolve [--artifact DIR] [--from-manifest M]` | config (or a manifest to reproduce) | artifact dir, `manifest.json`, `residue.jsonl` | 0 ok; 1 error |
 | `diff OLD.json NEW.json` | two manifests | JSON on stdout (added/removed/changed/sources) and a human summary on stderr | 0 same; 3 differences |
-| `residue list [--source S] [--reason R]` | `residue.jsonl` (+ decisions to hide decided ones) | JSONL | 0 |
+| `residue list [--source S] [--reason R] [--include-excluded]` | `residue.jsonl` (+ decisions to hide decided ones) | JSONL | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME]` | residue + manifest for the hash | appends to `decisions.jsonl` | 0; 1 unknown id |
 | `report [--old M] [--new M] [--eval-before E] [--eval-after E]` | manifests, residue, decisions, eval json | `report.md` on stdout | 0 |
 | `eval [--artifact DIR] [--json OUT] [--gate BASELINE.json]` | artifact, queries | table on stderr, json on stdout | 0; 2 gate failed |
@@ -365,12 +431,21 @@ shingle sets is computed for candidates; pairs at or above the threshold are rep
 duplicates (same sha256) and same-title mirrors are reported too, with `kind` set accordingly.
 
 `duplicates.jsonl`, one line per pair, canonical first:
-`{"kind": "exact"|"mirror"|"near", "similarity": 0.93, "canonical": "<id>", "duplicate": "<id>", "why": "priority 10 > 1; linked from navigation; newer commit", "suggested": "exclude"}`
+`{"kind": "exact"|"mirror"|"near", "similarity": 0.93, "canonical": "<id>", "duplicate": "<id>", "why": "priority 10 > 1; linked from navigation; newer commit", "suggested": "exclude", "canonical_url": "https://github.com/…", "duplicate_url": "https://github.com/…"}`
+
+`canonical_url` and `duplicate_url` are each page's upstream URL pinned to its source's fetched
+commit (§2.4), derived from the manifest the same way; empty when there is no manifest to derive
+them from (a manifest-less artifact) or the source's `repo` does not parse.
 
 Winner rule, in order: higher source `priority`; page `selected_by` = `resolver` beats `include`;
-newer source commit date (from the GitHub API when available, else unknown). Ties report
-`"suggested": "review"`. `report` gets a "Duplicates" section; `decide` accepts the duplicate id
+lexically first page id, as the final, deterministic tie-break — `why` says which step decided.
+`"suggested": "review"` only when priority and `selected_by` both tie and the lexical step had to
+pick; that step itself never yields `"suggested": "exclude"`, since neither page actually
+outranks the other. `report` gets a "Duplicates" section; `decide` accepts the duplicate id
 as usual and `--reason` defaults to `superseded by <canonical>` when `--superseded-by` is given.
+
+`duplicates.jsonl` is written sorted by `(canonical, duplicate)`, so re-running `resolve` or
+`duplicates` against unchanged inputs reproduces the file byte for byte.
 
 ## 12. Built-in resolvers
 

@@ -239,6 +239,8 @@ mod tests {
             title: "Title".to_string(),
             excerpt: "some excerpt text".to_string(),
             context: "sidebar".to_string(),
+            url: String::new(),
+            rule: None,
         }
     }
 
@@ -282,6 +284,8 @@ mod tests {
             duplicate: "h::b.md".to_string(),
             why: "priority".to_string(),
             suggested: Suggested::Exclude,
+            canonical_url: String::new(),
+            duplicate_url: String::new(),
         };
         let page = |id: &str| -> Option<PageFacts> {
             (id == "h::b.md").then(|| PageFacts {
@@ -307,6 +311,8 @@ mod tests {
             duplicate: "h::gone.md".to_string(),
             why: "priority".to_string(),
             suggested: Suggested::Exclude,
+            canonical_url: String::new(),
+            duplicate_url: String::new(),
         };
         let lookup = DuplicateLookup { page: &|_| None };
         let cands = candidates(&[], &[pair], &BTreeMap::new(), &lookup);

@@ -15,7 +15,7 @@ use crate::sources::Checkout;
 /// Default navigation file when `path` is not given.
 const DEFAULT_PATH: &str = "sitemap.xml";
 
-/// Build the candidate map and residue scope for a `sitemap` source.
+/// Build the candidate map, residue scope and navigation file path for a `sitemap` source.
 pub(super) fn plan(
     source: &Source,
     checkout: &Checkout,
@@ -24,7 +24,7 @@ pub(super) fn plan(
     scope: &[String],
     url_prefix: &str,
     path_prefix: &str,
-) -> Result<(BTreeMap<String, Candidate>, GlobSet), ResolveError> {
+) -> Result<(BTreeMap<String, Candidate>, GlobSet, String), ResolveError> {
     let nav_path = path.unwrap_or(DEFAULT_PATH);
     if !files.iter().any(|f| f == nav_path) {
         return Err(ResolveError::Navigation {
@@ -51,6 +51,7 @@ pub(super) fn plan(
                         section: String::new(),
                         selected: true,
                         context: String::new(),
+                        rule: None,
                     },
                 );
             }
@@ -64,6 +65,7 @@ pub(super) fn plan(
                         section: String::new(),
                         selected: false,
                         context: String::new(),
+                        rule: None,
                     },
                 );
             }
@@ -72,7 +74,7 @@ pub(super) fn plan(
     }
     let default_dir = path_prefix.trim_end_matches('/');
     let scope_set = navigation::scope_set(default_dir, scope)?;
-    Ok((candidates, scope_set))
+    Ok((candidates, scope_set, nav_path.to_string()))
 }
 
 /// Map the part of a sitemap URL after `url_prefix` to a repository path: `.html` becomes
@@ -216,7 +218,7 @@ https://example.com/docs/missing.html
             ("docs/orphan.md", "# Orphan\n"),
         ]);
         let src = source(&resolver_yaml());
-        let (candidates, scope) = plan(
+        let (candidates, scope, nav_path) = plan(
             &src,
             &co,
             &fixture_files("sitemap.xml"),
@@ -227,6 +229,7 @@ https://example.com/docs/missing.html
         )
         .unwrap();
         assert_common(&candidates, &scope);
+        assert_eq!(nav_path, "sitemap.xml");
     }
 
     #[test]
@@ -239,7 +242,7 @@ https://example.com/docs/missing.html
             ("docs/orphan.md", "# Orphan\n"),
         ]);
         let src = source(&resolver_yaml());
-        let (candidates, scope) = plan(
+        let (candidates, scope, nav_path) = plan(
             &src,
             &co,
             &fixture_files("urls.txt"),
@@ -250,6 +253,7 @@ https://example.com/docs/missing.html
         )
         .unwrap();
         assert_common(&candidates, &scope);
+        assert_eq!(nav_path, "urls.txt");
     }
 
     #[test]

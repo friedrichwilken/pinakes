@@ -92,12 +92,12 @@ pub fn render(input: ReportInput<'_>) -> String {
     let mut out = String::from("# Corpus report\n\n");
     summary(&mut out, input, diff, &undecided, &effective);
     eval_section(&mut out, input.eval_before, input.eval_after);
-    pages_section(&mut out, diff, &active_excludes);
+    pages_section(&mut out, diff, &active_excludes, input.old, input.new);
     residue_section(&mut out, input, &undecided);
     expired_section(&mut out, &expired);
-    unresolved_section(&mut out, input.new);
+    unresolved_section(&mut out, input.residue);
     archived_section(&mut out, input.new);
-    duplicates_section(&mut out, input.duplicates);
+    duplicates_section(&mut out, input.duplicates, input.new);
     if let Some(usage) = input.usage {
         // `duplicates_section`'s empty branch has no trailing blank line (it used to be the
         // last section); restore one so "Usage" is not glued to it.
@@ -201,12 +201,30 @@ fn eval_row(out: &mut String, label: &str, before: Option<&Metrics>, after: Opti
     );
 }
 
-fn pages_section(out: &mut String, diff: Option<&Diff>, active_excludes: &BTreeSet<&str>) {
+/// Render one page mention as a Markdown link `[title](url)`, or `` `id` `` when there is no
+/// title or no URL could be derived (SPEC §2.7).
+fn page_mention(title: &str, id: &str, url: &str) -> String {
+    if title.is_empty() || url.is_empty() {
+        format!("`{id}`")
+    } else {
+        format!("[{title}]({url})")
+    }
+}
+
+fn pages_section(
+    out: &mut String,
+    diff: Option<&Diff>,
+    active_excludes: &BTreeSet<&str>,
+    old: Option<&Manifest>,
+    new: &Manifest,
+) {
     out.push_str("## Added pages\n\n");
     match diff {
         Some(diff) if !diff.added.is_empty() => {
             for page in &diff.added {
-                let _ = writeln!(out, "- `{}` — {}", page.id, page.title);
+                let url = new.page_url(&page.id).unwrap_or_default();
+                let mention = page_mention(&page.title, &page.id, &url);
+                let _ = writeln!(out, "- {mention}");
             }
         }
         _ => out.push_str("_none_\n"),
@@ -221,7 +239,9 @@ fn pages_section(out: &mut String, diff: Option<&Diff>, active_excludes: &BTreeS
                 } else {
                     page.reason.describe()
                 };
-                let _ = writeln!(out, "- `{}` — {} ({reason})", page.id, page.title);
+                let url = old.and_then(|m| m.page_url(&page.id)).unwrap_or_default();
+                let mention = page_mention(&page.title, &page.id, &url);
+                let _ = writeln!(out, "- {mention} ({reason})");
             }
         }
         _ => out.push_str("_none_\n"),
@@ -233,16 +253,14 @@ fn pages_section(out: &mut String, diff: Option<&Diff>, active_excludes: &BTreeS
                 let source = page.id.split("::").next().unwrap_or_default();
                 let compare = diff.sources.get(source).and_then(SourceDiff::compare_url);
                 let lines = format!("+{}/-{}", page.lines_added, page.lines_removed);
+                let url = new.page_url(&page.id).unwrap_or_default();
+                let mention = page_mention(&page.title, &page.id, &url);
                 match compare {
-                    Some(url) => {
-                        let _ = writeln!(
-                            out,
-                            "- `{}` — {} ({lines}) ([compare]({url}))",
-                            page.id, page.title
-                        );
+                    Some(compare_url) => {
+                        let _ = writeln!(out, "- {mention} ({lines}) ([compare]({compare_url}))");
                     }
                     None => {
-                        let _ = writeln!(out, "- `{}` — {} ({lines})", page.id, page.title);
+                        let _ = writeln!(out, "- {mention} ({lines})");
                     }
                 }
             }
@@ -252,6 +270,58 @@ fn pages_section(out: &mut String, diff: Option<&Diff>, active_excludes: &BTreeS
     out.push('\n');
 }
 
+/// The `(rule key, rule text)` a residue entry groups under (SPEC §2.4, §2.7); entries written
+/// before this tool recorded a rule fall back to a single catch-all group.
+fn rule_key_text(entry: &ResidueEntry) -> (String, String) {
+    match &entry.rule {
+        Some(rule) => (rule.key.clone(), rule.text.clone()),
+        None => ("unknown".to_string(), "no rule recorded".to_string()),
+    }
+}
+
+/// Group `entries` by rule, in the stable order the rule's own sentence sorts to.
+fn group_by_rule<'a>(
+    entries: impl Iterator<Item = &'a ResidueEntry>,
+) -> BTreeMap<(String, String), Vec<&'a ResidueEntry>> {
+    let mut by_rule: BTreeMap<(String, String), Vec<&ResidueEntry>> = BTreeMap::new();
+    for entry in entries {
+        let (key, text) = rule_key_text(entry);
+        by_rule.entry((text, key)).or_default().push(entry);
+    }
+    by_rule
+}
+
+/// One residue entry's mention, context and excerpt (SPEC §2.7).
+fn render_residue_entry(out: &mut String, entry: &ResidueEntry) {
+    let mention = page_mention(&entry.title, &entry.id, &entry.url);
+    let _ = writeln!(out, "- {mention}");
+    if !entry.context.is_empty() {
+        let _ = writeln!(out, "  - context: {}", entry.context);
+    }
+    let excerpt: Vec<&str> = entry
+        .excerpt
+        .split_whitespace()
+        .take(EXCERPT_WORDS)
+        .collect();
+    if !excerpt.is_empty() {
+        let ellipsis = if entry
+            .excerpt
+            .split_whitespace()
+            .nth(EXCERPT_WORDS)
+            .is_some()
+        {
+            " …"
+        } else {
+            ""
+        };
+        let _ = writeln!(out, "  > {}{ellipsis}", excerpt.join(" "));
+    }
+}
+
+/// The "New residue" section (SPEC §2.7): non-excluded entries new since the previous report,
+/// grouped by rule (SPEC §2.4), each group headed by the rule's sentence; excluded entries are
+/// never "new" in this sense, but are always accounted for in a collapsed, always-present count
+/// (SPEC §2.4) regardless of report history.
 fn residue_section(out: &mut String, input: ReportInput<'_>, undecided: &[&ResidueEntry]) {
     out.push_str("## New residue\n\n");
     let previous: BTreeSet<String> = input
@@ -262,47 +332,50 @@ fn residue_section(out: &mut String, input: ReportInput<'_>, undecided: &[&Resid
                 .collect()
         })
         .unwrap_or_default();
-    let mut by_reason: BTreeMap<Reason, Vec<&ResidueEntry>> = BTreeMap::new();
-    for entry in undecided.iter().filter(|r| !previous.contains(&r.id)) {
-        by_reason.entry(entry.reason).or_default().push(entry);
-    }
-    if by_reason.is_empty() {
+    let by_rule = group_by_rule(
+        undecided
+            .iter()
+            .copied()
+            .filter(|r| !previous.contains(&r.id) && r.reason != Reason::Excluded),
+    );
+    if by_rule.is_empty() {
         out.push_str("_none_\n\n");
+    } else {
+        for ((text, _key), entries) in by_rule {
+            let _ = writeln!(out, "### {text}\n");
+            for entry in entries {
+                render_residue_entry(out, entry);
+            }
+            out.push('\n');
+        }
+    }
+    excluded_details(out, input.residue);
+}
+
+/// A collapsed `<details>` block naming every currently excluded page (SPEC §2.4), grouped by
+/// rule; omitted entirely when there are none.
+fn excluded_details(out: &mut String, residue: &[ResidueEntry]) {
+    let excluded: Vec<&ResidueEntry> = residue
+        .iter()
+        .filter(|r| r.reason == Reason::Excluded)
+        .collect();
+    if excluded.is_empty() {
         return;
     }
-    for (reason, entries) in by_reason {
-        let _ = writeln!(out, "### {reason}\n");
+    let plural = if excluded.len() == 1 { "" } else { "s" };
+    let _ = writeln!(
+        out,
+        "<details>\n<summary>{} page{plural} excluded by policy or resolver rules</summary>\n",
+        excluded.len()
+    );
+    for ((text, _key), entries) in group_by_rule(excluded.into_iter()) {
+        let _ = writeln!(out, "### {text}\n");
         for entry in entries {
-            let title = if entry.title.is_empty() {
-                "(untitled)"
-            } else {
-                entry.title.as_str()
-            };
-            let _ = writeln!(out, "- `{}` — {title}", entry.id);
-            if !entry.context.is_empty() {
-                let _ = writeln!(out, "  - context: {}", entry.context);
-            }
-            let excerpt: Vec<&str> = entry
-                .excerpt
-                .split_whitespace()
-                .take(EXCERPT_WORDS)
-                .collect();
-            if !excerpt.is_empty() {
-                let ellipsis = if entry
-                    .excerpt
-                    .split_whitespace()
-                    .nth(EXCERPT_WORDS)
-                    .is_some()
-                {
-                    " …"
-                } else {
-                    ""
-                };
-                let _ = writeln!(out, "  > {}{ellipsis}", excerpt.join(" "));
-            }
+            render_residue_entry(out, entry);
         }
         out.push('\n');
     }
+    out.push_str("</details>\n\n");
 }
 
 fn unresolved_ids((name, source): (&String, &crate::manifest::ManifestSource)) -> Vec<String> {
@@ -335,17 +408,22 @@ fn expired_section(out: &mut String, expired: &[Expired]) {
     out.push('\n');
 }
 
-fn unresolved_section(out: &mut String, manifest: &Manifest) {
+/// The "Unresolved links" section: dangling navigation links (SPEC §2.4's `unresolved_link`
+/// reason), linking the navigation file itself since the target does not exist (SPEC §2.7).
+fn unresolved_section(out: &mut String, residue: &[ResidueEntry]) {
     out.push_str("## Unresolved links\n\n");
-    let mut any = false;
-    for (name, source) in &manifest.sources {
-        for path in &source.unresolved {
-            let _ = writeln!(out, "- `{name}::{path}`");
-            any = true;
-        }
-    }
-    if !any {
+    let mut entries: Vec<&ResidueEntry> = residue
+        .iter()
+        .filter(|r| r.reason == Reason::UnresolvedLink)
+        .collect();
+    entries.sort_by(|a, b| a.id.cmp(&b.id));
+    if entries.is_empty() {
         out.push_str("_none_\n");
+    } else {
+        for entry in entries {
+            let mention = page_mention(&entry.title, &entry.id, &entry.url);
+            let _ = writeln!(out, "- {mention}");
+        }
     }
     out.push('\n');
 }
@@ -366,13 +444,14 @@ fn archived_section(out: &mut String, manifest: &Manifest) {
 }
 
 /// The "Duplicates" section (SPEC §11): exact, mirror and near-duplicate pairs, grouped by kind
-/// in that order.
-fn duplicates_section(out: &mut String, duplicates: &[DuplicatePair]) {
+/// in that order, each page mentioned as a Markdown link (SPEC §2.7).
+fn duplicates_section(out: &mut String, duplicates: &[DuplicatePair], new: &Manifest) {
     out.push_str("## Duplicates\n\n");
     if duplicates.is_empty() {
         out.push_str("_none_\n");
         return;
     }
+    let title_of = |id: &str| new.page(id).map(|p| p.title.clone()).unwrap_or_default();
     for kind in [
         DuplicateKind::Exact,
         DuplicateKind::Mirror,
@@ -384,11 +463,19 @@ fn duplicates_section(out: &mut String, duplicates: &[DuplicatePair]) {
         }
         let _ = writeln!(out, "### {}\n", kind_label(kind));
         for pair in pairs {
+            let canonical = page_mention(
+                &title_of(&pair.canonical),
+                &pair.canonical,
+                &pair.canonical_url,
+            );
+            let duplicate = page_mention(
+                &title_of(&pair.duplicate),
+                &pair.duplicate,
+                &pair.duplicate_url,
+            );
             let _ = writeln!(
                 out,
-                "- `{}` ← `{}` (similarity {:.3}, suggested: {}) — {}",
-                pair.canonical,
-                pair.duplicate,
+                "- {canonical} ← {duplicate} (similarity {:.3}, suggested: {}) — {}",
                 pair.similarity,
                 suggested_label(pair.suggested),
                 pair.why
@@ -517,6 +604,11 @@ mod tests {
         context: &str,
     ) -> ResidueEntry {
         let (source, path) = id.split_once("::").unwrap();
+        let rule = match reason {
+            Reason::UnresolvedLink => crate::residue::Rule::nav_dangling_link("docs/_sidebar.md"),
+            Reason::Excluded => crate::residue::Rule::policy_deny("**/CHANGELOG.md"),
+            Reason::NotSelected | Reason::NewSource => crate::residue::Rule::glob_outside_include(),
+        };
         ResidueEntry {
             id: id.to_string(),
             source: source.to_string(),
@@ -530,6 +622,10 @@ mod tests {
             title: title.to_string(),
             excerpt: excerpt.to_string(),
             context: context.to_string(),
+            url: format!(
+                "https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/{path}"
+            ),
+            rule: Some(rule),
         }
     }
 
@@ -698,14 +794,19 @@ mod tests {
                 duplicate: "removed-src::docs/x.md".to_string(),
                 why: "priority 10 > 1".to_string(),
                 suggested: Suggested::Exclude,
+                canonical_url: "https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/getting-started.md".to_string(),
+                duplicate_url: "https://github.com/example-org/handbook/blob/9999999999999999999999999999999999999999/docs/x.md".to_string(),
             },
             DuplicatePair {
                 kind: DuplicateKind::Mirror,
                 similarity: 0.71,
                 canonical: "handbook::docs/new.md".to_string(),
                 duplicate: "handbook::docs/getting-started.md".to_string(),
-                why: "same priority, selected_by and commit date".to_string(),
+                why: "priority and selected_by tie; handbook::docs/new.md sorts first"
+                    .to_string(),
                 suggested: Suggested::Review,
+                canonical_url: "https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/new.md".to_string(),
+                duplicate_url: "https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/getting-started.md".to_string(),
             },
         ]
     }
@@ -781,6 +882,67 @@ mod tests {
     }
 
     #[test]
+    fn excluded_residue_is_a_collapsed_always_present_count_grouped_by_rule() {
+        let (_, new, mut entries, decisions) = manifests();
+        entries.push(residue(
+            "handbook::CHANGELOG.md",
+            Reason::Excluded,
+            "Changelog",
+            "release notes",
+            "",
+        ));
+        entries.push(residue(
+            "handbook::docs/_sidebar.md",
+            Reason::Excluded,
+            "Sidebar",
+            "nav",
+            "",
+        ));
+        let rendered = render(ReportInput {
+            old: None,
+            new: &new,
+            diff: None,
+            residue: &entries,
+            decisions: &decisions,
+            eval_before: None,
+            eval_after: None,
+            duplicates: &[],
+            usage: None,
+        });
+        let (before_details, details) = rendered.split_once("<details>").unwrap();
+        assert!(
+            !before_details.contains("Changelog") && !before_details.contains("[Sidebar]"),
+            "excluded residue never renders as ordinary \"New residue\", only in the details \
+             block: {before_details}"
+        );
+        assert!(
+            details
+                .starts_with("\n<summary>2 pages excluded by policy or resolver rules</summary>\n")
+        );
+        let (block, after) = details.split_once("</details>").unwrap();
+        assert!(block.contains("### matches `policy.deny` (`**/CHANGELOG.md`)"));
+        assert!(block.contains("[Changelog]"));
+        assert!(block.contains("[Sidebar]"));
+        assert!(after.trim_start().starts_with("## Expired decisions"));
+
+        // Omitting excluded residue entirely omits the block, unlike the always-rendered
+        // "New residue" heading itself.
+        let (_, new, entries, decisions) = manifests();
+        let without_excluded = render(ReportInput {
+            old: None,
+            new: &new,
+            diff: None,
+            residue: &entries,
+            decisions: &decisions,
+            eval_before: None,
+            eval_after: None,
+            duplicates: &[],
+            usage: None,
+        });
+        assert!(!without_excluded.contains("<details>"));
+    }
+
+    #[test]
     fn duplicates_section_groups_pairs_by_kind() {
         let (_, new, _, _) = manifests();
         let duplicates = sample_duplicates();
@@ -799,9 +961,9 @@ mod tests {
         assert!(rendered.contains("## Duplicates\n\n### mirror\n\n"));
         assert!(rendered.contains("\n\n### near\n\n"));
         assert!(rendered.contains(
-            "- `handbook::docs/getting-started.md` ← `removed-src::docs/x.md` \
-             (similarity 0.930, suggested: exclude) — priority 10 > 1\n"
-        ));
+            "- [Getting Started](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/getting-started.md) \
+             ← `removed-src::docs/x.md` (similarity 0.930, suggested: exclude) — priority 10 > 1\n"
+        ), "{rendered}");
         assert!(rendered.contains("suggested: review"));
 
         let rendered_empty = render(ReportInput {
