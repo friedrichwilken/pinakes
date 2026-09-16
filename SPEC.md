@@ -491,6 +491,15 @@ committed manifest, stop when empty, eval before and after, duplicates, report, 
 update one PR on branch `pinakes/weekly` with the manifest, residue, duplicates and report
 committed. Inputs: config path, queries path, gate baseline path. Uses `peter-evans/create-pull-request`.
 
+`action.yml` at the repository root, "Set up pinakes", is a composite action that downloads a
+released binary for the runner's platform (`version`, default `latest`, resolved through the
+GitHub releases API; `github-token` to avoid the anonymous rate limit; `musl` to pick the musl
+build over glibc on Linux x86_64), verifies its `SHA256SUMS` line, and adds it to `PATH`.
+`curate.yml` uses it when running outside this repository (falling back to `cargo install --path
+.` inside it); a consumer can use it directly, `uses: friedrichwilken/pinakes@v1`, instead of
+installing pinakes some other way. A moving major tag, `v1`, is force-updated to each `v1.x.y`
+release so `@v1` always resolves to the newest compatible one.
+
 ### 17.2 Python wheel
 
 `python/` contains a PyO3 crate `pinakes-py` built with maturin exposing `pinakes.Index`:

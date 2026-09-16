@@ -1,0 +1,126 @@
+name: Set up pinakes
+description: >-
+  Downloads a pinakes release for the runner's platform, verifies its checksum against the
+  release's SHA256SUMS, and adds the binary to PATH.
+author: Friedrich Wilken
+
+inputs:
+  version:
+    description: >-
+      pinakes version to install, without a leading "v" (e.g. "1.0.1"). "latest" (the default)
+      resolves the newest release through the GitHub releases API.
+    required: false
+    default: latest
+  github-token:
+    description: >-
+      Token used to query the GitHub releases API when resolving "latest", so as to avoid the
+      low anonymous rate limit; pass `${{ github.token }}`. Optional, and not needed to download
+      the release assets themselves, which are public. Ignored when `version` is not "latest".
+    required: false
+    default: ""
+  musl:
+    description: >-
+      On Linux x86_64, install the musl build (x86_64-unknown-linux-musl) instead of the glibc
+      build (x86_64-unknown-linux-gnu). Ignored on every other platform. "true" or "false".
+    required: false
+    default: "false"
+
+outputs:
+  path:
+    description: Directory the pinakes binary was extracted into (already added to PATH).
+    value: ${{ steps.extract.outputs.path }}
+  version:
+    description: The resolved pinakes version that was installed, without a leading "v".
+    value: ${{ steps.resolve-version.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Pick the release target for this runner
+      id: target
+      shell: bash
+      run: |
+        case "${{ runner.os }}-${{ runner.arch }}" in
+          Linux-X64)
+            if [ "${{ inputs.musl }}" = "true" ]; then
+              echo "target=x86_64-unknown-linux-musl" >> "$GITHUB_OUTPUT"
+            else
+              echo "target=x86_64-unknown-linux-gnu" >> "$GITHUB_OUTPUT"
+            fi
+            ;;
+          Linux-ARM64)
+            echo "target=aarch64-unknown-linux-gnu" >> "$GITHUB_OUTPUT"
+            ;;
+          macOS-ARM64)
+            echo "target=aarch64-apple-darwin" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            echo "::error::pinakes has no release build for ${{ runner.os }}-${{ runner.arch }}"
+            exit 1
+            ;;
+        esac
+
+    - name: Resolve the version to install
+      id: resolve-version
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          auth=()
+          if [ -n "${{ inputs.github-token }}" ]; then
+            auth=(-H "Authorization: Bearer ${{ inputs.github-token }}")
+          fi
+          tag="$(curl -fsSL "${auth[@]}" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/friedrichwilken/pinakes/releases/latest | jq -r '.tag_name')"
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "::error::could not resolve the latest pinakes release from the GitHub API"
+            exit 1
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+        else
+          echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Download the release asset and its checksums
+      id: download
+      shell: bash
+      run: |
+        version="${{ steps.resolve-version.outputs.version }}"
+        target="${{ steps.target.outputs.target }}"
+        filename="pinakes-${version}-${target}.tar.gz"
+        base="https://github.com/friedrichwilken/pinakes/releases/download/v${version}"
+        dir="$RUNNER_TEMP/pinakes-download"
+        mkdir -p "$dir"
+        curl -fsSL "$base/$filename" -o "$dir/$filename"
+        curl -fsSL "$base/SHA256SUMS" -o "$dir/SHA256SUMS"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "filename=$filename" >> "$GITHUB_OUTPUT"
+
+    - name: Verify the checksum
+      shell: bash
+      working-directory: ${{ steps.download.outputs.dir }}
+      run: |
+        filename="${{ steps.download.outputs.filename }}"
+        grep -E "(^|/)${filename}\$" SHA256SUMS > checksum.txt
+        if [ ! -s checksum.txt ]; then
+          echo "::error::no checksum for $filename in SHA256SUMS"
+          exit 1
+        fi
+        if [ "$(uname -s)" = "Darwin" ]; then
+          shasum -a 256 -c checksum.txt
+        else
+          sha256sum -c checksum.txt
+        fi
+
+    - name: Extract pinakes
+      id: extract
+      shell: bash
+      run: |
+        dir="$RUNNER_TEMP/pinakes"
+        mkdir -p "$dir"
+        tar -xzf "${{ steps.download.outputs.dir }}/${{ steps.download.outputs.filename }}" \
+          -C "$dir" --strip-components=1
+        echo "path=$dir" >> "$GITHUB_OUTPUT"
+
+    - name: Add pinakes to PATH
+      shell: bash
+      run: echo "${{ steps.extract.outputs.path }}" >> "$GITHUB_PATH"
