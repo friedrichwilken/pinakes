@@ -13,7 +13,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::config::{ConfigError, Resolver, Source, compile_globs, compile_regex};
+use crate::config::{ConfigError, RepoSlug, Resolver, Source, compile_globs, compile_regex};
 use crate::decisions::{Decision, Verdict};
 use crate::manifest::{PageEntry, SelectedBy, page_id};
 use crate::residue::{EXCERPT_TOKENS, Reason, ResidueEntry, excerpt};
@@ -360,6 +360,9 @@ struct Plan {
     /// Paths added by a resolver's optional `include` extra (SPEC §2.1), rather than by the
     /// resolver's own selection mechanism; these are always `selected_by: "include"`.
     include_selected: BTreeSet<String>,
+    /// The navigation file a `vitepress`, `docusaurus`, `mdbook` or `sitemap` resolver read
+    /// (SPEC §12); `None` for `glob` and `external`, which have no such file.
+    nav_path: Option<String>,
 }
 
 /// The `glob` resolver's effective `extensions` (SPEC §2.1): `configured` verbatim when given,
@@ -385,14 +388,26 @@ fn matches_extension(path: &str, extensions: &[String]) -> bool {
 }
 
 /// Resolver-specific selection: the candidate map plus, for the precedence pass, the compiled
-/// `exclude` set, the residue `scope`, an external resolver's `residue_mention` and the
-/// resolver's own optional `include` extra (SPEC §2.1), not yet applied to `candidates`.
+/// `exclude` set, the residue `scope`, an external resolver's `residue_mention`, the resolver's
+/// own optional `include` extra (SPEC §2.1) not yet applied to `candidates`, and the navigation
+/// file path for the four navigation-based resolvers (SPEC §12), used to name the mechanism
+/// behind a residue entry (SPEC §2.4).
 type ResolverPlan<'a> = (
     BTreeMap<String, Candidate>,
     GlobSet,
     GlobSet,
     Option<Regex>,
     &'a [String],
+    Option<String>,
+);
+
+/// Everything [`resolver_plan`] returns besides the candidate map: see [`ResolverPlan`].
+type ResolverPlanTail<'a> = (
+    GlobSet,
+    GlobSet,
+    Option<Regex>,
+    &'a [String],
+    Option<String>,
 );
 
 /// The `glob` resolver arm of [`resolver_plan`]: populate `candidates` from `include` (filtered
@@ -422,6 +437,26 @@ fn glob_plan(
     Ok((scope, compile_globs("exclude", exclude)?))
 }
 
+/// The common shape of every navigation-based resolver arm of [`resolver_plan`]: take the
+/// candidate map, residue scope and navigation file path a `vitepress`, `docusaurus`, `mdbook`
+/// or `sitemap` plan produced, install the candidates, and compile `exclude`.
+fn navigation_plan<'a>(
+    planned: Result<(BTreeMap<String, Candidate>, GlobSet, String), ResolveError>,
+    exclude: &[String],
+    include: &'a [String],
+    candidates: &mut BTreeMap<String, Candidate>,
+) -> Result<ResolverPlanTail<'a>, ResolveError> {
+    let (found, nav_scope, nav_path) = planned?;
+    *candidates = found;
+    Ok((
+        compile_globs("exclude", exclude)?,
+        nav_scope,
+        None,
+        include,
+        Some(nav_path),
+    ))
+}
+
 fn resolver_plan<'a>(
     source: &'a Source,
     checkout: &Checkout,
@@ -429,7 +464,7 @@ fn resolver_plan<'a>(
     config_dir: &Path,
 ) -> Result<ResolverPlan<'a>, ResolveError> {
     let mut candidates: BTreeMap<String, Candidate> = BTreeMap::new();
-    let (exclude, scope, mention, extra_include): (GlobSet, GlobSet, Option<Regex>, &[String]) =
+    let (exclude, scope, mention, extra_include, nav_path): ResolverPlanTail<'a> =
         match &source.resolver {
             Resolver::Glob {
                 include,
@@ -446,7 +481,7 @@ fn resolver_plan<'a>(
                     extensions.as_deref(),
                     &mut candidates,
                 )?;
-                (exclude, scope, None, &[])
+                (exclude, scope, None, &[], None)
             }
             Resolver::External {
                 command,
@@ -468,6 +503,7 @@ fn resolver_plan<'a>(
                     compile_globs("residue_scope", residue_scope)?,
                     mention,
                     include,
+                    None,
                 )
             }
             Resolver::Vitepress {
@@ -475,34 +511,34 @@ fn resolver_plan<'a>(
                 scope,
                 include,
                 exclude,
-            } => {
-                let (found, nav_scope) =
-                    vitepress::plan(source, checkout, files, path.as_deref(), scope)?;
-                candidates = found;
-                (compile_globs("exclude", exclude)?, nav_scope, None, include)
-            }
+            } => navigation_plan(
+                vitepress::plan(source, checkout, files, path.as_deref(), scope),
+                exclude,
+                include,
+                &mut candidates,
+            )?,
             Resolver::Docusaurus {
                 path,
                 scope,
                 include,
                 exclude,
-            } => {
-                let (found, nav_scope) =
-                    docusaurus::plan(source, checkout, files, path.as_deref(), scope)?;
-                candidates = found;
-                (compile_globs("exclude", exclude)?, nav_scope, None, include)
-            }
+            } => navigation_plan(
+                docusaurus::plan(source, checkout, files, path.as_deref(), scope),
+                exclude,
+                include,
+                &mut candidates,
+            )?,
             Resolver::Mdbook {
                 path,
                 scope,
                 include,
                 exclude,
-            } => {
-                let (found, nav_scope) =
-                    mdbook::plan(source, checkout, files, path.as_deref(), scope)?;
-                candidates = found;
-                (compile_globs("exclude", exclude)?, nav_scope, None, include)
-            }
+            } => navigation_plan(
+                mdbook::plan(source, checkout, files, path.as_deref(), scope),
+                exclude,
+                include,
+                &mut candidates,
+            )?,
             Resolver::Sitemap {
                 path,
                 scope,
@@ -510,8 +546,8 @@ fn resolver_plan<'a>(
                 path_prefix,
                 include,
                 exclude,
-            } => {
-                let (found, nav_scope) = sitemap::plan(
+            } => navigation_plan(
+                sitemap::plan(
                     source,
                     checkout,
                     files,
@@ -519,12 +555,13 @@ fn resolver_plan<'a>(
                     scope,
                     url_prefix,
                     path_prefix,
-                )?;
-                candidates = found;
-                (compile_globs("exclude", exclude)?, nav_scope, None, include)
-            }
+                ),
+                exclude,
+                include,
+                &mut candidates,
+            )?,
         };
-    Ok((candidates, exclude, scope, mention, extra_include))
+    Ok((candidates, exclude, scope, mention, extra_include, nav_path))
 }
 
 /// Add files matching a resolver's optional `include` extra (SPEC §2.1) to `candidates`, unless
@@ -555,7 +592,7 @@ fn plan(
     config_dir: &Path,
 ) -> Result<Plan, ResolveError> {
     let file_set: BTreeSet<&str> = files.iter().map(String::as_str).collect();
-    let (mut candidates, exclude, scope, mention, extra_include) =
+    let (mut candidates, exclude, scope, mention, extra_include, nav_path) =
         resolver_plan(source, checkout, files, config_dir)?;
     let include_selected = apply_extra_include(&mut candidates, files, extra_include)?;
     let unresolved: Vec<String> = candidates
@@ -570,7 +607,17 @@ fn plan(
         mention,
         unresolved,
         include_selected,
+        nav_path,
     })
+}
+
+/// The upstream URL of `path` pinned to `checkout.commit` (SPEC §2.4): `{base_url}/{path}`
+/// where `base_url` is `https://github.com/<owner>/<repo>/blob/<commit>`, or empty when
+/// `source.repo` does not parse as a GitHub URL.
+fn page_url(source: &Source, checkout: &Checkout, path: &str) -> String {
+    RepoSlug::parse(&source.repo)
+        .map(|slug| format!("{}/{path}", slug.blob_base_url(&checkout.commit)))
+        .unwrap_or_default()
 }
 
 /// Resolve one source from its checkout.
@@ -581,28 +628,85 @@ pub fn resolve_source(
 ) -> Result<ResolvedSource, ResolveError> {
     let files = list_files(&checkout.root)?;
     let mut plan = plan(source, checkout, &files, ctx.config_dir)?;
-    let mut result = ResolvedSource::default();
+    let mut result = ResolvedSource {
+        residue: unresolved_entries(source, checkout, &mut plan),
+        unresolved: std::mem::take(&mut plan.unresolved),
+        ..ResolvedSource::default()
+    };
+    fill_scope_candidates(&mut plan, &files, source, ctx);
 
-    for path in &plan.unresolved {
-        let candidate = plan
-            .candidates
-            .remove(path)
-            .unwrap_or_else(|| Candidate::bare(path, false));
-        result.residue.push(ResidueEntry {
-            id: page_id(&source.name, path),
-            source: source.name.clone(),
-            path: path.clone(),
-            reason: Reason::UnresolvedLink,
-            sha256: String::new(),
-            title: candidate.title,
-            excerpt: String::new(),
-            context: context_of(&candidate.context, &candidate.section),
-        });
+    let resolver_kind = resolver_kind_of(&source.resolver);
+    let reason = if ctx.is_new_source {
+        Reason::NewSource
+    } else {
+        Reason::NotSelected
+    };
+    for (path, candidate) in &plan.candidates {
+        classify_candidate(
+            source,
+            checkout,
+            ctx,
+            &plan,
+            resolver_kind,
+            reason,
+            path,
+            candidate,
+            &mut result,
+        )?;
     }
-    result.unresolved = std::mem::take(&mut plan.unresolved);
+    result
+        .residue
+        .sort_by(|a, b| (a.reason, &a.path).cmp(&(b.reason, &b.path)));
+    Ok(result)
+}
 
+/// Turn each of `plan.unresolved`'s dangling links into a residue entry, removing the
+/// placeholder candidate pinakes created for it (SPEC §2.4's `unresolved_link` reason).
+///
+/// A dangling link has no file of its own to point at, so its url is the navigation file that
+/// linked it, at the fetched commit; the external resolver has no navigation file, so it falls
+/// back to the (nonexistent) target path itself.
+fn unresolved_entries(source: &Source, checkout: &Checkout, plan: &mut Plan) -> Vec<ResidueEntry> {
+    let unresolved_url = plan
+        .nav_path
+        .as_deref()
+        .map(|nav| page_url(source, checkout, nav));
+    plan.unresolved
+        .clone()
+        .iter()
+        .map(|path| {
+            let candidate = plan
+                .candidates
+                .remove(path)
+                .unwrap_or_else(|| Candidate::bare(path, false));
+            ResidueEntry {
+                id: page_id(&source.name, path),
+                source: source.name.clone(),
+                path: path.clone(),
+                reason: Reason::UnresolvedLink,
+                sha256: String::new(),
+                title: candidate.title,
+                excerpt: String::new(),
+                context: context_of(&candidate.context, &candidate.section),
+                url: unresolved_url
+                    .clone()
+                    .unwrap_or_else(|| page_url(source, checkout, path)),
+            }
+        })
+        .collect()
+}
+
+/// Add a bare, unselected candidate for every file in `plan.scope` (or with a decision on
+/// record) that no resolver mechanism already produced a candidate for, so the precedence pass
+/// sees it and can report it as residue.
+fn fill_scope_candidates(
+    plan: &mut Plan,
+    files: &[String],
+    source: &Source,
+    ctx: &ResolveContext<'_>,
+) {
     let prefix = format!("{}::", source.name);
-    for file in &files {
+    for file in files {
         let in_scope = plan.scope.is_match(file);
         let decided = ctx.decisions.contains_key(&format!("{prefix}{file}"));
         if !plan.candidates.contains_key(file) && (in_scope || decided) {
@@ -610,72 +714,84 @@ pub fn resolve_source(
                 .insert(file.clone(), Candidate::bare(file, false));
         }
     }
+}
 
-    let resolver_kind = match source.resolver {
+/// What a resolver's own selection mechanism counts as (SPEC §2.2's `selected_by`): a plain
+/// `glob` include is `"include"`, everything else (including a resolver's own `include` extra,
+/// handled separately) is `"resolver"`.
+fn resolver_kind_of(resolver: &Resolver) -> SelectedBy {
+    match resolver {
         Resolver::Glob { .. } => SelectedBy::Include,
         Resolver::External { .. }
         | Resolver::Vitepress { .. }
         | Resolver::Docusaurus { .. }
         | Resolver::Mdbook { .. }
         | Resolver::Sitemap { .. } => SelectedBy::Resolver,
-    };
-    let reason = if ctx.is_new_source {
-        Reason::NewSource
+    }
+}
+
+/// Apply the precedence rules to one candidate, inserting it into `result.pages` or
+/// `result.residue` as appropriate.
+#[allow(clippy::too_many_arguments)]
+fn classify_candidate(
+    source: &Source,
+    checkout: &Checkout,
+    ctx: &ResolveContext<'_>,
+    plan: &Plan,
+    resolver_kind: SelectedBy,
+    reason: Reason,
+    path: &str,
+    candidate: &Candidate,
+    result: &mut ResolvedSource,
+) -> Result<(), ResolveError> {
+    let id = page_id(&source.name, path);
+    let full = checkout.root.join(path);
+    let bytes = std::fs::read(&full).map_err(|source| ResolveError::Io {
+        path: full.clone(),
+        source,
+    })?;
+    let sha256 = sha256_hex(&bytes);
+    let text = String::from_utf8_lossy(&bytes);
+    let decision = ctx.decisions.get(&id).filter(|d| d.applies_to(&sha256));
+    let by = if plan.include_selected.contains(path) {
+        SelectedBy::Include
     } else {
-        Reason::NotSelected
+        resolver_kind
     };
-    for (path, candidate) in &plan.candidates {
-        let id = page_id(&source.name, path);
-        let full = checkout.root.join(path);
-        let bytes = std::fs::read(&full).map_err(|source| ResolveError::Io {
-            path: full.clone(),
-            source,
-        })?;
-        let sha256 = sha256_hex(&bytes);
-        let text = String::from_utf8_lossy(&bytes);
-        let decision = ctx.decisions.get(&id).filter(|d| d.applies_to(&sha256));
-        let by = if plan.include_selected.contains(path) {
-            SelectedBy::Include
-        } else {
-            resolver_kind
-        };
-        let selection = candidate.selected.then_some(by);
-        match precedence(path, ctx.deny, &plan.exclude, decision, selection) {
-            Outcome::Denied | Outcome::Excluded => {}
-            Outcome::Selected(selected_by) => {
-                result.pages.insert(
-                    path.clone(),
-                    PageEntry {
-                        sha256,
-                        title: title_of(&candidate.title, &text),
-                        doc_type: candidate.doc_type.clone(),
-                        section: candidate.section.clone(),
-                        selected_by,
-                        rendered_from: None,
-                    },
-                );
-            }
-            Outcome::Residue => {
-                if plan.mention.as_ref().is_some_and(|re| !re.is_match(&text)) {
-                    continue;
-                }
-                result.residue.push(ResidueEntry {
-                    id,
-                    source: source.name.clone(),
-                    path: path.clone(),
-                    reason,
+    let selection = candidate.selected.then_some(by);
+    match precedence(path, ctx.deny, &plan.exclude, decision, selection) {
+        Outcome::Denied | Outcome::Excluded => {}
+        Outcome::Selected(selected_by) => {
+            result.pages.insert(
+                path.to_string(),
+                PageEntry {
                     sha256,
                     title: title_of(&candidate.title, &text),
-                    excerpt: excerpt(strip_frontmatter(&text), EXCERPT_TOKENS),
-                    context: context_of(&candidate.context, &candidate.section),
-                });
+                    doc_type: candidate.doc_type.clone(),
+                    section: candidate.section.clone(),
+                    selected_by,
+                    rendered_from: None,
+                },
+            );
+        }
+        Outcome::Residue => {
+            if plan.mention.as_ref().is_some_and(|re| !re.is_match(&text)) {
+                return Ok(());
             }
+            result.residue.push(ResidueEntry {
+                id,
+                source: source.name.clone(),
+                path: path.to_string(),
+                reason,
+                sha256,
+                title: title_of(&candidate.title, &text),
+                excerpt: excerpt(strip_frontmatter(&text), EXCERPT_TOKENS),
+                context: context_of(&candidate.context, &candidate.section),
+                url: page_url(source, checkout, path),
+            });
         }
     }
-    result
-        .residue
-        .sort_by(|a, b| (a.reason, &a.path).cmp(&(b.reason, &b.path)));
-    Ok(result)
+    Ok(())
 }
 
 fn context_of(context: &str, section: &str) -> String {

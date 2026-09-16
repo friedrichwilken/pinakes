@@ -215,6 +215,23 @@ impl Manifest {
             .iter()
             .flat_map(|(name, source)| source.residue.iter().map(move |p| page_id(name, p)))
     }
+
+    /// The upstream URL of page `id`, pinned to its source's fetched commit (SPEC §2.2), or
+    /// `None` when the source is unknown or its `repo` does not parse as `owner/repo`.
+    pub fn page_url(&self, id: &str) -> Option<String> {
+        let (source, path) = split_page_id(id)?;
+        self.sources.get(source)?.page_url(path)
+    }
+}
+
+impl ManifestSource {
+    /// The upstream URL of `path` in this source, pinned to its fetched commit: `{base_url}/
+    /// {path}` where `base_url` is `https://github.com/<owner>/<repo>/blob/<commit>` (SPEC
+    /// §2.3), or `None` when `repo` does not parse as `owner/repo`.
+    pub fn page_url(&self, path: &str) -> Option<String> {
+        crate::config::RepoSlug::from_slug(&self.repo)
+            .map(|slug| format!("{}/{path}", slug.blob_base_url(&self.commit)))
+    }
 }
 
 #[cfg(test)]
@@ -407,6 +424,33 @@ mod tests {
             Manifest::load(&dir.path().join("missing.json")).unwrap_err(),
             ManifestError::Io { .. }
         ));
+    }
+
+    #[test]
+    fn page_url_is_derived_from_repo_and_commit_or_none_when_the_slug_does_not_parse() {
+        let manifest = sample();
+        assert_eq!(
+            manifest.page_url("handbook::docs/user/README.md").unwrap(),
+            format!(
+                "https://github.com/example-org/handbook/blob/{}/docs/user/README.md",
+                "4427d7ba863973c2cea9da74ed8675c5c74aee77"
+            )
+        );
+        assert_eq!(
+            manifest.page_url("handbook::missing.md").unwrap(),
+            format!(
+                "https://github.com/example-org/handbook/blob/{}/missing.md",
+                "4427d7ba863973c2cea9da74ed8675c5c74aee77"
+            ),
+            "derived for any path in a known source, not only an existing page \
+             (residue, duplicate and unresolved-link urls point at paths the manifest itself \
+             does not list)"
+        );
+        assert_eq!(manifest.page_url("nope::x.md"), None, "unknown source");
+
+        let mut bad = manifest;
+        bad.sources.get_mut("handbook").unwrap().repo = "not a slug".to_string();
+        assert_eq!(bad.page_url("handbook::docs/user/README.md"), None);
     }
 
     #[test]

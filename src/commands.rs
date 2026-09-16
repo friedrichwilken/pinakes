@@ -436,6 +436,7 @@ fn recorded_residue(
             title: title_of("", &text),
             excerpt: residue::excerpt(strip_frontmatter(&text), residue::EXCERPT_TOKENS),
             context: String::new(),
+            url: source.page_url(path).unwrap_or_default(),
         });
     }
     for path in &source.unresolved {
@@ -448,6 +449,7 @@ fn recorded_residue(
             title: String::new(),
             excerpt: String::new(),
             context: String::new(),
+            url: source.page_url(path).unwrap_or_default(),
         });
     }
     Ok(entries)
@@ -521,7 +523,14 @@ fn compute_duplicates(
         selected_by: &selected_by,
         commit_date: &commit_date,
     };
-    Ok(duplicates::find_duplicates(&pages, &context, threshold))
+    let mut pairs = duplicates::find_duplicates(&pages, &context, threshold);
+    if let Some(manifest) = manifest {
+        for pair in &mut pairs {
+            pair.canonical_url = manifest.page_url(&pair.canonical).unwrap_or_default();
+            pair.duplicate_url = manifest.page_url(&pair.duplicate).unwrap_or_default();
+        }
+    }
+    Ok(pairs)
 }
 
 /// Options for `duplicates`.
@@ -2205,6 +2214,7 @@ type: object\n              properties:\n                size:\n                
                 title: "X".to_string(),
                 excerpt: "some text".to_string(),
                 context: String::new(),
+                url: String::new(),
             }],
         )
         .unwrap();

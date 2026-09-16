@@ -28,14 +28,14 @@ _none_
 
 ### not_selected
 
-- `handbook::docs/known-residue.md` — Known
+- [Known](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/known-residue.md)
   > seen before
-- `handbook::docs/fresh.md` — (untitled)
+- `handbook::docs/fresh.md`
   > word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word …
 
 ### unresolved_link
 
-- `handbook::docs/ghost.md` — Ghost
+- [Ghost](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/ghost.md)
   - context: Sidebar > Ghost
 
 ## Expired decisions
@@ -45,7 +45,7 @@ _none_
 
 ## Unresolved links
 
-- `handbook::docs/ghost.md`
+- [Ghost](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/ghost.md)
 
 ## Archived sources
 

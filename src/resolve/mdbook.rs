@@ -15,14 +15,14 @@ use crate::sources::Checkout;
 /// Default navigation file when `path` is not given.
 const DEFAULT_PATH: &str = "src/SUMMARY.md";
 
-/// Build the candidate map and residue scope for an `mdbook` source.
+/// Build the candidate map, residue scope and navigation file path for an `mdbook` source.
 pub(super) fn plan(
     source: &Source,
     checkout: &Checkout,
     files: &[String],
     path: Option<&str>,
     scope: &[String],
-) -> Result<(BTreeMap<String, Candidate>, GlobSet), ResolveError> {
+) -> Result<(BTreeMap<String, Candidate>, GlobSet, String), ResolveError> {
     let nav_path = path.unwrap_or(DEFAULT_PATH);
     if !files.iter().any(|f| f == nav_path) {
         return Err(ResolveError::Navigation {
@@ -87,7 +87,7 @@ pub(super) fn plan(
         }
     }
     let scope_set = navigation::scope_set(base_dir, scope)?;
-    Ok((candidates, scope_set))
+    Ok((candidates, scope_set, nav_path.to_string()))
 }
 
 /// A Markdown link, `[title](target)`; tolerant of an empty target (a draft chapter).
@@ -169,7 +169,7 @@ mod tests {
             ("src/orphan.md", "# Orphan\n"),
         ]);
         let src = source("      type: mdbook\n");
-        let (candidates, scope) = plan(&src, &co, &fixture_files(), None, &[]).unwrap();
+        let (candidates, scope, nav_path) = plan(&src, &co, &fixture_files(), None, &[]).unwrap();
 
         let intro = &candidates["src/introduction.md"];
         assert_eq!(
@@ -202,6 +202,7 @@ mod tests {
         assert!(!candidates.contains_key("src/orphan.md"));
         assert!(scope.is_match("src/orphan.md"));
         assert!(!scope.is_match("other/x.md"));
+        assert_eq!(nav_path, "src/SUMMARY.md");
     }
 
     #[test]

@@ -128,7 +128,16 @@ This layout is a stable contract that consumers rely on; keep it exact.
 ### 2.4 `residue.jsonl` — what was left out (machine-written, reviewable)
 
 One object per line:
-`{"id": "handbook::docs/user/x.md", "source": "handbook", "path": "docs/user/x.md", "reason": "not_selected", "sha256": "…", "title": "…", "excerpt": "first ~600 tokens", "context": "sidebar section or TOC branch if the resolver gave one"}`
+`{"id": "handbook::docs/user/x.md", "source": "handbook", "path": "docs/user/x.md", "reason": "not_selected", "sha256": "…", "title": "…", "excerpt": "first ~600 tokens", "context": "sidebar section or TOC branch if the resolver gave one", "url": "https://github.com/example-org/handbook/blob/4427d7ba863973c2cea9da74ed8675c5c74aee77/docs/user/x.md"}`
+
+`url` is the page's upstream URL pinned to the fetched commit, `https://github.com/<owner>/
+<repo>/blob/<commit>/<path>` — the same `base_url` the source's `meta.json` carries (§2.3),
+derived from the manifest's `repo` and `commit`; empty when it cannot be derived (the source's
+`repo` does not parse as a GitHub URL). For reason `unresolved_link` there is no file at `path`
+to point at, so `url` instead names the navigation file itself (the sidebar, `sidebars.js`,
+`SUMMARY.md` or sitemap a built-in resolver read, §12) at the fetched commit; the `glob` and
+`external` resolvers have no navigation file, so `url` falls back to the (nonexistent) target
+path for them.
 
 Reasons: `not_selected`, `unresolved_link` (a navigation link with no file), `new_source`.
 
@@ -152,6 +161,12 @@ Sections, in order: summary counts; eval before/after (overall and per kind, hel
 added pages; removed pages (with reason: gone upstream, dropped by resolver, excluded by decision);
 changed pages (hash changed; link to upstream compare when both commits known); new residue grouped
 by reason with excerpt; expired decisions; unresolved links; archived sources.
+
+Every page mentioned in "New residue", "Duplicates", "Added pages", "Removed pages" and
+"Unresolved links" renders as a Markdown link `[title](url)` using the entry's or page's `url`
+(§2.4, §11, §2.2); a mention with no title renders as `path` in code instead. "Unresolved
+links" links the navigation file the dangling link came from, not the missing target, since the
+target does not exist (§2.4).
 
 ## 3. External resolver contract
 
@@ -365,7 +380,11 @@ shingle sets is computed for candidates; pairs at or above the threshold are rep
 duplicates (same sha256) and same-title mirrors are reported too, with `kind` set accordingly.
 
 `duplicates.jsonl`, one line per pair, canonical first:
-`{"kind": "exact"|"mirror"|"near", "similarity": 0.93, "canonical": "<id>", "duplicate": "<id>", "why": "priority 10 > 1; linked from navigation; newer commit", "suggested": "exclude"}`
+`{"kind": "exact"|"mirror"|"near", "similarity": 0.93, "canonical": "<id>", "duplicate": "<id>", "why": "priority 10 > 1; linked from navigation; newer commit", "suggested": "exclude", "canonical_url": "https://github.com/…", "duplicate_url": "https://github.com/…"}`
+
+`canonical_url` and `duplicate_url` are each page's upstream URL pinned to its source's fetched
+commit (§2.4), derived from the manifest the same way; empty when there is no manifest to derive
+them from (a manifest-less artifact) or the source's `repo` does not parse.
 
 Winner rule, in order: higher source `priority`; page `selected_by` = `resolver` beats `include`;
 newer source commit date (from the GitHub API when available, else unknown). Ties report

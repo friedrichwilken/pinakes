@@ -95,6 +95,13 @@ pub struct DuplicatePair {
     pub why: String,
     /// The default verdict for `decide`.
     pub suggested: Suggested,
+    /// `canonical`'s upstream URL pinned to its source's fetched commit (SPEC §11); empty when
+    /// there is no manifest to derive it from, or its `repo` does not parse.
+    #[serde(default)]
+    pub canonical_url: String,
+    /// `duplicate`'s upstream URL, as [`Self::canonical_url`].
+    #[serde(default)]
+    pub duplicate_url: String,
 }
 
 /// External facts the winner rule and exact-duplicate detection need, looked up by page id or
@@ -385,6 +392,8 @@ fn make_pair(
         } else {
             Suggested::Exclude
         },
+        canonical_url: String::new(),
+        duplicate_url: String::new(),
     }
 }
 
@@ -700,6 +709,8 @@ mod tests {
             duplicate: "b::y.md".to_string(),
             why: "priority 10 > 1".to_string(),
             suggested: Suggested::Exclude,
+            canonical_url: "https://github.com/a/a/blob/c1/x.md".to_string(),
+            duplicate_url: "https://github.com/b/b/blob/c2/y.md".to_string(),
         }];
         write_jsonl(&path, &pairs).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();

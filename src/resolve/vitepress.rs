@@ -13,14 +13,14 @@ use crate::sources::Checkout;
 /// Default glob for the `VitePress` config file when `path` is not given.
 const DEFAULT_CONFIG_GLOB: &str = "docs/.vitepress/config.*";
 
-/// Build the candidate map and residue scope for a `vitepress` source.
+/// Build the candidate map, residue scope and navigation file path for a `vitepress` source.
 pub(super) fn plan(
     source: &Source,
     checkout: &Checkout,
     files: &[String],
     path: Option<&str>,
     scope: &[String],
-) -> Result<(BTreeMap<String, Candidate>, GlobSet), ResolveError> {
+) -> Result<(BTreeMap<String, Candidate>, GlobSet, String), ResolveError> {
     let nav_path = locate(&source.name, files, path)?;
     let text = read_file(checkout, &nav_path)?;
     let base_dir = content_dir(&nav_path);
@@ -52,7 +52,7 @@ pub(super) fn plan(
         }
     }
     let scope_set = navigation::scope_set(&base_dir, scope)?;
-    Ok((candidates, scope_set))
+    Ok((candidates, scope_set, nav_path))
 }
 
 /// Find the navigation file: `path` verbatim when given, else the first file matching
@@ -207,7 +207,7 @@ export default {
     fn plans_pages_sections_doc_types_residue_and_unresolved() {
         let (_dir, co) = fixture();
         let src = source("      type: vitepress\n");
-        let (candidates, scope) = plan(&src, &co, &fixture_files(), None, &[]).unwrap();
+        let (candidates, scope, nav_path) = plan(&src, &co, &fixture_files(), None, &[]).unwrap();
 
         let getting_started = &candidates["docs/guide/getting-started.md"];
         assert_eq!(getting_started.title, "Getting Started");
@@ -233,6 +233,7 @@ export default {
 
         assert!(scope.is_match("docs/x.md"));
         assert!(!scope.is_match("other/x.md"));
+        assert_eq!(nav_path, "docs/.vitepress/config.ts");
     }
 
     /// The file list matching the fixture's checkout.

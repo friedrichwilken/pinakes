@@ -102,6 +102,12 @@ pub struct ResidueEntry {
     /// Sidebar section or TOC branch when the resolver gave one.
     #[serde(default)]
     pub context: String,
+    /// The page's upstream URL pinned to the fetched commit (SPEC §2.4): for
+    /// [`Reason::UnresolvedLink`] this points at the navigation file itself, since the linked
+    /// page does not exist; empty when it could not be derived (e.g. the source's repo does not
+    /// parse as a GitHub URL).
+    #[serde(default)]
+    pub url: String,
 }
 
 /// The first `max_tokens` whitespace-separated tokens of `text`, joined by single spaces.
@@ -198,6 +204,7 @@ mod tests {
             title: "T".to_string(),
             excerpt: "some text".to_string(),
             context: String::new(),
+            url: format!("https://github.com/o/r/blob/{}/{path}", "aa".repeat(20)),
         }
     }
 
