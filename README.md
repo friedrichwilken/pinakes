@@ -23,6 +23,11 @@ built-in BM25 index that `eval` uses to measure a corpus against a query set; it
 detection, the query-set commands, the curation skill and the weekly workflow described below.
 [`CHANGELOG.md`](CHANGELOG.md) tracks what has landed.
 
+Two guides go deeper than this file: [Evaluation](docs/evaluation.md) (how measuring is set up,
+how to fix the retriever shape in `pinakes.yaml`, what the metrics mean) and
+[Handlers](docs/handlers.md) (what a render step and an external resolver do to a document,
+before and after, on a runnable example).
+
 ## The three stages
 
 ```text
@@ -199,7 +204,9 @@ policy:
 to stdout (`path`, `title`, `doc_type`, `section`, `selected`) and any non-zero exit fails the
 source with the command's stderr. Script paths that exist relative to `pinakes.yaml` are made
 absolute before the command runs. A runnable two-source example lives in
-[`examples/`](examples/), including a dependency-free Python resolver. A source can also
+[`examples/`](examples/), including a dependency-free Python resolver;
+[`examples/handlers/`](examples/handlers/) runs an external resolver and both render types on a
+real repository, walked through in [Handlers](docs/handlers.md). A source can also
 declare a `render` step to turn non-Markdown files into pages (see
 [Rendering schemas and other formats](#rendering-schemas-and-other-formats) below) and one of
 the four [built-in navigation resolvers](#built-in-resolvers) instead of `glob` or `external`.
@@ -262,6 +269,7 @@ H1 or frontmatter, sections are split at H2 and H3, and the index strips Markdow
 other formats are indexed as plain text at best — unless a source declares `render` (SPEC §10),
 in which case pinakes turns the selected files into Markdown pages after selection and before
 the artifact is written. One selected file may become several pages, or none.
+[Handlers](docs/handlers.md) shows both render types before and after on real files.
 
 Two render types exist:
 
@@ -403,6 +411,7 @@ cleaned of frontmatter, HTML comments, link and image targets and HTML tags, spl
 intro plus one unit per H2 (H2 sections over 1200 tokens split at H3), scored by title (×3),
 heading (×2) and body, ranked by their best unit and de-duplicated by tokenised title. The
 tokeniser lowercases, keeps `[a-z0-9]+` runs and drops a small stopword list; no stemming.
+[Evaluation](docs/evaluation.md) walks through the setup, the query set and the metrics.
 
 ```text
 --artifact DIR    the artifact to measure (default: artifact next to the config)
@@ -460,6 +469,21 @@ trait and the same query set, with `--backend NAME`:
 --backend hybrid          reciprocal rank fusion (k = 60) of the top 50 bm25 and dense rankings
 --backend external        a consumer's own search endpoint, over HTTP
 ```
+
+The same choice can be fixed in `pinakes.yaml` so that a bare `pinakes eval` measures the shape a
+project has settled on; every key has a flag that overrides it for one run:
+
+```yaml
+eval:
+  queries: queries.jsonl
+  backend: hybrid                 # what a bare `eval` measures (--backend overrides)
+  embeddings: embeddings.bin      # for dense/hybrid, relative to this file (--embeddings)
+  # backend_url: http://localhost:8080          # for external (--backend-url)
+  # compare: [bm25, bm25-tantivy, dense, hybrid]  # one table per backend (--compare)
+```
+
+A configured `compare` applies to a bare `eval` only; `--backend NAME` on the command line
+measures that one backend and ignores the list.
 
 `--backend dense`/`hybrid` read `embeddings.bin`/`embeddings.json` (`--embeddings PATH`,
 default `embeddings.bin` next to the config) and embed the query through

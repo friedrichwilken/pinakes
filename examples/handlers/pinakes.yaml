@@ -1,0 +1,31 @@
+# The walkthrough behind docs/handlers.md: one repository declared three times, once per
+# extension point, so each source shows one handler on its own. Run from this directory:
+# `pinakes resolve`, then read artifact/.
+version: 1
+sources:
+  - name: crd-reference             # built-in renderer: CRD and OpenAPI YAML -> reference pages
+    repo: https://github.com/friedrichwilken/pinakes.git
+    ref: main
+    resolver:
+      type: glob
+      include: ["tests/fixtures/crds/*.yaml", "tests/fixtures/openapi/*.yaml"]
+    render:
+      type: openapi
+  - name: cargo-reference           # external render step: Cargo.toml -> a dependency table
+    repo: https://github.com/friedrichwilken/pinakes.git
+    ref: main
+    resolver:
+      type: glob
+      include: ["Cargo.toml", "python/Cargo.toml"]
+    render:
+      type: external
+      command: ["python3", "./cargo_deps.py"]   # relative to this file; a bare name would mean a program on PATH
+  - name: readme-toc                # external resolver: README.md is the table of contents
+    repo: https://github.com/friedrichwilken/pinakes.git
+    ref: main
+    resolver:
+      type: external
+      command: ["python3", "./readme_toc.py"]
+policy:
+  archived: warn
+  min_pages_per_source: 1

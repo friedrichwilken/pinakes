@@ -3,6 +3,21 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-09-16
+
+### Added
+
+- The `eval` section of `pinakes.yaml` can fix the retriever shape a bare `pinakes eval`
+  measures: `backend`, `backend_url`, `embeddings` (relative to the config file) and
+  `compare`. The command-line flags override them; a configured `compare` applies only when no
+  `--backend` is given.
+- Two guides under `docs/`, linked from the README: [Evaluation](docs/evaluation.md) (setup,
+  the query set, choosing the method in `pinakes.yaml`, the metrics) and
+  [Handlers](docs/handlers.md) (the built-in renderer, an external render step and an external
+  resolver, each before and after on a real file). `examples/handlers/` is the runnable
+  walkthrough behind the second: a resolver that reads `README.md` as the table of contents and
+  a render step that turns `Cargo.toml` into a dependency table.
+
 ## [1.0.3] - 2026-09-16
 
 ### Added

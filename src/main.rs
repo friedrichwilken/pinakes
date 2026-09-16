@@ -635,10 +635,11 @@ fn run_duplicates(mut paths: Paths, args: DuplicatesArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn run_eval(mut paths: Paths, args: EvalArgs) -> Result<ExitCode> {
+fn run_eval(mut paths: Paths, mut args: EvalArgs) -> Result<ExitCode> {
     if let Some(dir) = &args.artifact {
         paths.artifact.clone_from(dir);
     }
+    apply_eval_config_defaults(&paths, &mut args)?;
     if !args.compare.is_empty() {
         return run_eval_compare(&paths, args);
     }
@@ -650,6 +651,39 @@ fn run_eval(mut paths: Paths, args: EvalArgs) -> Result<ExitCode> {
         return run_eval_plain(&paths, args);
     }
     run_eval_with_backend(&paths, args)
+}
+
+/// Fill the backend choices `pinakes.yaml` fixes under `eval` (`backend`, `backend_url`,
+/// `embeddings`, `compare`; SPEC §16.1) into the flags the user left out. A flag always wins;
+/// a configured `compare` applies only to a bare `eval`, so `--backend NAME` still measures
+/// that one backend.
+fn apply_eval_config_defaults(paths: &Paths, args: &mut EvalArgs) -> Result<()> {
+    if !paths.config.is_file() {
+        return Ok(());
+    }
+    let Some(eval) = pinakes::config::Config::load(&paths.config)?.eval else {
+        return Ok(());
+    };
+    if args.compare.is_empty() && args.backend.is_none() {
+        args.compare = eval.compare;
+    }
+    if args.backend.is_none() {
+        args.backend = eval.backend;
+    }
+    if args.backend_url.is_none() {
+        args.backend_url = eval.backend_url;
+    }
+    if args.embeddings.is_none() {
+        let dir = paths.config.parent().unwrap_or(std::path::Path::new("."));
+        args.embeddings = eval.embeddings.map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                dir.join(path)
+            }
+        });
+    }
+    Ok(())
 }
 
 /// The plain `eval` path: no `--backend`/`--compare`/backend-only flags at all, so it goes
