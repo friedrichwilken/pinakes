@@ -1591,7 +1591,7 @@ mod tests {
         fs::write(paths.artifact.join("handbook/docs/a.md"), "tampered").unwrap();
         let report = verify(&paths, true).unwrap();
         assert_eq!(report.stale.len(), 2, "{report:?}");
-        assert!(verify(&paths, false).unwrap().stale.len() == 1);
+        assert_eq!(verify(&paths, false).unwrap().stale.len(), 1);
 
         fs::write(&paths.config, CONFIG).unwrap();
         let decision = decide(
