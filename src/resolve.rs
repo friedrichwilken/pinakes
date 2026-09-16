@@ -362,6 +362,28 @@ struct Plan {
     include_selected: BTreeSet<String>,
 }
 
+/// The `glob` resolver's effective `extensions` (SPEC §2.1): `configured` verbatim when given,
+/// else `["md"]`, or every file (an empty list) when the source has a `render` step.
+fn effective_extensions(configured: Option<&[String]>, has_render: bool) -> Vec<String> {
+    match configured {
+        Some(extensions) => extensions.to_vec(),
+        None if has_render => Vec::new(),
+        None => vec!["md".to_string()],
+    }
+}
+
+/// Whether `path`'s extension (case-insensitive, without the dot) is in `extensions`; an empty
+/// list matches every file.
+fn matches_extension(path: &str, extensions: &[String]) -> bool {
+    if extensions.is_empty() {
+        return true;
+    }
+    let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    extensions.iter().any(|e| e.eq_ignore_ascii_case(ext))
+}
+
 /// Resolver-specific selection: the candidate map plus, for the precedence pass, the compiled
 /// `exclude` set, the residue `scope`, an external resolver's `residue_mention` and the
 /// resolver's own optional `include` extra (SPEC §2.1), not yet applied to `candidates`.
@@ -372,6 +394,33 @@ type ResolverPlan<'a> = (
     Option<Regex>,
     &'a [String],
 );
+
+/// The `glob` resolver arm of [`resolver_plan`]: populate `candidates` from `include` (filtered
+/// by `extensions`) and return the compiled residue `scope` and `exclude` set.
+#[allow(clippy::too_many_arguments)]
+fn glob_plan(
+    source: &Source,
+    files: &[String],
+    include: &[String],
+    exclude: &[String],
+    residue_scope: &[String],
+    extensions: Option<&[String]>,
+    candidates: &mut BTreeMap<String, Candidate>,
+) -> Result<(GlobSet, GlobSet), ResolveError> {
+    let include = compile_globs("include", include)?;
+    let extensions = effective_extensions(extensions, source.render.is_some());
+    for file in files {
+        if include.is_match(file) && matches_extension(file, &extensions) {
+            candidates.insert(file.clone(), Candidate::bare(file, true));
+        }
+    }
+    let scope = if residue_scope.is_empty() {
+        include
+    } else {
+        compile_globs("residue_scope", residue_scope)?
+    };
+    Ok((scope, compile_globs("exclude", exclude)?))
+}
 
 fn resolver_plan<'a>(
     source: &'a Source,
@@ -386,19 +435,18 @@ fn resolver_plan<'a>(
                 include,
                 exclude,
                 residue_scope,
+                extensions,
             } => {
-                let include = compile_globs("include", include)?;
-                for file in files {
-                    if include.is_match(file) {
-                        candidates.insert(file.clone(), Candidate::bare(file, true));
-                    }
-                }
-                let scope = if residue_scope.is_empty() {
-                    include
-                } else {
-                    compile_globs("residue_scope", residue_scope)?
-                };
-                (compile_globs("exclude", exclude)?, scope, None, &[])
+                let (scope, exclude) = glob_plan(
+                    source,
+                    files,
+                    include,
+                    exclude,
+                    residue_scope,
+                    extensions.as_deref(),
+                    &mut candidates,
+                )?;
+                (exclude, scope, None, &[])
             }
             Resolver::External {
                 command,
@@ -665,6 +713,14 @@ mod tests {
         let text = format!(
             "version: 1\nsources:\n  - name: s\n    repo: https://github.com/o/r\n    ref: main\n    \
              resolver:\n{yaml_resolver}"
+        );
+        Config::from_yaml(&text).unwrap().sources.remove(0)
+    }
+
+    fn glob_source_with_render(yaml_resolver: &str, yaml_render: &str) -> Source {
+        let text = format!(
+            "version: 1\nsources:\n  - name: s\n    repo: https://github.com/o/r\n    ref: main\n    \
+             resolver:\n{yaml_resolver}    render:\n{yaml_render}"
         );
         Config::from_yaml(&text).unwrap().sources.remove(0)
     }
@@ -1169,6 +1225,101 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
         assert!(
             result.residue.is_empty(),
             "excluded files are never residue either"
+        );
+    }
+
+    #[test]
+    fn effective_extensions_defaults_to_markdown_or_every_file_with_render() {
+        assert_eq!(effective_extensions(None, false), vec!["md".to_string()]);
+        assert_eq!(effective_extensions(None, true), Vec::<String>::new());
+        assert_eq!(
+            effective_extensions(Some(&["yaml".to_string()]), true),
+            vec!["yaml".to_string()],
+            "an explicit list wins over the render default"
+        );
+        assert_eq!(
+            effective_extensions(Some(&[]), false),
+            Vec::<String>::new(),
+            "an explicit empty list means every file even without render"
+        );
+    }
+
+    #[test]
+    fn matches_extension_is_case_insensitive_and_empty_means_everything() {
+        assert!(matches_extension("a/b.MD", &["md".to_string()]));
+        assert!(!matches_extension("a/b.txt", &["md".to_string()]));
+        assert!(matches_extension("a/b.txt", &[]));
+        assert!(!matches_extension("a/b", &["md".to_string()]));
+    }
+
+    #[test]
+    fn glob_include_defaults_to_markdown_only() {
+        let (_dir, co) = checkout(&[("docs/a.md", "# A\n"), ("docs/a.json", "{}\n")]);
+        let source = glob_source("      type: glob\n      include: ['docs/*']\n");
+        let result = resolve(&source, &co, &[], &[], false);
+        assert_eq!(result.pages.keys().collect::<Vec<_>>(), vec!["docs/a.md"]);
+        assert_eq!(
+            result
+                .residue
+                .iter()
+                .map(|r| r.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["docs/a.json"],
+            "non-markdown files still count against the (unfiltered) residue scope"
+        );
+    }
+
+    #[test]
+    fn glob_extensions_explicit_list_overrides_the_default() {
+        let (_dir, co) = checkout(&[("docs/a.md", "# A\n"), ("docs/a.yaml", "key: value\n")]);
+
+        let source = glob_source(
+            "      type: glob\n      include: ['docs/*']\n      extensions: ['yaml']\n",
+        );
+        let result = resolve(&source, &co, &[], &[], false);
+        assert_eq!(result.pages.keys().collect::<Vec<_>>(), vec!["docs/a.yaml"]);
+
+        let source =
+            glob_source("      type: glob\n      include: ['docs/*']\n      extensions: []\n");
+        let result = resolve(&source, &co, &[], &[], false);
+        assert_eq!(result.pages.len(), 2, "an empty list means every file");
+    }
+
+    #[test]
+    fn glob_extensions_default_to_every_file_when_the_source_has_a_render_step() {
+        let (_dir, co) = checkout(&[
+            ("crds/widget.yaml", "kind: Other\n"),
+            ("README.md", "# Readme\n"),
+        ]);
+
+        let plain = glob_source("      type: glob\n      include: ['**/*']\n");
+        let result = resolve(&plain, &co, &[], &[], false);
+        assert_eq!(
+            result.pages.keys().collect::<Vec<_>>(),
+            vec!["README.md"],
+            "without a render step, only markdown is selected by default"
+        );
+
+        let rendered = glob_source_with_render(
+            "      type: glob\n      include: ['**/*']\n",
+            "      type: openapi\n",
+        );
+        let result = resolve(&rendered, &co, &[], &[], false);
+        assert_eq!(
+            result.pages.keys().collect::<Vec<_>>(),
+            vec!["README.md", "crds/widget.yaml"],
+            "a render step defaults to every file"
+        );
+
+        let rendered_explicit = glob_source_with_render(
+            "      type: glob\n      include: ['**/*']\n      extensions: ['md']\n",
+            "      type: openapi\n",
+        );
+        let result = resolve(&rendered_explicit, &co, &[], &[], false);
+        assert_eq!(
+            result.pages.keys().collect::<Vec<_>>(),
+            vec!["README.md"],
+            "an explicit extensions list still wins over the render default"
         );
     }
 }

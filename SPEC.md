@@ -33,6 +33,7 @@ sources:
       type: glob                     # "glob" | "external"
       include: ["docs/user/**/*.md"]
       exclude: ["**/_sidebar.md"]
+      extensions: ["md"]             # default; [] means every file regardless of extension
   - name: guides
     repo: https://github.com/example-org/guides.git
     ref: main
@@ -62,6 +63,13 @@ and never reported as residue — while `exclude` removes a file from selection 
 for `glob`. A file the resolver's own mechanism already selects is unaffected by `include`.
 Precedence is unchanged: `policy.deny` beats `exclude`, which beats decisions, which beats
 selection (resolver or `include`).
+
+`glob`'s `extensions` restricts `include` matches to files whose extension (case-insensitive,
+without the dot) is in the list; it does not affect `residue_scope`. Default `["md"]`, so a
+plain `include: ["docs/**/*"]` still only selects Markdown; an empty list selects every file
+regardless of extension. When the source has a `render` step (§10.1) and `extensions` is not
+given explicitly, the default becomes `[]` (every file) instead, since a renderer typically
+consumes YAML or JSON rather than Markdown.
 
 ### 2.2 `manifest.json` — curated references (machine-written, committed)
 

@@ -153,6 +153,11 @@ pub enum Resolver {
         /// Files matching these but not selected are residue; defaults to `include`.
         #[serde(default)]
         residue_scope: Vec<String>,
+        /// Case-insensitive extensions (without the dot) `include` matches are restricted to.
+        /// `None` (not given in config) defaults to `["md"]`, or to every file when the source
+        /// has a `render` step (SPEC §10.1); `Some(vec![])` explicitly means every file.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extensions: Option<Vec<String>>,
     },
     /// Run an external command that emits the SPEC §3 JSONL contract.
     External {
@@ -431,6 +436,7 @@ impl Source {
                 include,
                 exclude,
                 residue_scope,
+                extensions: _,
             } => {
                 if include.is_empty() {
                     return Err(ConfigError::NoInclude(self.name.clone()));
@@ -937,5 +943,44 @@ eval:
             Config::from_yaml(&bad_exclude).unwrap_err(),
             ConfigError::Glob { .. }
         ));
+    }
+
+    #[test]
+    fn glob_extensions_default_is_unset_and_an_explicit_list_or_empty_list_parses() {
+        let config = Config::from_yaml(&minimal("a", "https://github.com/o/r")).unwrap();
+        match &config.sources[0].resolver {
+            Resolver::Glob { extensions, .. } => assert!(extensions.is_none()),
+            other => panic!("expected glob, got {other:?}"),
+        }
+
+        let text = "version: 1\nsources:\n  - name: a\n    repo: https://github.com/o/r\n    ref: main\n    \
+                     resolver:\n      type: glob\n      include: ['**/*']\n      \
+                     extensions: ['yaml', 'json']\n";
+        let config = Config::from_yaml(text).unwrap();
+        match &config.sources[0].resolver {
+            Resolver::Glob { extensions, .. } => {
+                assert_eq!(
+                    extensions.as_deref(),
+                    Some(&["yaml".to_string(), "json".to_string()][..])
+                );
+            }
+            other => panic!("expected glob, got {other:?}"),
+        }
+        let round = serde_yaml_ng::to_string(&config).unwrap();
+        assert_eq!(Config::from_yaml(&round).unwrap(), config, "round trips");
+
+        let text = "version: 1\nsources:\n  - name: a\n    repo: https://github.com/o/r\n    ref: main\n    \
+                     resolver:\n      type: glob\n      include: ['**/*']\n      extensions: []\n";
+        let config = Config::from_yaml(text).unwrap();
+        match &config.sources[0].resolver {
+            Resolver::Glob { extensions, .. } => {
+                assert_eq!(
+                    extensions.as_deref(),
+                    Some(&[][..]),
+                    "explicit empty list is kept, not None"
+                );
+            }
+            other => panic!("expected glob, got {other:?}"),
+        }
     }
 }
