@@ -1,0 +1,14 @@
+{"id": "install", "kind": "howto", "query": "how do I install the service", "expected": ["handbook::docs/install.md"]}
+{"id": "backup", "kind": "howto", "query": "back up and restore data", "expected": ["handbook::docs/tutorials/backup-restore.md"]}
+{"id": "tls-port", "kind": "reference", "query": "which port does TLS use", "expected": ["handbook::docs/configuration.md", "handbook::docs/reference/config-keys.md"]}
+{"id": "rotate-keys", "kind": "howto", "query": "rotate the signing keys", "expected": ["guides::docs/rotate-keys.md"]}
+{"id": "caching", "kind": "howto", "query": "enable caching for uploads", "expected": ["guides::docs/enable-caching.md"]}
+{"id": "quota", "kind": "reference", "query": "what are the quota limits", "expected": ["guides::docs/quota-limits.md"]}
+{"id": "startup", "kind": "troubleshooting", "query": "service fails to start on boot", "expected": ["handbook::docs/troubleshooting/startup-failures.md"]}
+{"id": "slow", "kind": "troubleshooting", "query": "queries are slow", "expected": ["handbook::docs/troubleshooting/"]}
+{"id": "architecture", "kind": "concept", "query": "how are the components connected", "expected": ["handbook::docs/concepts/architecture.md"]}
+{"id": "plugin", "kind": "howto", "query": "write a plugin", "expected": ["cookbook::docs/recipes/draft-plugin.md"]}
+{"id": "crd-sink-field", "kind": "reference", "query": "spec.sink", "expected": ["schemas::reference/messaging.example.com/subscription-v1.md"]}
+{"id": "crd-type-matching-field", "kind": "reference", "query": "typeMatching", "expected": ["schemas::reference/messaging.example.com/subscription-v1.md"]}
+{"id": "webhooks", "kind": "howto", "query": "receive webhook events", "expected": ["cookbook/docs/recipes/webhooks.md"], "holdout": true}
+{"id": "metrics", "kind": "howto", "query": "export metrics to a dashboard", "expected": ["guides::docs/monitor-metrics.md"], "holdout": true}

@@ -1,0 +1,152 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly advisory check, so a new RustSec advisory surfaces without a push.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Unit, integration, golden corpus and report snapshot tests.
+      - run: cargo test --all-targets
+      # Doctests are not covered by --all-targets.
+      - run: cargo test --release --doc
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: |
+          version="$(sed -n 's/^rust-version *= *"\(.*\)"/\1/p' Cargo.toml)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --all-targets
+
+  # End-to-end: the example config against the real network, every command in the
+  # documented order. Only exit codes outside the documented ones fail the job.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: resolve
+        working-directory: examples
+        run: |
+          cp manifest.json "$RUNNER_TEMP/old-manifest.json"
+          ../target/release/pinakes resolve --artifact "$RUNNER_TEMP/artifact"
+      - name: verify
+        working-directory: examples
+        run: ../target/release/pinakes verify --artifact "$RUNNER_TEMP/artifact"
+      - name: diff (0 same, 3 differences)
+        working-directory: examples
+        run: |
+          set +e
+          ../target/release/pinakes diff "$RUNNER_TEMP/old-manifest.json" manifest.json \
+            > "$RUNNER_TEMP/diff.json"
+          status=$?
+          set -e
+          case "$status" in
+            0) echo "manifest unchanged" ;;
+            3) echo "manifest differs from the committed one (upstream moved)" ;;
+            *) echo "diff failed with exit $status"; exit "$status" ;;
+          esac
+      - name: eval
+        working-directory: examples
+        run: |
+          ../target/release/pinakes eval --artifact "$RUNNER_TEMP/artifact" \
+            --queries queries.jsonl --json "$RUNNER_TEMP/eval.json"
+          head -c 2000 "$RUNNER_TEMP/eval.json"; echo
+      - name: report
+        working-directory: examples
+        run: |
+          ../target/release/pinakes report --old "$RUNNER_TEMP/old-manifest.json" \
+            --eval-after "$RUNNER_TEMP/eval.json" > "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md"
+
+  # Python bindings (python/, SPEC §17.2): build the extension module and run the pytest suite
+  # against it. Not a manylinux build (that's release.yml's job) - this only needs to prove the
+  # crate builds and pinakes.Index behaves, on whatever glibc the runner has.
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: python -> ../target
+      - name: Build the pinakes wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --manifest-path python/Cargo.toml --out dist
+      - name: Install and test
+        run: |
+          python -m pip install --upgrade pip
+          pip install dist/*.whl pytest
+          pytest python/tests -v
+
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

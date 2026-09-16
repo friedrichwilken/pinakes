@@ -1,0 +1,42 @@
+{
+  "base_url": "https://github.com/example-org/cookbook/blob/0123456789abcdef0123456789abcdef01234567",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "module": "cookbook",
+  "pages": {
+    "docs/README.md": {
+      "doc_type": "concept",
+      "section": "",
+      "title": "Cookbook"
+    },
+    "docs/recipes/cron-jobs.md": {
+      "doc_type": "howto",
+      "section": "Recipes",
+      "title": "Scheduled Jobs"
+    },
+    "docs/recipes/export-csv.md": {
+      "doc_type": "howto",
+      "section": "Recipes",
+      "title": "Export to CSV"
+    },
+    "docs/recipes/notification-templates.md": {
+      "doc_type": "howto",
+      "section": "Recipes",
+      "title": "Notification Templates"
+    },
+    "docs/recipes/rate-limiting.md": {
+      "doc_type": "howto",
+      "section": "Recipes",
+      "title": "Rate Limiting"
+    },
+    "docs/recipes/webhooks.md": {
+      "doc_type": "howto",
+      "section": "Recipes",
+      "title": "Webhooks"
+    }
+  },
+  "repo": "example-org/cookbook",
+  "residue": [
+    "docs/recipes/draft-plugin.md"
+  ],
+  "unresolved": []
+}

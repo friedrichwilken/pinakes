@@ -1,0 +1,340 @@
+{
+  "eval": {
+    "backend": "dense",
+    "holdout": {
+      "overall": {
+        "mrr": 0.25,
+        "n": 2,
+        "recall@10": 0.5,
+        "recall@5": 0.5
+      },
+      "per_kind": {
+        "howto": {
+          "mrr": 0.25,
+          "n": 2,
+          "recall@10": 0.5,
+          "recall@5": 0.5
+        }
+      }
+    },
+    "queries": [
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "install",
+        "kind": "howto",
+        "rr": 1.0,
+        "top": [
+          "handbook::docs/install.md",
+          "cookbook::docs/README.md",
+          "cookbook::docs/recipes/notification-templates.md",
+          "schemas::reference/messaging.example.com/subscription-v1.md",
+          "handbook::docs/concepts/notifications.md",
+          "handbook::docs/tutorials/backup-restore.md",
+          "handbook::docs/concepts/architecture.md",
+          "cookbook::docs/recipes/webhooks.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/getting-started.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "backup",
+        "kind": "howto",
+        "rr": 0.25,
+        "top": [
+          "cookbook::docs/recipes/cron-jobs.md",
+          "handbook::docs/uninstall.md",
+          "handbook::docs/install.md",
+          "handbook::docs/tutorials/backup-restore.md",
+          "handbook::docs/concepts/architecture.md",
+          "guides::docs/set-up-tls.md",
+          "schemas::reference/messaging.example.com/subscription-v1.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "guides::docs/rotate-keys.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "tls-port",
+        "kind": "reference",
+        "rr": 0.2,
+        "top": [
+          "handbook::docs/tutorials/first-project.md",
+          "handbook::docs/concepts/storage.md",
+          "cookbook::docs/recipes/notification-templates.md",
+          "guides::docs/rotate-keys.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/concepts/notifications.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "handbook::docs/reference/config-keys.md",
+          "handbook::docs/install.md",
+          "guides::docs/set-up-tls.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "rotate-keys",
+        "kind": "howto",
+        "rr": 1.0,
+        "top": [
+          "guides::docs/rotate-keys.md",
+          "handbook::docs/install.md",
+          "handbook::docs/configuration.md",
+          "cookbook::docs/recipes/cron-jobs.md",
+          "handbook::docs/tutorials/backup-restore.md",
+          "handbook::docs/concepts/networking.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "handbook::docs/reference/config-keys.md",
+          "cookbook::docs/recipes/rate-limiting.md",
+          "handbook::docs/concepts/architecture.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "caching",
+        "kind": "howto",
+        "rr": 0.5,
+        "top": [
+          "handbook::docs/tutorials/first-project.md",
+          "guides::docs/enable-caching.md",
+          "handbook::docs/configuration.md",
+          "guides::docs/migrate-v2.md",
+          "handbook::docs/reference/config-keys.md",
+          "handbook::docs/getting-started.md",
+          "schemas::reference/messaging.example.com/subscription-v1.md",
+          "handbook::docs/concepts/storage.md",
+          "guides::docs/quota-limits.md",
+          "handbook::docs/troubleshooting/startup-failures.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "quota",
+        "kind": "reference",
+        "rr": 0.5,
+        "top": [
+          "handbook::docs/concepts/networking.md",
+          "guides::docs/quota-limits.md",
+          "handbook::docs/tutorials/first-project.md",
+          "handbook::docs/troubleshooting/slow-queries.md",
+          "schemas::reference/messaging.example.com/subscription-v1.md",
+          "handbook::docs/concepts/permissions.md",
+          "handbook::docs/uninstall.md",
+          "handbook::docs/install.md",
+          "cookbook::docs/recipes/rate-limiting.md",
+          "guides::docs/enable-caching.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "startup",
+        "kind": "troubleshooting",
+        "rr": 0.25,
+        "top": [
+          "handbook::docs/install.md",
+          "handbook::docs/reference/cli.md",
+          "guides::docs/rotate-keys.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "cookbook::docs/recipes/cron-jobs.md",
+          "handbook::docs/tutorials/backup-restore.md",
+          "cookbook::docs/recipes/rate-limiting.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/concepts/networking.md",
+          "handbook::docs/concepts/notifications.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "slow",
+        "kind": "troubleshooting",
+        "rr": 1.0,
+        "top": [
+          "handbook::docs/troubleshooting/slow-queries.md",
+          "handbook::docs/concepts/architecture.md",
+          "handbook::docs/uninstall.md",
+          "handbook::docs/install.md",
+          "cookbook::docs/recipes/notification-templates.md",
+          "handbook::docs/concepts/permissions.md",
+          "handbook::docs/concepts/notifications.md",
+          "guides::docs/monitor-metrics.md",
+          "guides::docs/quota-limits.md",
+          "handbook::docs/tutorials/backup-restore.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": false,
+        "holdout": false,
+        "id": "architecture",
+        "kind": "concept",
+        "rr": 0.1111111111111111,
+        "top": [
+          "handbook::docs/tutorials/backup-restore.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/uninstall.md",
+          "handbook::docs/troubleshooting/slow-queries.md",
+          "handbook::docs/install.md",
+          "cookbook::docs/recipes/export-csv.md",
+          "schemas::reference/messaging.example.com/subscription-v1.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "handbook::docs/concepts/architecture.md",
+          "cookbook::docs/recipes/notification-templates.md"
+        ]
+      },
+      {
+        "hit10": false,
+        "hit5": false,
+        "holdout": false,
+        "id": "plugin",
+        "kind": "howto",
+        "rr": 0.0,
+        "top": [
+          "guides::docs/rotate-keys.md",
+          "handbook::docs/install.md",
+          "handbook::docs/configuration.md",
+          "guides::docs/set-up-tls.md",
+          "handbook::docs/concepts/notifications.md",
+          "cookbook::docs/README.md",
+          "cookbook::docs/recipes/notification-templates.md",
+          "handbook::docs/reference/cli.md",
+          "guides::docs/scale-workers.md",
+          "handbook::docs/troubleshooting/startup-failures.md"
+        ]
+      },
+      {
+        "hit10": false,
+        "hit5": false,
+        "holdout": false,
+        "id": "crd-sink-field",
+        "kind": "reference",
+        "rr": 0.0,
+        "top": [
+          "handbook::docs/configuration.md",
+          "guides::docs/migrate-v2.md",
+          "handbook::docs/reference/config-keys.md",
+          "handbook::docs/tutorials/first-project.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "guides::docs/enable-caching.md",
+          "handbook::docs/getting-started.md",
+          "handbook::docs/concepts/networking.md",
+          "handbook::docs/upgrade.md",
+          "guides::docs/monitor-metrics.md"
+        ]
+      },
+      {
+        "hit10": false,
+        "hit5": false,
+        "holdout": false,
+        "id": "crd-type-matching-field",
+        "kind": "reference",
+        "rr": 0.0,
+        "top": [
+          "guides::docs/set-up-tls.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/install.md",
+          "handbook::docs/upgrade.md",
+          "guides::docs/rotate-keys.md",
+          "handbook::docs/concepts/architecture.md",
+          "cookbook::docs/recipes/cron-jobs.md",
+          "handbook::docs/concepts/networking.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "guides::docs/monitor-metrics.md"
+        ]
+      },
+      {
+        "hit10": false,
+        "hit5": false,
+        "holdout": true,
+        "id": "webhooks",
+        "kind": "howto",
+        "rr": 0.0,
+        "top": [
+          "handbook::docs/tutorials/first-project.md",
+          "handbook::docs/concepts/storage.md",
+          "cookbook::docs/recipes/notification-templates.md",
+          "guides::docs/rotate-keys.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/concepts/notifications.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "handbook::docs/reference/config-keys.md",
+          "handbook::docs/install.md",
+          "guides::docs/set-up-tls.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": true,
+        "id": "metrics",
+        "kind": "howto",
+        "rr": 0.5,
+        "top": [
+          "guides::docs/quota-limits.md",
+          "guides::docs/monitor-metrics.md",
+          "handbook::docs/troubleshooting/slow-queries.md",
+          "handbook::docs/concepts/notifications.md",
+          "handbook::docs/concepts/permissions.md",
+          "cookbook::docs/recipes/notification-templates.md",
+          "handbook::docs/tutorials/first-project.md",
+          "schemas::reference/messaging.example.com/subscription-v1.md",
+          "handbook::docs/concepts/networking.md",
+          "guides::docs/scale-workers.md"
+        ]
+      }
+    ],
+    "tuning": {
+      "overall": {
+        "mrr": 0.4009259259259259,
+        "n": 12,
+        "recall@10": 0.75,
+        "recall@5": 0.6666666666666666
+      },
+      "per_kind": {
+        "concept": {
+          "mrr": 0.1111111111111111,
+          "n": 1,
+          "recall@10": 1.0,
+          "recall@5": 0.0
+        },
+        "howto": {
+          "mrr": 0.55,
+          "n": 5,
+          "recall@10": 0.8,
+          "recall@5": 0.8
+        },
+        "reference": {
+          "mrr": 0.175,
+          "n": 4,
+          "recall@10": 0.5,
+          "recall@5": 0.5
+        },
+        "troubleshooting": {
+          "mrr": 0.625,
+          "n": 2,
+          "recall@10": 1.0,
+          "recall@5": 1.0
+        }
+      }
+    }
+  },
+  "k": 10,
+  "pages": 33,
+  "searchable": 30
+}

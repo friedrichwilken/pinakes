@@ -1,0 +1,15 @@
+{
+  "base_url": "https://github.com/example-org/schemas/blob/0123456789abcdef0123456789abcdef01234567",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "module": "schemas",
+  "pages": {
+    "reference/messaging.example.com/subscription-v1.md": {
+      "doc_type": "reference",
+      "section": "messaging.example.com",
+      "title": "Subscription (messaging.example.com/v1)"
+    }
+  },
+  "repo": "example-org/schemas",
+  "residue": [],
+  "unresolved": []
+}

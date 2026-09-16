@@ -1,0 +1,6 @@
+{"id": "send-sync", "kind": "concept", "query": "what do Send and Sync mean", "expected": ["nomicon::src/send-and-sync.md"]}
+{"id": "variance", "kind": "concept", "query": "subtyping and variance of lifetimes", "expected": ["nomicon::src/subtyping.md"]}
+{"id": "uninit", "kind": "howto", "query": "work with uninitialized memory safely", "expected": ["nomicon::src/uninitialized.md", "nomicon::src/checked-uninit.md", "nomicon::src/unchecked-uninit.md"]}
+{"id": "vec-alloc", "kind": "howto", "query": "allocate memory for a growable vector", "expected": ["nomicon::src/vec/"]}
+{"id": "naming", "kind": "reference", "query": "naming conventions for crates and types", "expected": ["api-guidelines::src/naming.md"]}
+{"id": "unwinding", "kind": "concept", "query": "what happens when a panic unwinds", "expected": ["nomicon::src/unwinding.md"], "holdout": true}

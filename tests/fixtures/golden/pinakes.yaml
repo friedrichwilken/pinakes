@@ -1,0 +1,46 @@
+# The golden corpus (SPEC §7.3): three synthetic sources with different priorities, plus a
+# fourth (`schemas`) whose one page is a CRD rendered through the built-in `openapi` renderer
+# (SPEC §10.2), pinning the identifier-compound tokeniser rule (SPEC §10.3). The repositories are
+# placeholders; the artifact next to this file is committed as is and never fetched. `handbook`
+# outranks `guides`, which outranks `cookbook`, so the mirrored pages in the lower-priority
+# sources are left out of the search corpus.
+#
+# `cookbook` uses the mdBook resolver (SPEC §12); tests/golden_mdbook.rs exercises it against a
+# reconstruction of cookbook's committed pages. doc_type and section are stored metadata, not
+# scored by `eval` (SPEC §5).
+version: 1
+sources:
+  - name: handbook
+    repo: https://github.com/example-org/handbook.git
+    ref: main
+    priority: 10
+    resolver:
+      type: glob
+      include: ["docs/**/*.md"]
+  - name: guides
+    repo: https://github.com/example-org/guides.git
+    ref: main
+    priority: 5
+    resolver:
+      type: external
+      command: ["python3", "resolvers/toc.py"]
+  - name: cookbook
+    repo: https://github.com/example-org/cookbook.git
+    ref: main
+    priority: 1
+    resolver:
+      type: mdbook
+      path: docs/SUMMARY.md
+  - name: schemas
+    repo: https://github.com/example-org/schemas.git
+    ref: main
+    priority: 1
+    resolver:
+      type: glob
+      include: ["config/crd/bases/*.yaml"]
+    render:
+      type: openapi
+eval:
+  queries: queries.jsonl
+  k: 10
+  max_recall_drop: 0.05

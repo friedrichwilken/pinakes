@@ -1,0 +1,223 @@
+name: curate
+
+# The weekly curation workflow (SPEC §17.1): a reusable workflow a consumer calls on a schedule
+# (see examples/curate-weekly.yml) to re-resolve its corpus, measure the effect, and open one PR
+# with the result for a human (or the `curate` skill) to review. `workflow_dispatch` lets it be
+# run by hand, including inside this repository's own CI to exercise it end to end.
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: Path to pinakes.yaml in the calling repository.
+        required: false
+        type: string
+        default: pinakes.yaml
+      queries:
+        description: Path to queries.jsonl, passed to `pinakes eval --queries`.
+        required: false
+        type: string
+        default: queries.jsonl
+      baseline:
+        description: >
+          Path to the `eval --gate` baseline JSON. Missing is fine (e.g. the first ever run);
+          the gate is then skipped and only the plain "after" measurement is reported.
+        required: false
+        type: string
+        default: eval-baseline.json
+  workflow_dispatch:
+    inputs:
+      config:
+        description: Path to pinakes.yaml in this repository.
+        required: false
+        type: string
+        default: pinakes.yaml
+      queries:
+        description: Path to queries.jsonl.
+        required: false
+        type: string
+        default: queries.jsonl
+      baseline:
+        description: Path to the eval --gate baseline JSON (optional).
+        required: false
+        type: string
+        default: eval-baseline.json
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  curate:
+    name: curate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `github.workflow_ref` names the repository and ref that *this* reusable workflow file
+      # lives on, regardless of which repository called it, e.g.
+      # "example-org/pinakes/.github/workflows/curate.yml@refs/heads/main". Comparing that to
+      # the checked-out repository tells us whether we are curating pinakes's own corpus (in
+      # which case the source is already on disk) or running in a consumer repository (in which
+      # case only a released binary is available).
+      - name: Identify the pinakes repository that owns this workflow
+        id: pinakes-repo
+        run: |
+          ref="${GITHUB_WORKFLOW_REF:-}"
+          slug="${ref%%/.github/workflows/*}"
+          if [ -z "$slug" ] || [ "$slug" = "$ref" ]; then
+            slug="$GITHUB_REPOSITORY"
+          fi
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Rust (running inside the pinakes repository)
+        if: steps.pinakes-repo.outputs.slug == github.repository
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: steps.pinakes-repo.outputs.slug == github.repository
+
+      - name: Build pinakes from source (running inside the pinakes repository)
+        if: steps.pinakes-repo.outputs.slug == github.repository
+        run: cargo install --path . --locked
+
+      - name: Pick the release asset for this runner
+        if: steps.pinakes-repo.outputs.slug != github.repository
+        id: target
+        run: |
+          case "${{ runner.os }}-${{ runner.arch }}" in
+            Linux-X64) echo "target=x86_64-unknown-linux-gnu" >> "$GITHUB_OUTPUT" ;;
+            macOS-ARM64) echo "target=aarch64-apple-darwin" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::no pinakes release asset for ${{ runner.os }}-${{ runner.arch }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Download the latest pinakes release
+        if: steps.pinakes-repo.outputs.slug != github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pinakes-bin"
+          gh release download --repo "${{ steps.pinakes-repo.outputs.slug }}" \
+            --pattern "*-${{ steps.target.outputs.target }}.tar.gz" \
+            --dir "$RUNNER_TEMP/pinakes-bin" --clobber
+          tar -xzf "$RUNNER_TEMP"/pinakes-bin/*.tar.gz -C "$RUNNER_TEMP/pinakes-bin" \
+            --strip-components=1
+          echo "$RUNNER_TEMP/pinakes-bin" >> "$GITHUB_PATH"
+
+      - run: pinakes --version
+
+      - name: Resolve the workspace paths
+        id: paths
+        run: echo "config_dir=$(dirname "${{ inputs.config }}")" >> "$GITHUB_OUTPUT"
+
+      - name: Save the committed manifest
+        run: |
+          cp "${{ steps.paths.outputs.config_dir }}/manifest.json" \
+            "$RUNNER_TEMP/old-manifest.json"
+
+      # The "before" measurement uses the *committed* corpus, reproduced byte for byte, so it is
+      # unaffected by anything `resolve` below is about to change.
+      - name: Materialise the committed corpus
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          pinakes --config "${{ inputs.config }}" resolve \
+            --from-manifest "$RUNNER_TEMP/old-manifest.json" \
+            --artifact "$RUNNER_TEMP/before-artifact"
+
+      - name: eval (before)
+        run: |
+          pinakes --config "${{ inputs.config }}" eval \
+            --artifact "$RUNNER_TEMP/before-artifact" \
+            --queries "${{ inputs.queries }}" \
+            --json "$RUNNER_TEMP/eval-before.json"
+
+      - name: pinakes resolve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pinakes --config "${{ inputs.config }}" resolve
+
+      - name: diff against the committed manifest
+        id: diff
+        run: |
+          set +e
+          pinakes diff "$RUNNER_TEMP/old-manifest.json" \
+            "${{ steps.paths.outputs.config_dir }}/manifest.json" > "$RUNNER_TEMP/diff.json"
+          status=$?
+          set -e
+          case "$status" in
+            0) echo "nothing changed; stopping early"; echo "changed=false" >> "$GITHUB_OUTPUT" ;;
+            3) echo "changed=true" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+
+      # `--gate` is only added when a baseline is actually committed, so a repository's first
+      # ever run (no baseline yet) still produces the "after" measurement instead of erroring.
+      # A failed gate is reported, not fatal: the point of this job is to surface the drop in a
+      # reviewable PR, not to silently skip it.
+      - name: eval (after)
+        if: steps.diff.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          gate_args=()
+          if [ -f "${{ inputs.baseline }}" ]; then
+            gate_args+=(--gate "${{ inputs.baseline }}")
+          fi
+          pinakes --config "${{ inputs.config }}" eval \
+            --queries "${{ inputs.queries }}" \
+            --json "$RUNNER_TEMP/eval-after.json" \
+            "${gate_args[@]}"
+
+      - name: duplicates (only when this build has the subcommand)
+        if: steps.diff.outputs.changed == 'true'
+        id: duplicates
+        run: |
+          if pinakes duplicates --help >/dev/null 2>&1; then
+            pinakes --config "${{ inputs.config }}" duplicates \
+              > "${{ steps.paths.outputs.config_dir }}/duplicates.jsonl"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pinakes duplicates: not in this build, skipping"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: report
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          pinakes --config "${{ inputs.config }}" report \
+            --old "$RUNNER_TEMP/old-manifest.json" \
+            --new "${{ steps.paths.outputs.config_dir }}/manifest.json" \
+            --eval-before "$RUNNER_TEMP/eval-before.json" \
+            --eval-after "$RUNNER_TEMP/eval-after.json" \
+            > "${{ steps.paths.outputs.config_dir }}/report.md"
+
+      - name: List the files the PR commits
+        if: steps.diff.outputs.changed == 'true'
+        id: commit-paths
+        run: |
+          dir="${{ steps.paths.outputs.config_dir }}"
+          {
+            echo "paths<<PINAKES_EOF"
+            echo "$dir/manifest.json"
+            echo "$dir/residue.jsonl"
+            if [ "${{ steps.duplicates.outputs.present }}" = "true" ]; then
+              echo "$dir/duplicates.jsonl"
+            fi
+            echo "$dir/report.md"
+            echo "PINAKES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the weekly curation pull request
+        if: steps.diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: pinakes/weekly
+          commit-message: "chore: refresh documentation corpus"
+          title: "chore: refresh documentation corpus"
+          body-path: ${{ steps.paths.outputs.config_dir }}/report.md
+          add-paths: ${{ steps.commit-paths.outputs.paths }}

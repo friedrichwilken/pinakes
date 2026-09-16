@@ -1,0 +1,86 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: subscriptions.messaging.example.com
+spec:
+  group: messaging.example.com
+  names:
+    kind: Subscription
+    plural: subscriptions
+    shortNames: [sub, subs]
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: false
+      schema:
+        openAPIV3Schema:
+          description: An old Subscription version.
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [sink]
+              properties:
+                sink:
+                  type: string
+                  description: The URL of the subscriber.
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          description: |
+            A Subscription describes interest
+            in a class of events.
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [sink]
+              properties:
+                sink:
+                  type: string
+                  description: The URL of the subscriber.
+                typeMatching:
+                  type: string
+                  description: How the event type is matched.
+                  enum: [exact, standard]
+                filters:
+                  type: array
+                  description: Event filters, all of which must match.
+                  items:
+                    type: object
+                    properties:
+                      eventType:
+                        type: string
+                config:
+                  type: object
+                  description: Free-form protocol settings.
+                  additionalProperties:
+                    type: string
+                extra:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                ready:
+                  type: boolean
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        description: The kind of condition.
+                        enum: [Ready, Subscribed]
+                      status:
+                        type: string
+    - name: v1beta1
+      served: false
+      storage: false
+      schema:
+        openAPIV3Schema:
+          type: object

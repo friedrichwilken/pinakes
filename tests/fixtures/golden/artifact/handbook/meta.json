@@ -1,0 +1,87 @@
+{
+  "base_url": "https://github.com/example-org/handbook/blob/0123456789abcdef0123456789abcdef01234567",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "module": "handbook",
+  "pages": {
+    "docs/concepts/architecture.md": {
+      "doc_type": "concept",
+      "section": "Concepts",
+      "title": "Architecture"
+    },
+    "docs/concepts/networking.md": {
+      "doc_type": "concept",
+      "section": "Concepts",
+      "title": "Networking"
+    },
+    "docs/concepts/notifications.md": {
+      "doc_type": "concept",
+      "section": "Concepts",
+      "title": "Notifications"
+    },
+    "docs/concepts/permissions.md": {
+      "doc_type": "concept",
+      "section": "Concepts",
+      "title": "Permissions"
+    },
+    "docs/concepts/storage.md": {
+      "doc_type": "concept",
+      "section": "Concepts",
+      "title": "Storage Backends"
+    },
+    "docs/configuration.md": {
+      "doc_type": "reference",
+      "section": "Start",
+      "title": "Configuration"
+    },
+    "docs/getting-started.md": {
+      "doc_type": "concept",
+      "section": "Start",
+      "title": "Getting Started"
+    },
+    "docs/install.md": {
+      "doc_type": "tutorial",
+      "section": "Start",
+      "title": "Install"
+    },
+    "docs/reference/cli.md": {
+      "doc_type": "reference",
+      "section": "Reference",
+      "title": "Command Line"
+    },
+    "docs/reference/config-keys.md": {
+      "doc_type": "reference",
+      "section": "Reference",
+      "title": "Configuration Keys"
+    },
+    "docs/troubleshooting/startup-failures.md": {
+      "doc_type": "troubleshooting",
+      "section": "Troubleshooting",
+      "title": "Startup Failures"
+    },
+    "docs/tutorials/backup-restore.md": {
+      "doc_type": "tutorial",
+      "section": "Tutorials",
+      "title": "Back Up and Restore"
+    },
+    "docs/tutorials/first-project.md": {
+      "doc_type": "tutorial",
+      "section": "Tutorials",
+      "title": "Create Your First Project"
+    },
+    "docs/uninstall.md": {
+      "doc_type": "tutorial",
+      "section": "Start",
+      "title": "Uninstall"
+    },
+    "docs/upgrade.md": {
+      "doc_type": "tutorial",
+      "section": "Start",
+      "title": "Upgrade"
+    }
+  },
+  "repo": "example-org/handbook",
+  "residue": [
+    "docs/internal/release-checklist.md"
+  ],
+  "unresolved": []
+}

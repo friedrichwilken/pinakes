@@ -1,0 +1,27 @@
+# A runnable two-source example. Run from this directory: `pinakes resolve`, then `verify`.
+version: 1
+sources:
+  - name: nomicon                      # a chapter-per-file mdBook, selected by glob
+    repo: https://github.com/rust-lang/nomicon.git
+    ref: master
+    priority: 10
+    resolver:
+      type: glob
+      include: ["src/**/*.md"]         # every chapter file, sub-chapters included
+      exclude: ["**/SUMMARY.md"]       # the table of contents is not a page
+  - name: api-guidelines               # selected by an external script (SPEC §3)
+    repo: https://github.com/rust-lang/api-guidelines.git
+    ref: master
+    priority: 5
+    resolver:
+      type: external
+      command: ["python3", "resolvers/frontmatter_title.py"]   # relative to this file
+      args: ["src"]                    # the directory to walk; SUMMARY.md is reported as residue
+policy:
+  deny: ["**/CLAUDE.md", "**/adr/**", "**/CHANGELOG.md"]
+  archived: warn
+  min_pages_per_source: 1
+eval:
+  queries: queries.jsonl
+  k: 10
+  max_recall_drop: 0.05

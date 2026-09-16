@@ -1,0 +1,28 @@
+# Example: a consumer repository calling pinakes's reusable curation workflow every Monday.
+#
+# Copy this file to `.github/workflows/curate.yml` in the repository that holds your
+# `pinakes.yaml`, `queries.jsonl` and committed `manifest.json`, then replace OWNER below with
+# the GitHub owner of the pinakes repository once it has one.
+#
+# `pinakes resolve` needs network access to GitHub; the default `GITHUB_TOKEN` is enough to
+# raise the API rate limit, so no extra secret is required. If your repository's settings do
+# not allow Actions to open pull requests, enable "Allow GitHub Actions to create and approve
+# pull requests" under Settings → Actions → General first, or the final step has nothing to do.
+
+name: curate
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # every Monday at 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  curate:
+    uses: OWNER/pinakes/.github/workflows/curate.yml@v1
+    with:
+      config: pinakes.yaml
+      queries: queries.jsonl
+      baseline: eval-baseline.json
+    permissions:
+      contents: write
+      pull-requests: write

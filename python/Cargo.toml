@@ -1,0 +1,41 @@
+[package]
+name = "pinakes-py"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+description = "Python bindings for the pinakes BM25 measurement index"
+publish = false
+
+[lib]
+name = "pinakes"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+# pyo3's `extension-module` feature omits linking against libpython, which a normal Rust test
+# harness executable needs; there are no Rust-level tests in this crate (see `tests/test_index.py`
+# for the Python-side suite), so the unit-test and doctest harnesses are turned off rather than
+# left to fail to link.
+test = false
+doctest = false
+# The lib is named `pinakes` to match the Python module name (SPEC §17.2), which collides with
+# the root crate's own `pinakes` lib name under `cargo doc --workspace`; rustdoc is skipped here
+# since `///` comments still become Python docstrings regardless (a pyo3 macro-time effect, not
+# a rustdoc one) and the root crate's docs are what the workspace doc gate exists to check.
+doc = false
+
+[dependencies]
+# Aliased: the crate's own name would otherwise collide with the `#[pymodule] fn pinakes`
+# below, which the pyo3 macro expands into an item named `pinakes` at the crate root.
+pinakes-lib = { package = "pinakes", path = ".." }
+pyo3 = { version = "0.29.2", features = ["extension-module", "abi3-py310"] }
+serde_json = "1.0.151"
+
+[lints.rust]
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"

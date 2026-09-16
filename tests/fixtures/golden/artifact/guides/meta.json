@@ -1,0 +1,50 @@
+{
+  "base_url": "https://github.com/example-org/guides/blob/0123456789abcdef0123456789abcdef01234567",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "module": "guides",
+  "pages": {
+    "docs/backup-restore.md": {
+      "doc_type": "howto",
+      "section": "Operations",
+      "title": "Back Up and Restore"
+    },
+    "docs/enable-caching.md": {
+      "doc_type": "howto",
+      "section": "Performance",
+      "title": "Enable Caching"
+    },
+    "docs/install.md": {
+      "doc_type": "howto",
+      "section": "Setup",
+      "title": "Install"
+    },
+    "docs/migrate-v2.md": {
+      "doc_type": "howto",
+      "section": "Operations",
+      "title": "Migrate to Version 2"
+    },
+    "docs/monitor-metrics.md": {
+      "doc_type": "howto",
+      "section": "Operations",
+      "title": "Monitor Metrics"
+    },
+    "docs/rotate-keys.md": {
+      "doc_type": "howto",
+      "section": "Security",
+      "title": "Rotate Signing Keys"
+    },
+    "docs/scale-workers.md": {
+      "doc_type": "howto",
+      "section": "Operations",
+      "title": "Scale Workers"
+    },
+    "docs/set-up-tls.md": {
+      "doc_type": "howto",
+      "section": "Security",
+      "title": "Set Up TLS"
+    }
+  },
+  "repo": "example-org/guides",
+  "residue": [],
+  "unresolved": []
+}

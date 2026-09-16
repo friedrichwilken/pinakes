@@ -1,0 +1,250 @@
+{
+  "eval": {
+    "backend": "bm25-tantivy",
+    "holdout": {
+      "overall": {
+        "mrr": 1.0,
+        "n": 2,
+        "recall@10": 1.0,
+        "recall@5": 1.0
+      },
+      "per_kind": {
+        "howto": {
+          "mrr": 1.0,
+          "n": 2,
+          "recall@10": 1.0,
+          "recall@5": 1.0
+        }
+      }
+    },
+    "queries": [
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "install",
+        "kind": "howto",
+        "rr": 1.0,
+        "top": [
+          "handbook::docs/install.md",
+          "handbook::docs/getting-started.md",
+          "handbook::docs/uninstall.md",
+          "handbook::docs/tutorials/backup-restore.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/tutorials/first-project.md",
+          "cookbook::docs/README.md",
+          "cookbook::docs/recipes/export-csv.md",
+          "cookbook::docs/recipes/cron-jobs.md",
+          "guides::docs/rotate-keys.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "backup",
+        "kind": "howto",
+        "rr": 1.0,
+        "top": [
+          "handbook::docs/tutorials/backup-restore.md",
+          "guides::docs/set-up-tls.md",
+          "handbook::docs/upgrade.md",
+          "guides::docs/migrate-v2.md",
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "handbook::docs/concepts/architecture.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "tls-port",
+        "kind": "reference",
+        "rr": 0.5,
+        "top": [
+          "guides::docs/set-up-tls.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/reference/config-keys.md",
+          "handbook::docs/install.md",
+          "handbook::docs/concepts/networking.md",
+          "handbook::docs/troubleshooting/startup-failures.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "rotate-keys",
+        "kind": "howto",
+        "rr": 1.0,
+        "top": [
+          "guides::docs/rotate-keys.md",
+          "handbook::docs/reference/config-keys.md",
+          "handbook::docs/reference/cli.md",
+          "handbook::docs/configuration.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "caching",
+        "kind": "howto",
+        "rr": 1.0,
+        "top": [
+          "guides::docs/enable-caching.md",
+          "cookbook::docs/recipes/rate-limiting.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "quota",
+        "kind": "reference",
+        "rr": 1.0,
+        "top": [
+          "guides::docs/quota-limits.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "startup",
+        "kind": "troubleshooting",
+        "rr": 1.0,
+        "top": [
+          "handbook::docs/troubleshooting/startup-failures.md",
+          "handbook::docs/tutorials/backup-restore.md",
+          "handbook::docs/upgrade.md",
+          "handbook::docs/configuration.md",
+          "handbook::docs/install.md",
+          "handbook::docs/tutorials/first-project.md",
+          "handbook::docs/getting-started.md",
+          "cookbook::docs/README.md",
+          "cookbook::docs/recipes/export-csv.md",
+          "cookbook::docs/recipes/cron-jobs.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "slow",
+        "kind": "troubleshooting",
+        "rr": 1.0,
+        "top": [
+          "handbook::docs/troubleshooting/slow-queries.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "architecture",
+        "kind": "concept",
+        "rr": 1.0,
+        "top": [
+          "handbook::docs/concepts/architecture.md"
+        ]
+      },
+      {
+        "hit10": false,
+        "hit5": false,
+        "holdout": false,
+        "id": "plugin",
+        "kind": "howto",
+        "rr": 0.0,
+        "top": [
+          "handbook::docs/concepts/architecture.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "crd-sink-field",
+        "kind": "reference",
+        "rr": 1.0,
+        "top": [
+          "schemas::reference/messaging.example.com/subscription-v1.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": false,
+        "id": "crd-type-matching-field",
+        "kind": "reference",
+        "rr": 1.0,
+        "top": [
+          "schemas::reference/messaging.example.com/subscription-v1.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": true,
+        "id": "webhooks",
+        "kind": "howto",
+        "rr": 1.0,
+        "top": [
+          "cookbook::docs/recipes/webhooks.md",
+          "handbook::docs/concepts/notifications.md",
+          "cookbook::docs/recipes/notification-templates.md",
+          "schemas::reference/messaging.example.com/subscription-v1.md"
+        ]
+      },
+      {
+        "hit10": true,
+        "hit5": true,
+        "holdout": true,
+        "id": "metrics",
+        "kind": "howto",
+        "rr": 1.0,
+        "top": [
+          "guides::docs/monitor-metrics.md",
+          "cookbook::docs/recipes/export-csv.md"
+        ]
+      }
+    ],
+    "tuning": {
+      "overall": {
+        "mrr": 0.875,
+        "n": 12,
+        "recall@10": 0.9166666666666666,
+        "recall@5": 0.9166666666666666
+      },
+      "per_kind": {
+        "concept": {
+          "mrr": 1.0,
+          "n": 1,
+          "recall@10": 1.0,
+          "recall@5": 1.0
+        },
+        "howto": {
+          "mrr": 0.8,
+          "n": 5,
+          "recall@10": 0.8,
+          "recall@5": 0.8
+        },
+        "reference": {
+          "mrr": 0.875,
+          "n": 4,
+          "recall@10": 1.0,
+          "recall@5": 1.0
+        },
+        "troubleshooting": {
+          "mrr": 1.0,
+          "n": 2,
+          "recall@10": 1.0,
+          "recall@5": 1.0
+        }
+      }
+    }
+  },
+  "k": 10,
+  "pages": 33,
+  "searchable": 30
+}

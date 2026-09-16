@@ -1,0 +1,4 @@
+https://example.com/docs/guide/intro.html
+https://example.com/docs/guide/
+https://example.com/docs/reference/api.html
+https://example.com/docs/missing.html

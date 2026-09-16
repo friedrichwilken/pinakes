@@ -1,0 +1,571 @@
+{
+  "generated_at": "2026-09-16T12:44:24Z",
+  "sources": {
+    "api-guidelines": {
+      "archived": false,
+      "commit": "97a0969cb07fe4cabb0eed8a56234053f47d83dc",
+      "pages": {
+        "src/about.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "e46227c4909b81d97a992d5c5a26d0591a84b780e71c9bff523bd24c8b0c4ddf",
+          "title": "Rust API Guidelines"
+        },
+        "src/checklist.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "6e8afb1f55d7f079b9c48f48925ca80d52de78ea27beb8d0e5fadf91123f23b2",
+          "title": "Rust API Guidelines Checklist"
+        },
+        "src/debuggability.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "f6eb09d8246fe6aafc3c0e7b0003c5876455e78d7806d9b43905f1b4080d52fc",
+          "title": "Debuggability"
+        },
+        "src/dependability.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "e0e1c29e6b31ef0e13a2da17b7afa41f0f3fbf5aadae7ad51d39b9ae3caaddea",
+          "title": "Dependability"
+        },
+        "src/documentation.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "6ba5c33eef97d07710abd09098d02a6a6d200ee3173b96dad27bf47139742105",
+          "title": "Documentation"
+        },
+        "src/external-links.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "5abb45809a28cb61ac91ddf92fd2fec72b6d2aa31a7f3155fd7c773cb36abe7d",
+          "title": "External links"
+        },
+        "src/flexibility.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "5565a393442c9dcaf73161584233060f4cb52f8de1b2c1abad5ccc95f61aed7d",
+          "title": "Flexibility"
+        },
+        "src/future-proofing.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "467184d9e5f3e0f949db6ca6a5f4232574e342ec76648e46424f39c8c23f3ad7",
+          "title": "Future proofing"
+        },
+        "src/interoperability.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "e795059bf83624252ee979c1e9672eb42600e0b7ea40a80026a975a2c0fb5d0d",
+          "title": "Interoperability"
+        },
+        "src/macros.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "02b743de7c7a714b04096fcbe214145ea81edf9261367063ecb618146e79df4c",
+          "title": "Macros"
+        },
+        "src/naming.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "36b3fcb3705867fc96cb6346a86d0ad3ef9ad97fe5a2741d1afc68063001c63a",
+          "title": "Naming"
+        },
+        "src/necessities.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "b471e4dcfb48fd9cee26075e97dfcb61ccfb1c2c4b89d21531a03d0da6760fe8",
+          "title": "Necessities"
+        },
+        "src/predictability.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "11e74c2710f3e9a62670e7e48d339404cbad3340e6cc10f7631ea57362ba61bf",
+          "title": "Predictability"
+        },
+        "src/type-safety.md": {
+          "doc_type": "",
+          "section": "src",
+          "selected_by": "resolver",
+          "sha256": "d2bfa67228eb1252e1f1e515e036766f3996c2e874dd7ba5ad1b4d8a566f51f5",
+          "title": "Type safety"
+        }
+      },
+      "ref": "master",
+      "repo": "rust-lang/api-guidelines",
+      "repo_url": "https://github.com/rust-lang/api-guidelines.git",
+      "residue": [
+        "src/SUMMARY.md"
+      ],
+      "resolver": "external",
+      "unresolved": []
+    },
+    "nomicon": {
+      "archived": false,
+      "commit": "5791ca9f5d671328af7a8fe87b42ca90c7211d28",
+      "pages": {
+        "src/aliasing.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "88842cc90f2f65a510e57a4711905847b245a2ce0c226010e41da0c0fa5ade1e",
+          "title": "Aliasing"
+        },
+        "src/arc-mutex/arc-and-mutex.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "4f5700bba2120a70eaae96a0c8976b01ef90239b8b7a477bee18e914576612de",
+          "title": "Implementing Arc and Mutex"
+        },
+        "src/arc-mutex/arc-base.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "919dbb3f271167416cd562d9f9be993866a03971f548d36196fc2c3a73d56f6b",
+          "title": "Base Code"
+        },
+        "src/arc-mutex/arc-clone.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "cf754df9d4afff99b2c58ff0732d8676b027324b56597a091dc4c12971fb65bb",
+          "title": "Cloning"
+        },
+        "src/arc-mutex/arc-drop.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "3ea620d7044da3dd2c2dd4ee45d2e4d6f0e15d8f8234d2f5c1aeb697f6a40af0",
+          "title": "Dropping"
+        },
+        "src/arc-mutex/arc-final.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "e818d590cf44e8eaae66d450995f597fdda39bbac0b090cde67fa3c5d1b806cf",
+          "title": "Final Code"
+        },
+        "src/arc-mutex/arc-layout.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "497f2ebe017131713a86d8356111a80ac31b0b4ee5a51dd5ad64d3c6d50443c1",
+          "title": "Layout"
+        },
+        "src/arc-mutex/arc.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "f97352f49bbefdecc131d5614cd399ef21b73d2f53e4d7ab87aeb0d80ae42a60",
+          "title": "Implementing Arc"
+        },
+        "src/atomics.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "672c59233ff0445016f494b94711fd7cbb432670bb85f12d78074ffd2cd1d814",
+          "title": "Atomics"
+        },
+        "src/beneath-std.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "7a6dd70db7fe7b3412a2457592dc4213fc84e78657dfa9acf2c64ffd9d2312a5",
+          "title": "Beneath `std`"
+        },
+        "src/borrow-splitting.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "aafc3fe364805eb48bff7b8c1f3337868548f63e4c7e5430e09c4030f535b07b",
+          "title": "Splitting Borrows"
+        },
+        "src/casts.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "991042c7f954f542c826e71b3115e6669971631f5e828604a8d56330abf263f9",
+          "title": "Casts"
+        },
+        "src/checked-uninit.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "ab33a76fda271679f50b392a1fa16ba19484884293376c53273422d01c4b2f22",
+          "title": "Checked Uninitialized Memory"
+        },
+        "src/coercions.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "35b410e856110b889c4a9aa2e78a46715680738c6e952ce31cfe5d157d3f7bff",
+          "title": "Coercions"
+        },
+        "src/concurrency.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "e408167bcf3d88168e889e88c2c0c14b2c11cae9ffe1ab82f95cf43baeac983b",
+          "title": "Concurrency and Parallelism"
+        },
+        "src/constructors.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "9833fbd7271ce2236bc400bedd0dc8cb2128e58df2fd969a38dc4fc95a9770eb",
+          "title": "Constructors"
+        },
+        "src/conversions.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "e9049e75c63110758f3ef6a0f981ccc5fc10b5ccb5aae887e27f48295cc8929c",
+          "title": "Type Conversions"
+        },
+        "src/data.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "ad8932cad27b1811c7a898455a7319081553587f625398538028b20425c5396d",
+          "title": "Data Representation in Rust"
+        },
+        "src/destructors.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "a75b57b703b0f4e7c84614a712c7f08384fec59895e45704081117e31529cce0",
+          "title": "Destructors"
+        },
+        "src/dot-operator.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "9b06c57e24688d0648cc7fc0172c9f2d1a1572a7080807d250acbf19b540b19b",
+          "title": "The Dot Operator"
+        },
+        "src/drop-flags.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "17a021d881283e8c77d806c670ab019f57a73deae051944d1836bd418e4bd810",
+          "title": "Drop Flags"
+        },
+        "src/dropck.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "eefd5551c3af3bb5edb53db1ea7fa8180795424e722cc1bddd2ee45dbc3bee4c",
+          "title": "Drop Check"
+        },
+        "src/exception-safety.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "ff49d1d687a455c0afb55bb3075727fa00e1fb8c8734524091fb3e2dc14ec891",
+          "title": "Exception Safety"
+        },
+        "src/exotic-sizes.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "2754620b96860c407a334930bc17b344bcaa40393258dfa27de1f9b24cef54f3",
+          "title": "Exotically Sized Types"
+        },
+        "src/ffi.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "94903f95a53a12af02da457531b55aa00b1844b800984dc9bd66838d1b896b19",
+          "title": "Foreign Function Interface"
+        },
+        "src/hrtb.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "acfe9961b688c70a3f2bbc018ae635191bf135d9694ffc7f8b5bd46e7210cd14",
+          "title": "Higher-Rank Trait Bounds (HRTBs)"
+        },
+        "src/intro.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "a572c91b6b4e1bfc96f055572375710e18c46b5bcc78090119fc95cf590df226",
+          "title": "The Rustonomicon"
+        },
+        "src/leaking.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "3571770cb3d033a12bed280d83888be42a9f78221c5e9cae397354fd21f2179b",
+          "title": "Leaking"
+        },
+        "src/lifetime-elision.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "0bde7b553ade62689a23dcda7a856eb96eb031478eaed47bdd8fdf77de73620e",
+          "title": "Lifetime Elision"
+        },
+        "src/lifetime-mismatch.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "7fac4ed8740d690445cc87a3c19e892ac63e28aa5e77b52869a74543a3900dc9",
+          "title": "Limits of Lifetimes"
+        },
+        "src/lifetimes.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "186b8acb87d9a0843e07be827c075bb8d2fb8f2e3a736827b0ab60aa6132c542",
+          "title": "Lifetimes"
+        },
+        "src/meet-safe-and-unsafe.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "788953b10e3a61a4a6a5d1e4936bc0c1565d2ef8ea3effc58daeee1168ac3fdb",
+          "title": "Meet Safe and Unsafe"
+        },
+        "src/obrm.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "c054145dfbeda375738f9902d551bc6e63f9451c7097dccfb042b08b417aaf88",
+          "title": "The Perils Of Ownership Based Resource Management (OBRM)"
+        },
+        "src/other-reprs.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "0f9b57c6e02d50a0fedfec07121665592aeb84a56f7072d797d7be5287a425fd",
+          "title": "Alternative representations"
+        },
+        "src/ownership.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "de10f706cda2fbbc770da3ebd78dc32fc086397aa81e1e30637cfe96435eb05a",
+          "title": "Ownership and Lifetimes"
+        },
+        "src/panic-handler.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "2e0952a9c73eb83226df48656ff68b22191ba1f89bf9de82b3e76e373d8f64c6",
+          "title": "#[panic_handler]"
+        },
+        "src/phantom-data.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "9e064d324449e19ac45ace2992abc7e96da51840965e36aa3216ba6331b36f8c",
+          "title": "PhantomData"
+        },
+        "src/poisoning.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "702701d0bf0bef211952daa6cbe6abb3ad6896483ede43cd70ae73ebaaadb93d",
+          "title": "Poisoning"
+        },
+        "src/races.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "538593e9c5bf13fdfb74b77035410c6897e6ab07760fa90d427489976fdb7503",
+          "title": "Data Races and Race Conditions"
+        },
+        "src/references.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "ef5f75437a8b5b63d3bcf30f12d20dca1613c089312207c6769d08d6ffcc1d82",
+          "title": "References"
+        },
+        "src/repr-rust.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "2e46bbbb3b0ea9674bbceec284400b5c9eca413822425d228d6a7cb09dd6bb7f",
+          "title": "repr(Rust)"
+        },
+        "src/safe-unsafe-meaning.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "362f375f811809111c462022ab1c4554847cf8869f98727706077ed16848c2fd",
+          "title": "How Safe and Unsafe Interact"
+        },
+        "src/send-and-sync.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "836230e655636819ce631910ff3c72d96d9919924c059570881da23eca0dc455",
+          "title": "Send and Sync"
+        },
+        "src/subtyping.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "762b460eae02c7bbb8519f9fa28eb3c98006677f52f9bb3af1177baeaea9de6c",
+          "title": "Subtyping and Variance"
+        },
+        "src/transmutes.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "bf85b9d7f798886264b80e19f84322533cbdf2f193fbca1c9f3b6b9eb82012a1",
+          "title": "Transmutes"
+        },
+        "src/unbounded-lifetimes.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "6e71163f05acdd32ae1056e5e5fccff29440b29ae2e956456b6e2f2af0dcd097",
+          "title": "Unbounded Lifetimes"
+        },
+        "src/unchecked-uninit.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "57b6125d7423faf67cbefb3a911b6f09da0cde4c474bee7d1310f6730223ca56",
+          "title": "Unchecked Uninitialized Memory"
+        },
+        "src/uninitialized.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "998958d8ab830894a064d602db9e70d5f072c1383c5522127eb5b4f0208ec813",
+          "title": "Working With Uninitialized Memory"
+        },
+        "src/unwinding.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "44a1bfabe07b7adbd1bb828207ecced507db668b27a41799971fa78b10c29f7a",
+          "title": "Unwinding"
+        },
+        "src/vec/vec-alloc.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "c0316dc75a750fe726213ec7c4d777341041ce796990b29de5a16a360ff83a58",
+          "title": "Allocating Memory"
+        },
+        "src/vec/vec-dealloc.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "1b4e7bef8ec5e72b07cf50f28baa475bfb82f18ee0c82352a2d15dfcb2a710b9",
+          "title": "Deallocating"
+        },
+        "src/vec/vec-deref.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "36ab59b21e903a3a3b6aaa24c1cd7188d97500674a7878b9ef604b8fb6bd2d10",
+          "title": "Deref"
+        },
+        "src/vec/vec-drain.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "3898cb79916f749f6a04189a7665982c827ac4580babfc162a1feefe223df194",
+          "title": "Drain"
+        },
+        "src/vec/vec-final.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "bf7070b86abf4ac47e88f85dce18de0f93a6d2a7f7b9041330884f985d91f402",
+          "title": "The Final Code"
+        },
+        "src/vec/vec-insert-remove.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "cd463725402d62552ee70c4e1e84e7413ede38bc20c152553af332561f060c42",
+          "title": "Insert and Remove"
+        },
+        "src/vec/vec-into-iter.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "e8c87b8386860320d8bae522027c0ef29ea085a9de5691b4e169024128f8927a",
+          "title": "IntoIter"
+        },
+        "src/vec/vec-layout.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "51078f904eed18cbb0fb9b7caa0d1011afc7956833094bc5ced275724c14e38a",
+          "title": "Layout"
+        },
+        "src/vec/vec-push-pop.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "51692ae3f9927ef1c544d732a20021de135eb2cea880c354d5029cd359effcd1",
+          "title": "Push and Pop"
+        },
+        "src/vec/vec-raw.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "21adfadced0cf46e992bb5a4a8887cd604dc6872e94fc450bafe54ddc7d6d646",
+          "title": "RawVec"
+        },
+        "src/vec/vec-zsts.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "a2224290444d6928e3db215803014db565dfa5bd87b809e3740cf4cb7cd63ce4",
+          "title": "Handling Zero-Sized Types"
+        },
+        "src/vec/vec.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "99e07ac0c6a9cc530b9558623abe61c24a86f8d801b733492ac4697e50bc3901",
+          "title": "Example: Implementing Vec"
+        },
+        "src/what-unsafe-does.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "35e4a86148b0187ead36a4e5eb236d292897f9184f180ea5950669f339ad6457",
+          "title": "What Unsafe Rust Can Do"
+        },
+        "src/working-with-unsafe.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "63523f246d72bbe87c1427ffd8831d2a86979758b74317ad7449fa71c9e4de7b",
+          "title": "Working with Unsafe"
+        }
+      },
+      "ref": "master",
+      "repo": "rust-lang/nomicon",
+      "repo_url": "https://github.com/rust-lang/nomicon.git",
+      "residue": [],
+      "resolver": "glob",
+      "unresolved": []
+    }
+  },
+  "version": 1
+}
