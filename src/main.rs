@@ -607,7 +607,7 @@ fn run_duplicates(mut paths: Paths, args: DuplicatesArgs) -> Result<ExitCode> {
         threshold: args.threshold,
         json: args.json.clone(),
     };
-    let pairs = commands::duplicates(&paths, &options, &GitHubFetcher::new())?;
+    let pairs = commands::duplicates(&paths, &options)?;
     let (mut exact, mut mirror, mut near) = (0, 0, 0);
     for pair in &pairs {
         match pair.kind {

@@ -287,10 +287,16 @@ pub fn excerpt(text: &str, max_tokens: usize) -> String {
         .join(" ")
 }
 
-/// Serialise entries as JSONL with sorted keys, one object per line.
+/// Serialise entries as JSONL with sorted keys, one object per line, entries themselves sorted
+/// by `(source, path)` (SPEC §2.4) so the file is byte-for-byte stable across runs regardless of
+/// the order they were found in.
 pub fn to_jsonl(entries: &[ResidueEntry]) -> Result<String, serde_json::Error> {
+    let mut sorted: Vec<&ResidueEntry> = entries.iter().collect();
+    sorted.sort_by(|a, b| {
+        (a.source.as_str(), a.path.as_str()).cmp(&(b.source.as_str(), b.path.as_str()))
+    });
     let mut out = String::new();
-    for entry in entries {
+    for entry in sorted {
         out.push_str(&serde_json::to_string(&serde_json::to_value(entry)?)?);
         out.push('\n');
     }
@@ -395,17 +401,55 @@ mod tests {
         ];
         let text = to_jsonl(&entries).unwrap();
         assert_eq!(text.lines().count(), 2);
+        // Entries are sorted by (source, path); "guides" comes before "handbook".
         assert!(text.starts_with(
-            "{\"context\":\"\",\"excerpt\":\"some text\",\"id\":\"handbook::docs/a.md\""
+            "{\"context\":\"\",\"excerpt\":\"some text\",\"id\":\"guides::docs/b.md\""
         ));
         assert!(text.contains("\"reason\":\"unresolved_link\""));
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("residue.jsonl");
         write_jsonl(&path, &entries).unwrap();
-        assert_eq!(read_jsonl(&path).unwrap(), entries);
+        assert_eq!(
+            read_jsonl(&path).unwrap(),
+            [entries[1].clone(), entries[0].clone()],
+            "the file is sorted regardless of the order entries were given in"
+        );
         std::fs::write(&path, "\n{bad\n").unwrap();
         let err = read_jsonl(&path).unwrap_err();
         assert!(matches!(err, ResidueError::Json { line: 2, .. }), "{err}");
+    }
+
+    #[test]
+    fn jsonl_is_byte_for_byte_stable_across_writes_and_input_order() {
+        let a = entry("handbook", "docs/a.md", Reason::NotSelected);
+        let b = entry("guides", "docs/b.md", Reason::UnresolvedLink);
+        let c = entry("guides", "docs/a.md", Reason::NotSelected);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("residue.jsonl");
+
+        write_jsonl(&path, &[a.clone(), b.clone(), c.clone()]).unwrap();
+        let first = std::fs::read_to_string(&path).unwrap();
+        // Same entries, different input order and a second write: byte for byte identical.
+        write_jsonl(&path, &[c.clone(), a.clone(), b.clone()]).unwrap();
+        let second = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(first, second);
+
+        let ids: Vec<&str> = first
+            .lines()
+            .map(|l| {
+                let rest = &l[l.find("\"id\":\"").unwrap() + 6..];
+                &rest[..rest.find('"').unwrap()]
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "guides::docs/a.md",
+                "guides::docs/b.md",
+                "handbook::docs/a.md"
+            ],
+            "sorted by (source, path)"
+        );
     }
 
     #[test]

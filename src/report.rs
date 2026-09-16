@@ -802,7 +802,8 @@ mod tests {
                 similarity: 0.71,
                 canonical: "handbook::docs/new.md".to_string(),
                 duplicate: "handbook::docs/getting-started.md".to_string(),
-                why: "same priority, selected_by and commit date".to_string(),
+                why: "priority and selected_by tie; handbook::docs/new.md sorts first"
+                    .to_string(),
                 suggested: Suggested::Review,
                 canonical_url: "https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/new.md".to_string(),
                 duplicate_url: "https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/getting-started.md".to_string(),

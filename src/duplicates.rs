@@ -6,10 +6,11 @@
 //! for candidates; pairs at or above the threshold are reported. Exact duplicates (identical
 //! `sha256`) and same-title mirrors are reported too, with `kind` set accordingly.
 //!
-//! This module never touches the filesystem or the network: the sha256, `selected_by` and
-//! commit-date facts the winner rule needs are supplied by the caller through
-//! [`DuplicateContext`], which `commands::duplicates` populates from the manifest and (for
-//! commit dates) a [`crate::sources::Fetcher`].
+//! This module never touches the filesystem or the network: the sha256 and `selected_by` facts
+//! the winner rule needs are supplied by the caller through [`DuplicateContext`], which
+//! `commands::duplicates` populates from the manifest; the winner rule's final tie-break (the
+//! lexically first page id) needs no external fact at all, so the result depends only on the
+//! artifact and manifest, never on the time or order a run happens in.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -104,21 +105,24 @@ pub struct DuplicatePair {
     pub duplicate_url: String,
 }
 
-/// External facts the winner rule and exact-duplicate detection need, looked up by page id or
-/// source name so the detection algorithm here stays pure (no file or network I/O).
+/// External facts the winner rule and exact-duplicate detection need, looked up by page id, so
+/// the detection algorithm here stays pure (no file or network I/O) and its result depends only
+/// on the artifact and manifest, never on the time or order it happens to run in.
 pub struct DuplicateContext<'a> {
     /// `sha256` of the original file bytes, by page id; `None` when it cannot be determined.
     pub sha256: &'a dyn Fn(&str) -> Option<String>,
     /// What selected the page, by page id; `None` when there is no manifest.
     pub selected_by: &'a dyn Fn(&str) -> Option<SelectedBy>,
-    /// The source's commit date in RFC 3339, by source name; `None` when unknown.
-    pub commit_date: &'a dyn Fn(&str) -> Option<String>,
 }
 
-/// Serialise pairs as JSONL with sorted keys, one object per line.
+/// Serialise pairs as JSONL with sorted keys, one object per line, pairs themselves sorted by
+/// `(canonical, duplicate)` (SPEC §11) so the file is byte-for-byte stable across runs
+/// regardless of the order they were found in.
 pub fn to_jsonl(pairs: &[DuplicatePair]) -> Result<String, serde_json::Error> {
+    let mut sorted: Vec<&DuplicatePair> = pairs.iter().collect();
+    sorted.sort_by(|a, b| (&a.canonical, &a.duplicate).cmp(&(&b.canonical, &b.duplicate)));
     let mut out = String::new();
-    for pair in pairs {
+    for pair in sorted {
         out.push_str(&serde_json::to_string(&serde_json::to_value(pair)?)?);
         out.push('\n');
     }
@@ -350,23 +354,15 @@ fn decide_winner(
         }
     }
 
-    let date_a = (context.commit_date)(&pa.source);
-    let date_b = (context.commit_date)(&pb.source);
-    if let (Some(date_a), Some(date_b)) = (date_a, date_b)
-        && date_a != date_b
-    {
-        let (hi, lo, date) = if date_a > date_b {
-            (a, b, date_a)
-        } else {
-            (b, a, date_b)
-        };
-        return (hi, lo, format!("newer commit ({date})"), false);
-    }
-
+    // Priority and selected_by both tied (or are unknown): the final, deterministic tie-break
+    // is the lexically first page id, kept as canonical. This always picks a winner, but
+    // `suggested` still reads "review" (SPEC §11): neither page actually outranks the other, a
+    // person should look.
+    let (hi, lo) = if pa.id <= pb.id { (a, b) } else { (b, a) };
     (
-        a,
-        b,
-        "same priority, selected_by and commit date".to_string(),
+        hi,
+        lo,
+        format!("priority and selected_by tie; {} sorts first", pages[hi].id),
         true,
     )
 }
@@ -537,7 +533,6 @@ mod tests {
         DuplicateContext {
             sha256: &|_| None,
             selected_by: &|_| None,
-            commit_date: &|_| None,
         }
     }
 
@@ -595,7 +590,6 @@ mod tests {
         let context = DuplicateContext {
             sha256: &sha,
             selected_by: &|_| None,
-            commit_date: &|_| None,
         };
         let pairs = find_duplicates(&pages, &context, DEFAULT_THRESHOLD);
         assert_eq!(pairs.len(), 1);
@@ -625,7 +619,7 @@ mod tests {
     }
 
     #[test]
-    fn winner_rule_prefers_priority_then_selected_by_then_commit_date_then_ties() {
+    fn winner_rule_prefers_priority_then_selected_by_then_the_lexically_first_id() {
         let pages = vec![
             page("a::x.md", 10, "X", LONG_A),
             page("b::y.md", 1, "Y", LONG_B),
@@ -648,34 +642,23 @@ mod tests {
         let context = DuplicateContext {
             sha256: &|_| None,
             selected_by: &selected_by,
-            commit_date: &|_| None,
         };
         let (winner, loser, why, tie) = decide_winner(&pages, &context, 0, 1);
         assert_eq!((winner, loser, tie), (1, 0, false));
         assert_eq!(why, "resolver beats include");
 
-        let commit_date = |source: &str| {
-            Some(
-                if source == "a" {
-                    "2026-01-01T00:00:00Z"
-                } else {
-                    "2025-01-01T00:00:00Z"
-                }
-                .to_string(),
-            )
-        };
-        let context = DuplicateContext {
-            sha256: &|_| None,
-            selected_by: &|_| None,
-            commit_date: &commit_date,
-        };
-        let (winner, loser, why, tie) = decide_winner(&pages, &context, 0, 1);
-        assert_eq!((winner, loser, tie), (0, 1, false));
-        assert!(why.starts_with("newer commit"), "{why}");
-
+        // Priority and selected_by both tie (here: no manifest at all, so selected_by is
+        // unknown for both): the lexically first id wins, deterministically, every time this
+        // pair is compared, in either argument order.
         let (winner, loser, why, tie) = decide_winner(&pages, &no_facts(), 0, 1);
-        assert_eq!((winner, loser, tie), (0, 1, true));
-        assert_eq!(why, "same priority, selected_by and commit date");
+        assert_eq!((winner, loser, tie), (0, 1, true), "a::x.md sorts first");
+        assert_eq!(why, "priority and selected_by tie; a::x.md sorts first");
+        let (winner, loser, _, tie) = decide_winner(&pages, &no_facts(), 1, 0);
+        assert_eq!(
+            (winner, loser, tie),
+            (0, 1, true),
+            "same result, args swapped"
+        );
     }
 
     #[test]
@@ -730,5 +713,36 @@ mod tests {
     #[test]
     fn jaccard_of_two_empty_sets_is_zero_not_one() {
         assert!(jaccard(&HashSet::new(), &HashSet::new()).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn duplicates_jsonl_is_byte_for_byte_stable_and_sorted_by_canonical_then_duplicate() {
+        let pages = vec![
+            page("b::y.md", 1, "Y", LONG_B),
+            page("a::x.md", 1, "X", LONG_A),
+            page("c::z.md", 1, "X", LONG_A),
+        ];
+        let first = find_duplicates(&pages, &no_facts(), DEFAULT_THRESHOLD);
+        let second = find_duplicates(&pages, &no_facts(), DEFAULT_THRESHOLD);
+        assert_eq!(first, second, "pure function of the same input");
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("duplicates.jsonl");
+        write_jsonl(&path, &first).unwrap();
+        let first_bytes = std::fs::read_to_string(&path).unwrap();
+        // Same pairs, reversed order: the file comes out identical either way.
+        let mut reversed = first.clone();
+        reversed.reverse();
+        write_jsonl(&path, &reversed).unwrap();
+        let second_bytes = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(first_bytes, second_bytes);
+
+        let pairs: Vec<(&str, &str)> = first
+            .iter()
+            .map(|p| (p.canonical.as_str(), p.duplicate.as_str()))
+            .collect();
+        let mut sorted = pairs.clone();
+        sorted.sort_unstable();
+        assert_eq!(pairs, sorted, "already sorted by (canonical, duplicate)");
     }
 }

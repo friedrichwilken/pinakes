@@ -178,6 +178,9 @@ decision, so one would have no effect anyway); `residue list` hides them by defa
 excluded` shows them, and `--reason excluded` shows them regardless), and `report` (§2.7) always
 accounts for their count in a collapsed block.
 
+`residue.jsonl` is written sorted by `(source, path)`, so re-running `resolve` against
+unchanged inputs reproduces the file byte for byte.
+
 ### 2.5 `decisions.jsonl` — verdicts on residue (human- or agent-written, committed)
 
 `{"id": "handbook::docs/user/x.md", "sha256": "…", "decision": "include" | "exclude" | "unsure", "reason": "one sentence", "by": "name or agent", "at": "2026-09-16T12:00:00Z"}`
@@ -435,9 +438,14 @@ commit (§2.4), derived from the manifest the same way; empty when there is no m
 them from (a manifest-less artifact) or the source's `repo` does not parse.
 
 Winner rule, in order: higher source `priority`; page `selected_by` = `resolver` beats `include`;
-newer source commit date (from the GitHub API when available, else unknown). Ties report
-`"suggested": "review"`. `report` gets a "Duplicates" section; `decide` accepts the duplicate id
+lexically first page id, as the final, deterministic tie-break — `why` says which step decided.
+`"suggested": "review"` only when priority and `selected_by` both tie and the lexical step had to
+pick; that step itself never yields `"suggested": "exclude"`, since neither page actually
+outranks the other. `report` gets a "Duplicates" section; `decide` accepts the duplicate id
 as usual and `--reason` defaults to `superseded by <canonical>` when `--superseded-by` is given.
+
+`duplicates.jsonl` is written sorted by `(canonical, duplicate)`, so re-running `resolve` or
+`duplicates` against unchanged inputs reproduces the file byte for byte.
 
 ## 12. Built-in resolvers
 

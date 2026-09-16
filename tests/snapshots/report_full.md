@@ -67,7 +67,7 @@
 
 ### mirror
 
-- [New Page](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/new.md) ← [Getting Started](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/getting-started.md) (similarity 0.710, suggested: review) — same priority, selected_by and commit date
+- [New Page](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/new.md) ← [Getting Started](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/getting-started.md) (similarity 0.710, suggested: review) — priority and selected_by tie; handbook::docs/new.md sorts first
 
 ### near
 

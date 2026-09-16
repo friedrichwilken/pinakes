@@ -335,7 +335,7 @@ fn resolve_fresh(
                 .map(|r| r.sha256.clone())
         })
     });
-    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts, fetcher)?;
+    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts)?;
     Ok(ResolveOutcome {
         manifest,
         residue: all_residue,
@@ -380,7 +380,7 @@ fn reproduce(
         all_residue.extend(recorded_residue(name, source, &checkout)?);
         checkouts.insert(name.clone(), checkout);
     }
-    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts, fetcher)?;
+    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts)?;
     Ok(ResolveOutcome {
         manifest,
         residue: all_residue,
@@ -466,17 +466,11 @@ fn write_outputs(
     manifest: &Manifest,
     all_residue: &[ResidueEntry],
     checkouts: &BTreeMap<String, Checkout>,
-    fetcher: &dyn Fetcher,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     artifact::materialise(&paths.artifact, manifest, checkouts)?;
     manifest.save(&paths.manifest)?;
     residue::write_jsonl(&paths.residue, all_residue)?;
-    let pairs = compute_duplicates(
-        paths,
-        Some(manifest),
-        fetcher,
-        duplicates::DEFAULT_THRESHOLD,
-    )?;
+    let pairs = compute_duplicates(paths, Some(manifest), duplicates::DEFAULT_THRESHOLD)?;
     duplicates::write_jsonl(&paths.duplicates, &pairs)?;
     Ok(pairs)
 }
@@ -494,13 +488,12 @@ fn sha256_of_page(paths: &Paths, manifest: Option<&Manifest>, id: &str) -> Optio
 }
 
 /// Find duplicate pairs in the artifact at `paths.artifact` (SPEC §11). `manifest`, when given,
-/// supplies exact `sha256`, `selected_by` and (via `fetcher`) commit dates for the winner rule;
-/// without one (a manifest-less artifact) exact duplicates still work from the file bytes, and
-/// the winner rule falls back to source priority alone.
+/// supplies exact `sha256`, `selected_by` and page urls for the winner rule and the reported
+/// pairs; without one (a manifest-less artifact) exact duplicates still work from the file
+/// bytes, and the winner rule falls back to source priority alone.
 fn compute_duplicates(
     paths: &Paths,
     manifest: Option<&Manifest>,
-    fetcher: &dyn Fetcher,
     threshold: f64,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     let priorities = if paths.config.is_file() {
@@ -509,25 +502,11 @@ fn compute_duplicates(
         Priorities::default()
     };
     let pages = index::load_pages(&paths.artifact, &priorities)?;
-    let commit_dates: BTreeMap<String, Option<String>> = manifest
-        .map(|m| {
-            m.sources
-                .iter()
-                .map(|(name, source)| {
-                    let date = RepoSlug::from_slug(&source.repo)
-                        .and_then(|slug| fetcher.commit_date(&slug, &source.commit));
-                    (name.clone(), date)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
     let sha256 = |id: &str| sha256_of_page(paths, manifest, id);
     let selected_by = |id: &str| manifest.and_then(|m| m.page(id)).map(|p| p.selected_by);
-    let commit_date = |source: &str| commit_dates.get(source).cloned().flatten();
     let context = DuplicateContext {
         sha256: &sha256,
         selected_by: &selected_by,
-        commit_date: &commit_date,
     };
     let mut pairs = duplicates::find_duplicates(&pages, &context, threshold);
     if let Some(manifest) = manifest {
@@ -558,18 +537,18 @@ impl Default for DuplicatesOptions {
 }
 
 /// Run `duplicates`: find exact, mirror and near-duplicate pairs in the artifact (SPEC §11).
-/// Uses the committed manifest when present for `selected_by` and (via `fetcher`) commit dates.
+/// Uses the committed manifest when present for `selected_by` and page urls; this never touches
+/// the network.
 pub fn duplicates(
     paths: &Paths,
     options: &DuplicatesOptions,
-    fetcher: &dyn Fetcher,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     let manifest = if paths.manifest.is_file() {
         Some(Manifest::load(&paths.manifest)?)
     } else {
         None
     };
-    let pairs = compute_duplicates(paths, manifest.as_ref(), fetcher, options.threshold)?;
+    let pairs = compute_duplicates(paths, manifest.as_ref(), options.threshold)?;
     if let Some(path) = &options.json {
         duplicates::write_jsonl(path, &pairs)?;
     }

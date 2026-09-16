@@ -67,14 +67,6 @@ pub trait Fetcher {
 
     /// Whether the repository is archived upstream; `None` when that cannot be determined.
     fn archived(&self, slug: &RepoSlug) -> Option<bool>;
-
-    /// The RFC 3339 date `slug`'s `commit` was made, or `None` when it cannot be determined
-    /// (offline, rate-limited, or a fetcher that does not implement this). Used only to break
-    /// ties in the duplicate-detection winner rule (SPEC §11); the default never knows.
-    fn commit_date(&self, slug: &RepoSlug, commit: &str) -> Option<String> {
-        let _ = (slug, commit);
-        None
-    }
 }
 
 /// The real fetcher: codeload.github.com for tarballs, api.github.com for metadata.
@@ -154,22 +146,6 @@ impl Fetcher for GitHubFetcher {
             .ok()?;
         let body: serde_json::Value = response.into_body().read_json().ok()?;
         body.get("archived")?.as_bool()
-    }
-
-    fn commit_date(&self, slug: &RepoSlug, commit: &str) -> Option<String> {
-        let url = format!("https://api.github.com/repos/{slug}/commits/{commit}");
-        let response = self
-            .get(&url, Some(Duration::from_secs(30)))
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .call()
-            .ok()?;
-        let body: serde_json::Value = response.into_body().read_json().ok()?;
-        body.get("commit")?
-            .get("committer")?
-            .get("date")?
-            .as_str()
-            .map(str::to_string)
     }
 }
 
@@ -411,7 +387,6 @@ pub mod testing {
     pub struct FakeFetcher {
         tarballs: BTreeMap<(String, String), Vec<u8>>,
         archived: BTreeMap<String, bool>,
-        commit_dates: BTreeMap<(String, String), String>,
         /// Every `(slug, ref)` requested so far, in order.
         pub requests: Mutex<Vec<(String, String)>>,
     }
@@ -426,12 +401,6 @@ pub mod testing {
         /// Register the archived flag for `slug`; unregistered slugs report unknown.
         pub fn set_archived(&mut self, slug: &str, archived: bool) {
             self.archived.insert(slug.to_string(), archived);
-        }
-
-        /// Register the commit date for `slug`@`commit`; unregistered ones report unknown.
-        pub fn set_commit_date(&mut self, slug: &str, commit: &str, date: &str) {
-            self.commit_dates
-                .insert((slug.to_string(), commit.to_string()), date.to_string());
         }
     }
 
@@ -452,12 +421,6 @@ pub mod testing {
 
         fn archived(&self, slug: &RepoSlug) -> Option<bool> {
             self.archived.get(&slug.to_string()).copied()
-        }
-
-        fn commit_date(&self, slug: &RepoSlug, commit: &str) -> Option<String> {
-            self.commit_dates
-                .get(&(slug.to_string(), commit.to_string()))
-                .cloned()
         }
     }
 }
