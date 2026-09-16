@@ -3,7 +3,11 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [1.0.0] - 2026-09-16
+
+First release: iterations 1 and 2 together. The file contracts in SPEC.md (config, manifest,
+residue, decisions, queries, trail, the external resolver and render protocols) are considered
+stable from this version on; changes to them bump the major version.
 
 Iteration 2 (SPEC §10 onwards): content that is not prose, better selection, judgement on top,
 and delivery.
@@ -64,7 +68,7 @@ and delivery.
   `specsink`), so a query for the whole path matches directly; the golden corpus metrics were
   re-pinned for this change.
 
-## [0.1.0]
+## [0.1.0] - 2026-09-16 (iteration 1, not published)
 
 Iteration 1: pinakes compiles a documentation corpus and measures it, end to end.
 
