@@ -8,6 +8,8 @@ Thanks for taking the time. The contract for everything the tool does is in
 ```sh
 cargo build            # debug
 cargo build --release  # target/release/pinakes
+just install           # cargo install --path . --locked, onto PATH
+just                   # lists every recipe (the justfile mirrors CI)
 ```
 
 Rust 2024 edition; the minimum supported version is the `rust-version` in `Cargo.toml`.

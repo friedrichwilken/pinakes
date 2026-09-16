@@ -38,6 +38,7 @@ and the spec disagree, the code is wrong. `README.md` explains; it never overrid
 ## Gates before every commit
 
 ```sh
+just check                                            # the three lines below, plus rustdoc, as CI runs them
 cargo fmt                                             # applied, not just checked
 cargo clippy --all-targets --all-features -- -D warnings   # pedantic is on in Cargo.toml
 cargo test                                            # unit, integration, golden, snapshots
