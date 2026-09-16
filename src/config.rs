@@ -343,6 +343,22 @@ pub struct EvalConfig {
     /// `queries check` fails when the held-out share of `queries.jsonl` falls below this.
     #[serde(default = "default_holdout_min")]
     pub holdout_min: f64,
+    /// The backend a bare `eval` measures (SPEC §16.1): `bm25` (default), `bm25-tantivy`,
+    /// `dense`, `hybrid` or `external`; `--backend` overrides it.
+    #[serde(default)]
+    pub backend: Option<String>,
+    /// The consumer's search endpoint base URL for the `external` backend; `--backend-url`
+    /// overrides it.
+    #[serde(default)]
+    pub backend_url: Option<String>,
+    /// `embeddings.bin` for the `dense` and `hybrid` backends, relative to the config file
+    /// (default: `embeddings.bin` next to it); `--embeddings` overrides it.
+    #[serde(default)]
+    pub embeddings: Option<PathBuf>,
+    /// Backends a bare `eval` compares over the same query set, one table each; when set it
+    /// wins over `backend`. `--compare` or `--backend` on the command line overrides it.
+    #[serde(default)]
+    pub compare: Vec<String>,
 }
 
 fn default_k() -> usize {
@@ -633,6 +649,39 @@ eval:
             "version: 1\nsources:\n  - name: {name}\n    repo: {repo}\n    ref: main\n    \
              resolver:\n      type: glob\n      include: ['**/*.md']\n"
         )
+    }
+
+    #[test]
+    fn parses_the_eval_backend_settings() {
+        let yaml = format!(
+            "{}{}",
+            minimal("handbook", "https://github.com/example-org/handbook.git"),
+            "eval:\n  queries: queries.jsonl\n  backend: hybrid\n  backend_url: http://localhost:8080\n  \
+             embeddings: vectors/embeddings.bin\n  compare: [bm25, dense]\n"
+        );
+        let eval = Config::from_yaml(&yaml)
+            .expect("valid config")
+            .eval
+            .unwrap();
+        assert_eq!(eval.backend.as_deref(), Some("hybrid"));
+        assert_eq!(eval.backend_url.as_deref(), Some("http://localhost:8080"));
+        assert_eq!(
+            eval.embeddings.as_deref(),
+            Some(std::path::Path::new("vectors/embeddings.bin"))
+        );
+        assert_eq!(eval.compare, ["bm25", "dense"]);
+
+        let plain = Config::from_yaml(&format!(
+            "{}eval:\n  queries: queries.jsonl\n",
+            minimal("handbook", "https://github.com/example-org/handbook.git")
+        ))
+        .unwrap()
+        .eval
+        .unwrap();
+        assert_eq!(plain.backend, None);
+        assert_eq!(plain.backend_url, None);
+        assert_eq!(plain.embeddings, None);
+        assert!(plain.compare.is_empty());
     }
 
     #[test]

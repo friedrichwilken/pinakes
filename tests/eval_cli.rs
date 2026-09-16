@@ -119,3 +119,71 @@ fn eval_writes_json_and_exits_2_when_the_gate_fails() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).contains("no query file"));
 }
+
+/// A config that fixes `eval.backend` (SPEC §16.1) makes a bare `eval` measure that backend,
+/// and `--backend` on the command line still overrides it.
+#[test]
+fn eval_takes_the_backend_from_the_config() {
+    let dir = workspace();
+    let root = dir.path();
+    fs::write(
+        root.join("pinakes.yaml"),
+        "version: 1\nsources:\n  - name: handbook\n    repo: https://github.com/example-org/handbook.git\n    \
+         ref: main\n    resolver:\n      type: glob\n      include: ['docs/**/*.md']\n\
+         eval:\n  queries: queries.jsonl\n  backend: bm25-tantivy\n",
+    )
+    .unwrap();
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_pinakes"))
+            .current_dir(root)
+            .args(["--config", "pinakes.yaml", "eval"])
+            .args(extra)
+            .output()
+            .expect("pinakes runs")
+    };
+
+    let out = run(&[]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["backend"], "bm25-tantivy");
+
+    let out = run(&["--backend", "bm25"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["backend"], "bm25", "the flag wins over the config");
+}
+
+/// `eval.compare` in the config turns a bare `eval` into a comparison, one result per backend.
+#[test]
+fn eval_takes_the_comparison_from_the_config() {
+    let dir = workspace();
+    let root = dir.path();
+    fs::write(
+        root.join("pinakes.yaml"),
+        "version: 1\nsources:\n  - name: handbook\n    repo: https://github.com/example-org/handbook.git\n    \
+         ref: main\n    resolver:\n      type: glob\n      include: ['docs/**/*.md']\n\
+         eval:\n  queries: queries.jsonl\n  compare: [bm25, bm25-tantivy]\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_pinakes"))
+        .current_dir(root)
+        .args(["--config", "pinakes.yaml", "eval"])
+        .output()
+        .expect("pinakes runs");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["bm25"]["backend"], "bm25");
+    assert_eq!(json["bm25-tantivy"]["backend"], "bm25-tantivy");
+}

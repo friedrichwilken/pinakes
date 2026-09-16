@@ -51,6 +51,10 @@ eval:
   queries: queries.jsonl
   k: 10
   max_recall_drop: 0.05              # eval --gate exits 2 beyond this
+  backend: bm25                      # what a bare `eval` measures (§16.1); --backend overrides
+  # backend_url: http://localhost:8080   # for backend: external
+  # embeddings: embeddings.bin       # for backend: dense | hybrid, relative to this file
+  # compare: [bm25, dense, hybrid]   # one table per backend; wins over `backend` for a bare eval
 ```
 
 Precedence for a file: `policy.deny` > source `resolver.exclude` > decisions > resolver selection.
@@ -535,6 +539,9 @@ with implementations selected by `--backend`: `bm25` (default, §5), `bm25-tanti
 own scorer, k1 1.2, b 0.75), `dense`, `hybrid`, `external`. `eval` accepts `--backend` and
 reports the backend in its JSON; `eval --compare bm25,dense,hybrid` prints one table per backend
 on the same query set.
+The `eval` section of `pinakes.yaml` may fix `backend`, `backend_url`, `embeddings` (relative to
+the config file) and `compare` for a bare `eval`; the flags override them, and a configured
+`compare` applies only when no `--backend` is given.
 
 ### 16.2 Dense backend (embeddings file)
 
