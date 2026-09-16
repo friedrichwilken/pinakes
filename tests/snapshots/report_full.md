@@ -40,15 +40,15 @@
 
 ## New residue
 
-### not_selected
-
-- `handbook::docs/fresh.md`
-  > word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word …
-
-### unresolved_link
+### linked from `docs/_sidebar.md` but the file does not exist
 
 - [Ghost](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/ghost.md)
   - context: Sidebar > Ghost
+
+### outside the configured include patterns
+
+- `handbook::docs/fresh.md`
+  > word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word …
 
 ## Expired decisions
 

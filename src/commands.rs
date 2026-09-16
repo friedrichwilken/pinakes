@@ -257,15 +257,12 @@ fn resolve_fresh(
     for source in &config.sources {
         let slug = source.slug();
         let archived = fetcher.archived(&slug);
+        let dropped = archived == Some(true) && config.policy.archived == ArchivedPolicy::Drop;
         if archived == Some(true) {
-            match config.policy.archived {
-                ArchivedPolicy::Drop => {
-                    warnings.push(format!("{}: repository is archived; dropped", source.name));
-                    continue;
-                }
-                ArchivedPolicy::Warn => {
-                    warnings.push(format!("{}: repository is archived", source.name));
-                }
+            if dropped {
+                warnings.push(format!("{}: repository is archived; dropped", source.name));
+            } else {
+                warnings.push(format!("{}: repository is archived", source.name));
             }
         }
         let dest = checkout_dir(work, &source.name);
@@ -277,6 +274,7 @@ fn resolve_fresh(
         })?;
         let ctx = ResolveContext {
             deny: &deny,
+            deny_patterns: &config.policy.deny,
             decisions: &effective,
             config_dir: &config_dir,
             is_new_source: previous
@@ -284,6 +282,12 @@ fn resolve_fresh(
                 .is_some_and(|p| !p.sources.contains_key(&source.name)),
         };
         let resolved = resolve::resolve_source(source, &checkout, &ctx)?;
+        if dropped {
+            // The whole source is left out of the corpus; its would-be pages are still
+            // accounted for, as residue with `source:archived` (SPEC §2.1, §2.4).
+            all_residue.extend(resolve::archived_residue(source, &checkout, resolved));
+            continue;
+        }
         let residue_paths = resolved
             .residue
             .iter()
@@ -437,6 +441,7 @@ fn recorded_residue(
             excerpt: residue::excerpt(strip_frontmatter(&text), residue::EXCERPT_TOKENS),
             context: String::new(),
             url: source.page_url(path).unwrap_or_default(),
+            rule: Some(residue::Rule::reproduced()),
         });
     }
     for path in &source.unresolved {
@@ -450,6 +455,7 @@ fn recorded_residue(
             excerpt: String::new(),
             context: String::new(),
             url: source.page_url(path).unwrap_or_default(),
+            rule: Some(residue::Rule::reproduced()),
         });
     }
     Ok(entries)
@@ -1577,7 +1583,12 @@ mod tests {
         assert_eq!(handbook.commit, SHA);
         assert_eq!(handbook.archived, Some(false));
         assert_eq!(handbook.pages.len(), 2);
-        assert!(outcome.residue.is_empty());
+        assert_eq!(
+            outcome.residue.iter().map(|r| r.reason).collect::<Vec<_>>(),
+            [Reason::Excluded, Reason::Excluded],
+            "docs/_sidebar.md matches resolver.exclude and docs/adr/1.md matches policy.deny, \
+             both now residue in their own right (SPEC §2.4) instead of vanishing silently"
+        );
         assert!(outcome.warnings.is_empty());
         assert!(paths.manifest.is_file() && paths.residue.is_file());
         assert!(paths.artifact.join("handbook/docs/a.md").is_file());
@@ -1618,16 +1629,17 @@ mod tests {
             CommandError::UnknownId(_)
         ));
 
-        // The exclude decision now removes the page and reports it as residue.
+        // The exclude decision now removes the page and reports it as residue, alongside the
+        // ongoing policy.deny and resolver.exclude residue (SPEC §2.4).
         let outcome = resolve(&paths, &opts(), &fetcher).unwrap();
         assert_eq!(outcome.manifest.sources["handbook"].pages.len(), 1);
-        assert_eq!(outcome.residue.len(), 1);
+        assert_eq!(outcome.residue.len(), 3, "{:#?}", outcome.residue);
         assert_eq!(outcome.residue[0].id, "handbook::docs/a.md");
         assert!(
             residue_list(&paths, &ListFilter::default())
                 .unwrap()
                 .is_empty(),
-            "decided → hidden"
+            "decided → hidden; the excluded ones are hidden by default regardless of decisions"
         );
         assert!(paths.artifact.join("_residue/handbook/docs/a.md").is_file());
         assert!(outcome.expired.is_empty());
@@ -1690,6 +1702,27 @@ mod tests {
             outcome.warnings,
             ["handbook: repository is archived; dropped"]
         );
+        // The source's would-be pages are still accounted for, as residue with `source:archived`
+        // (SPEC §2.1, §2.4); its own residue (excluded/denied files) keeps its own rule.
+        let by_path: std::collections::BTreeMap<&str, &str> = outcome
+            .residue
+            .iter()
+            .map(|r| (r.path.as_str(), r.rule.as_ref().unwrap().key.as_str()))
+            .collect();
+        assert_eq!(
+            by_path,
+            [
+                ("docs/_sidebar.md", "resolver:exclude"),
+                ("docs/a.md", "source:archived"),
+                ("docs/adr/1.md", "policy:deny"),
+                ("docs/b.md", "source:archived"),
+            ]
+            .into_iter()
+            .collect(),
+            "{:#?}",
+            outcome.residue
+        );
+        assert!(outcome.residue.iter().all(|r| r.reason == Reason::Excluded));
     }
 
     #[test]
@@ -1772,7 +1805,9 @@ type: object\n              properties:\n                size:\n                
         let outcome = resolve(&paths, &opts(), &fetcher).unwrap();
         assert_eq!(
             outcome.residue.iter().map(|r| r.reason).collect::<Vec<_>>(),
-            [Reason::NotSelected]
+            [Reason::NotSelected, Reason::Excluded, Reason::Excluded],
+            "docs/b.md is not selected; docs/_sidebar.md matches resolver.exclude and \
+             docs/adr/1.md matches policy.deny, both now residue in their own right (SPEC §2.4)"
         );
         // Rename the source: it is now new relative to the committed manifest.
         fs::write(
@@ -2215,6 +2250,7 @@ type: object\n              properties:\n                size:\n                
                 excerpt: "some text".to_string(),
                 context: String::new(),
                 url: String::new(),
+                rule: None,
             }],
         )
         .unwrap();

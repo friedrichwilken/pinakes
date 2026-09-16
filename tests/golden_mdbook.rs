@@ -85,6 +85,7 @@ fn cookbook_resolves_its_committed_pages_through_the_mdbook_resolver() {
     let decisions = BTreeMap::new();
     let ctx = ResolveContext {
         deny: &deny,
+        deny_patterns: &[],
         decisions: &decisions,
         config_dir: &golden_fixture(),
         is_new_source: false,

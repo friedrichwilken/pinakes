@@ -26,17 +26,17 @@ _none_
 
 ## New residue
 
-### not_selected
+### linked from `docs/_sidebar.md` but the file does not exist
+
+- [Ghost](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/ghost.md)
+  - context: Sidebar > Ghost
+
+### outside the configured include patterns
 
 - [Known](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/known-residue.md)
   > seen before
 - `handbook::docs/fresh.md`
   > word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word …
-
-### unresolved_link
-
-- [Ghost](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/ghost.md)
-  - context: Sidebar > Ghost
 
 ## Expired decisions
 

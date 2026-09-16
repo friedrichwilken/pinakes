@@ -44,6 +44,7 @@ pub(super) fn plan(
             section: entry.section.clone(),
             selected,
             context: String::new(),
+            rule: None,
         };
         match resolve_doc_id(&entry.target, &file_set) {
             LinkTarget::Resolved(p) => {
@@ -72,6 +73,7 @@ pub(super) fn plan(
                     section: section.clone(),
                     selected: true,
                     context: String::new(),
+                    rule: None,
                 });
             }
         }

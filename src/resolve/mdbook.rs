@@ -74,6 +74,7 @@ pub(super) fn plan(
                 section: section.clone(),
                 selected,
                 context: String::new(),
+                rule: None,
             };
             match navigation::resolve_link(base_dir, &target, &file_set) {
                 LinkTarget::Resolved(p) => {

@@ -51,6 +51,7 @@ pub(super) fn plan(
                         section: String::new(),
                         selected: true,
                         context: String::new(),
+                        rule: None,
                     },
                 );
             }
@@ -64,6 +65,7 @@ pub(super) fn plan(
                         section: String::new(),
                         selected: false,
                         context: String::new(),
+                        rule: None,
                     },
                 );
             }

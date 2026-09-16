@@ -16,7 +16,7 @@ use thiserror::Error;
 use crate::config::{ConfigError, RepoSlug, Resolver, Source, compile_globs, compile_regex};
 use crate::decisions::{Decision, Verdict};
 use crate::manifest::{PageEntry, SelectedBy, page_id};
-use crate::residue::{EXCERPT_TOKENS, Reason, ResidueEntry, excerpt};
+use crate::residue::{EXCERPT_TOKENS, Reason, ResidueEntry, Rule, excerpt};
 use crate::sources::{Checkout, SourceError, list_files};
 
 mod docusaurus;
@@ -104,6 +104,12 @@ pub struct Candidate {
     /// Extra context for residue; defaults to `section`.
     #[serde(default)]
     pub context: String,
+    /// The mechanism the external resolver command itself wants recorded for an unselected
+    /// candidate (SPEC §3), e.g. `{"key": "toc:outside-match", "text": "…"}`; when absent,
+    /// pinakes assigns [`crate::residue::Rule::external_not_selected`] or
+    /// [`crate::residue::Rule::external_unmatched`] instead. Ignored for a selected candidate.
+    #[serde(default)]
+    pub rule: Option<crate::residue::Rule>,
 }
 
 fn default_true() -> bool {
@@ -120,6 +126,7 @@ impl Candidate {
             section: String::new(),
             selected,
             context: String::new(),
+            rule: None,
         }
     }
 }
@@ -287,42 +294,51 @@ pub fn title_of(nav_title: &str, content: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Why [`precedence`] decided a file is residue (SPEC §2.4's `rule`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResidueCause<'a> {
+    /// An active decision excludes the page, regardless of resolver selection.
+    Decision(&'a Decision),
+    /// The resolver (or the scope-fill pass) did not select the page.
+    NotSelected,
+}
+
 /// Outcome of the precedence rules for one file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome {
+pub enum Outcome<'a> {
     /// `policy.deny` matched: the file is neither a page nor residue.
     Denied,
     /// `resolver.exclude` matched: the file is neither a page nor residue.
     Excluded,
     /// The file is a page, selected by the given mechanism.
     Selected(SelectedBy),
-    /// The file is residue.
-    Residue,
+    /// The file is residue, for the given reason.
+    Residue(ResidueCause<'a>),
 }
 
 /// Apply `policy.deny` > `resolver.exclude` > decisions > resolver selection.
 ///
 /// `decision` must already be checked against the file hash (an expired decision is `None`);
 /// `resolver_selection` is `Some` when the resolver selected the file.
-pub fn precedence(
+pub fn precedence<'a>(
     path: &str,
     deny: &GlobSet,
     exclude: &GlobSet,
-    decision: Option<&Decision>,
+    decision: Option<&'a Decision>,
     resolver_selection: Option<SelectedBy>,
-) -> Outcome {
+) -> Outcome<'a> {
     if deny.is_match(path) {
         return Outcome::Denied;
     }
     if exclude.is_match(path) {
         return Outcome::Excluded;
     }
-    match decision.map(|d| d.decision) {
-        Some(Verdict::Include) => Outcome::Selected(SelectedBy::Decision),
-        Some(Verdict::Exclude) => Outcome::Residue,
-        Some(Verdict::Unsure) | None => match resolver_selection {
+    match decision.map(|d| (d, d.decision)) {
+        Some((_, Verdict::Include)) => Outcome::Selected(SelectedBy::Decision),
+        Some((d, Verdict::Exclude)) => Outcome::Residue(ResidueCause::Decision(d)),
+        Some((_, Verdict::Unsure)) | None => match resolver_selection {
             Some(by) => Outcome::Selected(by),
-            None => Outcome::Residue,
+            None => Outcome::Residue(ResidueCause::NotSelected),
         },
     }
 }
@@ -331,6 +347,9 @@ pub fn precedence(
 pub struct ResolveContext<'a> {
     /// Compiled `policy.deny`.
     pub deny: &'a GlobSet,
+    /// Raw `policy.deny` patterns, to name the one that matched in a residue entry's `rule`
+    /// (SPEC §2.1, §2.4).
+    pub deny_patterns: &'a [String],
     /// Effective decisions by page id.
     pub decisions: &'a BTreeMap<String, Decision>,
     /// Directory of `pinakes.yaml`, for relative resolver script paths.
@@ -363,6 +382,11 @@ struct Plan {
     /// The navigation file a `vitepress`, `docusaurus`, `mdbook` or `sitemap` resolver read
     /// (SPEC §12); `None` for `glob` and `external`, which have no such file.
     nav_path: Option<String>,
+    /// Paths the resolver's own mechanism produced a candidate for (selected or not), before
+    /// the `include` extra and the scope-fill pass added anything else; used by the `external`
+    /// resolver's rule (SPEC §2.4) to tell a file its own output named from one it never
+    /// mentioned at all.
+    mentioned: BTreeSet<String>,
 }
 
 /// The `glob` resolver's effective `extensions` (SPEC §2.1): `configured` verbatim when given,
@@ -594,6 +618,7 @@ fn plan(
     let file_set: BTreeSet<&str> = files.iter().map(String::as_str).collect();
     let (mut candidates, exclude, scope, mention, extra_include, nav_path) =
         resolver_plan(source, checkout, files, config_dir)?;
+    let mentioned: BTreeSet<String> = candidates.keys().cloned().collect();
     let include_selected = apply_extra_include(&mut candidates, files, extra_include)?;
     let unresolved: Vec<String> = candidates
         .keys()
@@ -608,6 +633,7 @@ fn plan(
         unresolved,
         include_selected,
         nav_path,
+        mentioned,
     })
 }
 
@@ -665,12 +691,17 @@ pub fn resolve_source(
 ///
 /// A dangling link has no file of its own to point at, so its url is the navigation file that
 /// linked it, at the fetched commit; the external resolver has no navigation file, so it falls
-/// back to the (nonexistent) target path itself.
+/// back to the (nonexistent) target path itself, with a rule of its own
+/// ([`Rule::external_dangling_link`]) instead of [`Rule::nav_dangling_link`].
 fn unresolved_entries(source: &Source, checkout: &Checkout, plan: &mut Plan) -> Vec<ResidueEntry> {
     let unresolved_url = plan
         .nav_path
         .as_deref()
         .map(|nav| page_url(source, checkout, nav));
+    let rule = match &plan.nav_path {
+        Some(nav) => Rule::nav_dangling_link(nav),
+        None => Rule::external_dangling_link(),
+    };
     plan.unresolved
         .clone()
         .iter()
@@ -691,6 +722,7 @@ fn unresolved_entries(source: &Source, checkout: &Checkout, plan: &mut Plan) -> 
                 url: unresolved_url
                     .clone()
                     .unwrap_or_else(|| page_url(source, checkout, path)),
+                rule: Some(rule.clone()),
             }
         })
         .collect()
@@ -730,6 +762,70 @@ fn resolver_kind_of(resolver: &Resolver) -> SelectedBy {
     }
 }
 
+/// A resolver's own `exclude` glob patterns (SPEC §2.1); every resolver kind has one.
+fn resolver_exclude(resolver: &Resolver) -> &[String] {
+    match resolver {
+        Resolver::Glob { exclude, .. }
+        | Resolver::External { exclude, .. }
+        | Resolver::Vitepress { exclude, .. }
+        | Resolver::Docusaurus { exclude, .. }
+        | Resolver::Mdbook { exclude, .. }
+        | Resolver::Sitemap { exclude, .. } => exclude,
+    }
+}
+
+/// The first pattern in `patterns` that matches `path`, to name in a residue entry's `rule`
+/// (SPEC §2.4); a pattern that fails to compile (validation should have caught this already) is
+/// skipped rather than panicking.
+fn first_matching_pattern(patterns: &[String], path: &str) -> Option<String> {
+    patterns
+        .iter()
+        .find(|pattern| {
+            globset::Glob::new(pattern).is_ok_and(|g| g.compile_matcher().is_match(path))
+        })
+        .cloned()
+}
+
+/// The rule (SPEC §2.4) for a candidate the resolver's own mechanism did not select: which one
+/// depends on the resolver kind and, for `glob` and `external`, on why exactly.
+fn not_selected_rule(source: &Source, plan: &Plan, path: &str, candidate: &Candidate) -> Rule {
+    match &source.resolver {
+        Resolver::Glob {
+            include,
+            extensions,
+            ..
+        } => {
+            let include_set =
+                compile_globs("include", include).unwrap_or_else(|_| GlobSet::empty());
+            let configured = effective_extensions(extensions.as_deref(), source.render.is_some());
+            if include_set.is_match(path) && !matches_extension(path, &configured) {
+                Rule::glob_extension(&configured)
+            } else {
+                Rule::glob_outside_include()
+            }
+        }
+        Resolver::External { .. } => candidate.rule.clone().unwrap_or_else(|| {
+            if plan.mentioned.contains(path) {
+                Rule::external_not_selected()
+            } else {
+                Rule::external_unmatched()
+            }
+        }),
+        Resolver::Vitepress { .. } => {
+            Rule::sidebar_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+        }
+        Resolver::Docusaurus { .. } => {
+            Rule::docusaurus_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+        }
+        Resolver::Mdbook { .. } => {
+            Rule::mdbook_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+        }
+        Resolver::Sitemap { .. } => {
+            Rule::sitemap_unlisted(plan.nav_path.as_deref().unwrap_or_default())
+        }
+    }
+}
+
 /// Apply the precedence rules to one candidate, inserting it into `result.pages` or
 /// `result.residue` as appropriate.
 #[allow(clippy::too_many_arguments)]
@@ -760,7 +856,27 @@ fn classify_candidate(
     };
     let selection = candidate.selected.then_some(by);
     match precedence(path, ctx.deny, &plan.exclude, decision, selection) {
-        Outcome::Denied | Outcome::Excluded => {}
+        Outcome::Denied => excluded_residue(
+            source,
+            checkout,
+            path,
+            &sha256,
+            &text,
+            Rule::policy_deny(&first_matching_pattern(ctx.deny_patterns, path).unwrap_or_default()),
+            result,
+        ),
+        Outcome::Excluded => excluded_residue(
+            source,
+            checkout,
+            path,
+            &sha256,
+            &text,
+            Rule::resolver_exclude(
+                &first_matching_pattern(resolver_exclude(&source.resolver), path)
+                    .unwrap_or_default(),
+            ),
+            result,
+        ),
         Outcome::Selected(selected_by) => {
             result.pages.insert(
                 path.to_string(),
@@ -774,10 +890,17 @@ fn classify_candidate(
                 },
             );
         }
-        Outcome::Residue => {
+        Outcome::Residue(cause) => {
             if plan.mention.as_ref().is_some_and(|re| !re.is_match(&text)) {
                 return Ok(());
             }
+            let rule = match cause {
+                ResidueCause::Decision(d) => Rule::decision_exclude(&d.by, &d.reason),
+                // A brand new source's residue is uniformly unreviewed (SPEC §2.4's
+                // `source:new`), regardless of which resolver mechanism did not select it.
+                ResidueCause::NotSelected if reason == Reason::NewSource => Rule::source_new(),
+                ResidueCause::NotSelected => not_selected_rule(source, plan, path, candidate),
+            };
             result.residue.push(ResidueEntry {
                 id,
                 source: source.name.clone(),
@@ -788,10 +911,75 @@ fn classify_candidate(
                 excerpt: excerpt(strip_frontmatter(&text), EXCERPT_TOKENS),
                 context: context_of(&candidate.context, &candidate.section),
                 url: page_url(source, checkout, path),
+                rule: Some(rule),
             });
         }
     }
     Ok(())
+}
+
+/// Record a file `policy.deny` or a resolver's `exclude` kept out of both the corpus and the
+/// ordinary residue pass, as residue in its own right (reason [`Reason::Excluded`], SPEC §2.4)
+/// so nothing disappears from view without a trace.
+#[allow(clippy::too_many_arguments)]
+fn excluded_residue(
+    source: &Source,
+    checkout: &Checkout,
+    path: &str,
+    sha256: &str,
+    text: &str,
+    rule: Rule,
+    result: &mut ResolvedSource,
+) {
+    result.residue.push(ResidueEntry {
+        id: page_id(&source.name, path),
+        source: source.name.clone(),
+        path: path.to_string(),
+        reason: Reason::Excluded,
+        sha256: sha256.to_string(),
+        title: title_of("", text),
+        excerpt: excerpt(strip_frontmatter(text), EXCERPT_TOKENS),
+        context: String::new(),
+        url: page_url(source, checkout, path),
+        rule: Some(rule),
+    });
+}
+
+/// Turn `resolved`'s would-be pages into residue (reason [`Reason::Excluded`], rule
+/// [`Rule::source_archived`], SPEC §2.4) because `policy.archived` dropped the whole source;
+/// `resolved`'s own residue entries are kept as they are, since those files were never going to
+/// join the corpus regardless of the source's archived state.
+pub fn archived_residue(
+    source: &Source,
+    checkout: &Checkout,
+    resolved: ResolvedSource,
+) -> Vec<ResidueEntry> {
+    let mut entries = resolved.residue;
+    for (path, page) in resolved.pages {
+        let full = checkout.root.join(&path);
+        let excerpt_text = std::fs::read(&full)
+            .map(|bytes| {
+                excerpt(
+                    strip_frontmatter(&String::from_utf8_lossy(&bytes)),
+                    EXCERPT_TOKENS,
+                )
+            })
+            .unwrap_or_default();
+        entries.push(ResidueEntry {
+            id: page_id(&source.name, &path),
+            source: source.name.clone(),
+            path: path.clone(),
+            reason: Reason::Excluded,
+            sha256: page.sha256,
+            title: page.title,
+            excerpt: excerpt_text,
+            context: String::new(),
+            url: page_url(source, checkout, &path),
+            rule: Some(Rule::source_archived()),
+        });
+    }
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    entries
 }
 
 fn context_of(context: &str, section: &str) -> String {
@@ -848,11 +1036,12 @@ mod tests {
         decisions: &[Decision],
         is_new_source: bool,
     ) -> ResolvedSource {
-        let deny: Vec<String> = deny.iter().map(|s| (*s).to_string()).collect();
-        let deny = compile_globs("deny", &deny).unwrap();
+        let deny_patterns: Vec<String> = deny.iter().map(|s| (*s).to_string()).collect();
+        let deny = compile_globs("deny", &deny_patterns).unwrap();
         let decisions = crate::decisions::effective(decisions);
         let ctx = ResolveContext {
             deny: &deny,
+            deny_patterns: &deny_patterns,
             decisions: &decisions,
             config_dir: Path::new("."),
             is_new_source,
@@ -895,10 +1084,20 @@ mod tests {
         assert_eq!(readme.selected_by, SelectedBy::Include);
         assert_eq!(readme.sha256, sha256_hex(b"# Handbook\n\nIntro.\n"));
         assert_eq!(result.pages["docs/user/sub/deep.md"].title, "Deep Page");
-        assert!(
-            result.residue.is_empty(),
-            "excluded and denied files are not residue"
+        let excluded: Vec<(&str, &str)> = result
+            .residue
+            .iter()
+            .map(|r| (r.path.as_str(), r.rule.as_ref().unwrap().key.as_str()))
+            .collect();
+        assert_eq!(
+            excluded,
+            [
+                ("docs/user/_sidebar.md", "resolver:exclude"),
+                ("docs/user/adr/001.md", "policy:deny"),
+            ],
+            "excluded and denied files are residue in their own right (SPEC §2.4)"
         );
+        assert!(result.residue.iter().all(|r| r.reason == Reason::Excluded));
         assert!(result.unresolved.is_empty());
     }
 
@@ -921,9 +1120,15 @@ mod tests {
         assert_eq!(residue.title, "C");
         assert_eq!(residue.excerpt, "# C secret storage text");
         assert_eq!(residue.sha256, sha256_hex(b"# C\n\nsecret storage text\n"));
+        assert_eq!(
+            residue.rule.as_ref().unwrap().key,
+            "glob:outside-include",
+            "outside include, not an extension mismatch"
+        );
 
         let result = resolve(&source, &co, &[], &[], true);
         assert_eq!(result.residue[0].reason, Reason::NewSource);
+        assert_eq!(result.residue[0].rule.as_ref().unwrap().key, "source:new");
     }
 
     #[test]
@@ -963,9 +1168,16 @@ mod tests {
         let residue: Vec<&str> = result.residue.iter().map(|r| r.path.as_str()).collect();
         assert_eq!(
             residue,
-            ["docs/a.md"],
-            "decision-excluded page stays residue"
+            ["docs/a.md", "docs/x.md"],
+            "decision-excluded page stays residue; policy.deny beats the include decision too, \
+             now as residue in its own right (SPEC §2.4)"
         );
+        let a = &result.residue[0];
+        assert_eq!(a.reason, Reason::NotSelected);
+        assert_eq!(a.rule.as_ref().unwrap().key, "decision:exclude");
+        let x = &result.residue[1];
+        assert_eq!(x.reason, Reason::Excluded);
+        assert_eq!(x.rule.as_ref().unwrap().key, "policy:deny");
     }
 
     #[test]
@@ -990,7 +1202,7 @@ mod tests {
         );
         assert_eq!(
             precedence("a", &deny, &exclude, Some(&exc), sel),
-            Outcome::Residue
+            Outcome::Residue(ResidueCause::Decision(&exc))
         );
         assert_eq!(
             precedence("a", &deny, &exclude, Some(&uns), sel),
@@ -1002,7 +1214,7 @@ mod tests {
         );
         assert_eq!(
             precedence("a", &deny, &exclude, None, None),
-            Outcome::Residue
+            Outcome::Residue(ResidueCause::NotSelected)
         );
     }
 
@@ -1097,6 +1309,61 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
         );
         assert_eq!(result.residue[2].title, "Ghost");
         assert!(result.residue[2].sha256.is_empty());
+        let rule_keys: Vec<&str> = result
+            .residue
+            .iter()
+            .map(|r| r.rule.as_ref().unwrap().key.as_str())
+            .collect();
+        assert_eq!(
+            rule_keys,
+            [
+                "external:not-selected",
+                "external:unmatched",
+                "external:dangling-link",
+            ],
+            "d.md was reported unselected; e.md was never mentioned at all; missing.md has no \
+             navigation file to point at (SPEC §2.4)"
+        );
+    }
+
+    #[test]
+    fn external_resolver_candidate_supplied_rule_is_used_verbatim() {
+        let (_dir, co) = checkout(&[("docs/a.md", "# A\n"), ("docs/b.md", "# B\n")]);
+        let script_dir = tempfile::tempdir().unwrap();
+        let path = script_dir.path().join("resolver.sh");
+        fs::write(
+            &path,
+            "#!/bin/sh\n\
+             printf '{\"path\":\"docs/a.md\",\"selected\":false,\"rule\":{\"key\":\"toc:outside-match\",\"text\":\"outside the table-of-contents subtrees matching docs/guide/**\"}}\\n'\n\
+             printf '{\"path\":\"docs/b.md\",\"selected\":false}\\n'\n",
+        )
+        .unwrap();
+        let source = glob_source(&format!(
+            "      type: external\n      command: ['sh', '{}']\n",
+            path.display()
+        ));
+        let result = resolve(&source, &co, &[], &[], false);
+        let a = result
+            .residue
+            .iter()
+            .find(|r| r.path == "docs/a.md")
+            .unwrap();
+        let rule = a.rule.as_ref().unwrap();
+        assert_eq!(rule.key, "toc:outside-match");
+        assert_eq!(
+            rule.text,
+            "outside the table-of-contents subtrees matching docs/guide/**"
+        );
+        let b = result
+            .residue
+            .iter()
+            .find(|r| r.path == "docs/b.md")
+            .unwrap();
+        assert_eq!(
+            b.rule.as_ref().unwrap().key,
+            "external:not-selected",
+            "no candidate-supplied rule falls back to the default"
+        );
     }
 
     #[test]
@@ -1108,6 +1375,7 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
         let decisions = BTreeMap::new();
         let ctx = ResolveContext {
             deny: &deny,
+            deny_patterns: &[],
             decisions: &decisions,
             config_dir: Path::new("."),
             is_new_source: false,
@@ -1171,6 +1439,7 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
         let decisions = BTreeMap::new();
         let ctx = ResolveContext {
             deny: &deny,
+            deny_patterns: &[],
             decisions: &decisions,
             config_dir: config_dir.path(),
             is_new_source: false,
@@ -1282,8 +1551,9 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
             ("src/orphan.md", "# Orphan Page\n\nNot in SUMMARY.md.\n"),
         ]);
 
-        // `exclude` keeps SUMMARY.md itself out of residue: it sits inside the default residue
-        // scope (`src/**/*.md`) but is never linked from itself, which is unrelated to `include`.
+        // `exclude` keeps SUMMARY.md itself out of the ordinary residue pass: it sits inside the
+        // default residue scope (`src/**/*.md`) but is never linked from itself, which is
+        // unrelated to `include`; it is still residue in its own right (SPEC §2.4), as `excluded`.
         let source = glob_source(
             "      type: mdbook\n      include: ['src/orphan.md']\n      exclude: ['src/SUMMARY.md']\n",
         );
@@ -1293,10 +1563,13 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
         assert_eq!(page.doc_type, "");
         assert_eq!(page.section, "");
         assert_eq!(page.selected_by, SelectedBy::Include);
-        assert!(
-            result.residue.is_empty(),
-            "include selection is never residue"
+        assert_eq!(
+            result.residue.len(),
+            1,
+            "include selection is never residue, but the excluded SUMMARY.md is"
         );
+        assert_eq!(result.residue[0].path, "src/SUMMARY.md");
+        assert_eq!(result.residue[0].reason, Reason::Excluded);
     }
 
     #[test]
@@ -1338,9 +1611,16 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
         );
         let result = resolve(&source, &co, &[], &[], false);
         assert!(result.pages.is_empty(), "exclude beats include");
-        assert!(
-            result.residue.is_empty(),
-            "excluded files are never residue either"
+        assert_eq!(
+            result.residue.len(),
+            1,
+            "excluded files are residue in their own right (SPEC §2.4), not silently dropped"
+        );
+        assert_eq!(result.residue[0].path, "docs/README.md");
+        assert_eq!(result.residue[0].reason, Reason::Excluded);
+        assert_eq!(
+            result.residue[0].rule.as_ref().unwrap().key,
+            "resolver:exclude"
         );
     }
 
@@ -1383,6 +1663,12 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
             vec!["docs/a.json"],
             "non-markdown files still count against the (unfiltered) residue scope"
         );
+        assert_eq!(
+            result.residue[0].rule.as_ref().unwrap().key,
+            "glob:extension",
+            "matches include, but not the (default) md extension"
+        );
+        assert!(result.residue[0].rule.as_ref().unwrap().text.contains("md"));
     }
 
     #[test]

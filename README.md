@@ -159,8 +159,8 @@ renders the PR body from a diff, the residue, the decisions and two eval results
 | `pinakes.yaml` | you | yes | Sources (GitHub repo, ref, resolver, priority), policy (`deny`, `archived`, `min_pages_per_source`) and eval settings. |
 | `manifest.json` | `resolve` | yes | Per source: resolved commit, archived flag, every selected page with its sha256, title, doc type, section and what selected it, plus residue and unresolved paths. Sorted keys, two-space indent. |
 | `<artifact>/` | `resolve` | no | `manifest.json`, `<source>/<original path>.md`, `<source>/meta.json` and `_residue/<source>/…` for the leftovers. A stable layout consumers rely on. |
-| `residue.jsonl` | `resolve` | yes | What was left out and why (`not_selected`, `unresolved_link`, `new_source`) with title, excerpt and resolver context. |
-| `duplicates.jsonl` | `resolve` | yes | Exact, mirror and near-duplicate page pairs, canonical first, with a `suggested` verdict for `decide`. |
+| `residue.jsonl` | `resolve` | yes | What was left out and why (`not_selected`, `unresolved_link`, `new_source`, `excluded`) with title, excerpt, upstream url and the rule (`{key, text}`) that decided it. |
+| `duplicates.jsonl` | `resolve` | yes | Exact, mirror and near-duplicate page pairs, canonical first, each with its upstream url and a `suggested` verdict for `decide`. |
 | `decisions.jsonl` | you or an agent | yes | Append-only verdicts on residue or a duplicate: `include`, `exclude` or `unsure`, tied to the page hash. Later lines win; a changed page expires the decision. |
 | `queries.jsonl` | you or a grader | yes | The judge for `eval`: query, expected page ids or prefixes, kind, holdout flag. |
 | `report.md` | `report` | no | The PR body: counts, eval before/after, added/removed/changed pages (with line counts and an upstream compare link), new residue, expired decisions, unresolved links, archived sources, duplicates. |
@@ -214,7 +214,7 @@ to stdout. `GITHUB_TOKEN` is used when set.
 | `resolve [--artifact DIR] [--from-manifest M]` | config, decisions (or a manifest to reproduce) | artifact, `manifest.json`, `residue.jsonl`, `duplicates.jsonl` | 0 ok; 1 error |
 | `verify [--artifact DIR] [--no-artifact]` | config, manifest, artifact | nothing | 0; 3 stale; 4 policy violation |
 | `diff OLD.json NEW.json [--new-artifact DIR] [--old-artifact DIR]` | two manifests, page content | JSON on stdout, summary on stderr | 0 same; 3 differences |
-| `residue list [--source S] [--reason R]` | `residue.jsonl`, decisions | JSONL on stdout | 0 |
+| `residue list [--source S] [--reason R] [--include-excluded]` | `residue.jsonl`, decisions | JSONL on stdout | 0 |
 | `duplicates [--artifact DIR] [--threshold 0.8] [--json OUT]` | artifact, manifest and config (optional) | JSONL on stdout or in `OUT`, summary on stderr | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME] [--superseded-by ID]` | residue, manifest | appends to `decisions.jsonl` | 0; 1 unknown id |
 | `report [--old M] [--new M] [--eval-before E] [--eval-after E] [--new-artifact DIR] [--old-artifact DIR]` | manifests, residue, decisions, duplicates, eval JSON | `report.md` on stdout | 0 |

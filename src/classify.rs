@@ -240,6 +240,7 @@ mod tests {
             excerpt: "some excerpt text".to_string(),
             context: "sidebar".to_string(),
             url: String::new(),
+            rule: None,
         }
     }
 

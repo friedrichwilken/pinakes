@@ -102,9 +102,12 @@ fn from_manifest_reproduces_the_artifact_byte_for_byte() {
     assert_eq!(ext.pages["docs/a.md"].title, "Nav A");
     assert_eq!(ext.residue, ["docs/b.md"], "c.md lacks the mention");
     assert_eq!(ext.unresolved, ["docs/ghost.md"]);
+    // Excluded by resolver.exclude: residue in its own right (SPEC §2.4).
+    assert_eq!(glob.residue, ["docs/user/_sidebar.md"]);
     let first = snapshot(&paths.artifact).unwrap();
     let expected_files: Vec<&str> = vec![
         "_residue/ext-src/docs/b.md",
+        "_residue/glob-src/docs/user/_sidebar.md",
         "ext-src/docs/a.md",
         "ext-src/meta.json",
         "glob-src/docs/user/README.md",
