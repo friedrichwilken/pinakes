@@ -3,6 +3,32 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] - 2026-09-16
+
+### Added
+
+- An optional `include` (and `exclude`) glob list on the `external`, `vitepress`, `docusaurus`,
+  `mdbook` and `sitemap` resolvers, matching the `glob` resolver's own: a file matching
+  `include` that the resolver's own mechanism does not already select is added with
+  `selected_by: "include"`, title from the first H1 then frontmatter, empty `doc_type` and
+  `section`, and is never residue; `exclude` removes a file from selection regardless of what
+  the resolver reports. Lets a landing page outside a site's navigation (a top-level `README.md`,
+  say) into the corpus without touching the navigation file itself.
+- A composite GitHub Action, [`action.yml`](action.yml) ("Set up pinakes") at the repository
+  root: downloads a release for the runner's platform, verifies it against the release's
+  `SHA256SUMS`, and adds it to `PATH`. `curate.yml` uses it in place of its own inline download
+  when running outside this repository; any consumer workflow can use it directly
+  (`uses: friedrichwilken/pinakes@v1`). A moving `v1` tag is force-updated to each `v1.x.y`
+  release so `@v1` always tracks the latest compatible one.
+
+### Changed
+
+- The `glob` resolver now defaults to selecting only Markdown files (`extensions: ["md"]`),
+  restricting what a broad `include` pattern like `docs/**/*` picks up; an explicit
+  `extensions: []` still means every file, and sources with a `render` step (SPEC §10.1) default
+  to every file automatically, since a renderer typically consumes YAML or JSON rather than
+  Markdown.
+
 ## [1.0.0] - 2026-09-16
 
 First release: iterations 1 and 2 together. The file contracts in SPEC.md (config, manifest,
