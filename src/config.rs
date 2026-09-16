@@ -167,6 +167,13 @@ pub enum Resolver {
         /// Files under these globs that the command never mentions are residue.
         #[serde(default)]
         residue_scope: Vec<String>,
+        /// Files matching these globs are selected in addition to what the command selects
+        /// (SPEC §3), with `selected_by: "include"`; never residue.
+        #[serde(default)]
+        include: Vec<String>,
+        /// Files matching these globs are never selected, even when the command selects them.
+        #[serde(default)]
+        exclude: Vec<String>,
     },
     /// Select the pages a `VitePress` sidebar links (SPEC §12): a tolerant scan of a full
     /// `.vitepress/config.*` or a standalone sidebar file such as `_sidebar.ts`.
@@ -179,6 +186,13 @@ pub enum Resolver {
         /// directory, `**/*.md`.
         #[serde(default)]
         scope: Vec<String>,
+        /// Files matching these globs are selected in addition to what the sidebar links
+        /// (SPEC §12), with `selected_by: "include"`; never residue.
+        #[serde(default)]
+        include: Vec<String>,
+        /// Files matching these globs are never selected, even when the sidebar links them.
+        #[serde(default)]
+        exclude: Vec<String>,
     },
     /// Select the pages a Docusaurus sidebar links (SPEC §12): `sidebars.js` or `sidebars.ts`.
     Docusaurus {
@@ -189,6 +203,13 @@ pub enum Resolver {
         /// Globs used to compute residue; defaults to `docs/**/*.md`.
         #[serde(default)]
         scope: Vec<String>,
+        /// Files matching these globs are selected in addition to what the sidebar links
+        /// (SPEC §12), with `selected_by: "include"`; never residue.
+        #[serde(default)]
+        include: Vec<String>,
+        /// Files matching these globs are never selected, even when the sidebar links them.
+        #[serde(default)]
+        exclude: Vec<String>,
     },
     /// Select the pages an mdBook `SUMMARY.md` links (SPEC §12).
     Mdbook {
@@ -199,6 +220,13 @@ pub enum Resolver {
         /// `**/*.md`.
         #[serde(default)]
         scope: Vec<String>,
+        /// Files matching these globs are selected in addition to what `SUMMARY.md` links
+        /// (SPEC §12), with `selected_by: "include"`; never residue.
+        #[serde(default)]
+        include: Vec<String>,
+        /// Files matching these globs are never selected, even when `SUMMARY.md` links them.
+        #[serde(default)]
+        exclude: Vec<String>,
     },
     /// Select the pages a sitemap links (SPEC §12): `sitemap.xml`, or a plain URL list file,
     /// mapped to repository paths via `url_prefix` → `path_prefix`.
@@ -213,6 +241,13 @@ pub enum Resolver {
         /// Globs used to compute residue; defaults to `path_prefix` joined with `**/*.md`.
         #[serde(default)]
         scope: Vec<String>,
+        /// Files matching these globs are selected in addition to what the sitemap links
+        /// (SPEC §12), with `selected_by: "include"`; never residue.
+        #[serde(default)]
+        include: Vec<String>,
+        /// Files matching these globs are never selected, even when the sitemap links them.
+        #[serde(default)]
+        exclude: Vec<String>,
     },
 }
 
@@ -408,6 +443,8 @@ impl Source {
                 command,
                 residue_mention,
                 residue_scope,
+                include,
+                exclude,
                 ..
             } => {
                 if command.is_empty() || command[0].trim().is_empty() {
@@ -417,19 +454,42 @@ impl Source {
                     compile_regex(&ctx("residue_mention"), pattern)?;
                 }
                 compile_globs(&ctx("residue_scope"), residue_scope)?;
+                compile_globs(&ctx("include"), include)?;
+                compile_globs(&ctx("exclude"), exclude)?;
             }
-            Resolver::Vitepress { scope, .. }
-            | Resolver::Docusaurus { scope, .. }
-            | Resolver::Mdbook { scope, .. } => {
+            Resolver::Vitepress {
+                scope,
+                include,
+                exclude,
+                ..
+            }
+            | Resolver::Docusaurus {
+                scope,
+                include,
+                exclude,
+                ..
+            }
+            | Resolver::Mdbook {
+                scope,
+                include,
+                exclude,
+                ..
+            } => {
                 compile_globs(&ctx("scope"), scope)?;
+                compile_globs(&ctx("include"), include)?;
+                compile_globs(&ctx("exclude"), exclude)?;
             }
             Resolver::Sitemap {
                 scope,
                 url_prefix,
                 path_prefix,
+                include,
+                exclude,
                 ..
             } => {
                 compile_globs(&ctx("scope"), scope)?;
+                compile_globs(&ctx("include"), include)?;
+                compile_globs(&ctx("exclude"), exclude)?;
                 if url_prefix.trim().is_empty() {
                     return Err(ConfigError::EmptyUrlPrefix(self.name.clone()));
                 }
@@ -587,11 +647,15 @@ eval:
                 args,
                 residue_mention,
                 residue_scope,
+                include,
+                exclude,
             } => {
                 assert_eq!(command, &["python3", "resolvers/toc.py"]);
                 assert_eq!(args, &["--title-match", "(?i)handbook"]);
                 assert_eq!(residue_mention.as_deref(), Some("(?i)handbook"));
                 assert!(residue_scope.is_empty());
+                assert!(include.is_empty());
+                assert!(exclude.is_empty());
             }
             other => panic!("expected external resolver, got {other:?}"),
         }
@@ -741,21 +805,36 @@ eval:
                      resolver:\n      type: vitepress\n";
         let config = Config::from_yaml(text).unwrap();
         match &config.sources[0].resolver {
-            Resolver::Vitepress { path, scope } => {
+            Resolver::Vitepress {
+                path,
+                scope,
+                include,
+                exclude,
+            } => {
                 assert!(path.is_none());
                 assert!(scope.is_empty());
+                assert!(include.is_empty());
+                assert!(exclude.is_empty());
             }
             other => panic!("expected vitepress, got {other:?}"),
         }
         assert_eq!(config.sources[0].resolver.kind(), "vitepress");
 
         let text = "version: 1\nsources:\n  - name: a\n    repo: https://github.com/o/r\n    ref: main\n    \
-                     resolver:\n      type: docusaurus\n      path: sidebars.ts\n      scope: ['docs/**/*.md']\n";
+                     resolver:\n      type: docusaurus\n      path: sidebars.ts\n      scope: ['docs/**/*.md']\n      \
+                     include: ['README.md']\n      exclude: ['docs/internal/**']\n";
         let config = Config::from_yaml(text).unwrap();
         match &config.sources[0].resolver {
-            Resolver::Docusaurus { path, scope } => {
+            Resolver::Docusaurus {
+                path,
+                scope,
+                include,
+                exclude,
+            } => {
                 assert_eq!(path.as_deref(), Some("sidebars.ts"));
                 assert_eq!(scope, &["docs/**/*.md"]);
+                assert_eq!(include, &["README.md"]);
+                assert_eq!(exclude, &["docs/internal/**"]);
             }
             other => panic!("expected docusaurus, got {other:?}"),
         }
@@ -776,11 +855,15 @@ eval:
                 url_prefix,
                 path_prefix,
                 scope,
+                include,
+                exclude,
             } => {
                 assert!(path.is_none());
                 assert_eq!(url_prefix, "https://example.com/docs/");
                 assert_eq!(path_prefix, "docs/");
                 assert!(scope.is_empty());
+                assert!(include.is_empty());
+                assert!(exclude.is_empty());
             }
             other => panic!("expected sitemap, got {other:?}"),
         }
@@ -811,6 +894,47 @@ eval:
                           resolver:\n      type: mdbook\n      scope: ['[']\n";
         assert!(matches!(
             Config::from_yaml(bad_scope).unwrap_err(),
+            ConfigError::Glob { .. }
+        ));
+    }
+
+    #[test]
+    fn every_resolver_but_glob_accepts_include_and_exclude() {
+        let cases = [
+            "type: external\n      command: ['x']\n      include: ['README.md']\n      exclude: ['docs/x.md']\n",
+            "type: vitepress\n      include: ['README.md']\n      exclude: ['docs/x.md']\n",
+            "type: docusaurus\n      include: ['README.md']\n      exclude: ['docs/x.md']\n",
+            "type: mdbook\n      include: ['README.md']\n      exclude: ['docs/x.md']\n",
+            "type: sitemap\n      url_prefix: 'https://example.com/'\n      path_prefix: 'docs/'\n      \
+             include: ['README.md']\n      exclude: ['docs/x.md']\n",
+        ];
+        for resolver in cases {
+            let text = format!(
+                "version: 1\nsources:\n  - name: a\n    repo: https://github.com/o/r\n    ref: main\n    \
+                 resolver:\n      {resolver}"
+            );
+            let config = Config::from_yaml(&text).unwrap_or_else(|e| panic!("{resolver}: {e}"));
+            let text = serde_yaml_ng::to_string(&config).unwrap();
+            assert_eq!(
+                Config::from_yaml(&text).unwrap(),
+                config,
+                "{resolver}: round trips"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_bad_include_and_exclude_globs() {
+        let base = "version: 1\nsources:\n  - name: a\n    repo: https://github.com/o/r\n    ref: main\n    \
+                     resolver:\n      type: mdbook\n";
+        let bad_include = format!("{base}      include: ['[']\n");
+        assert!(matches!(
+            Config::from_yaml(&bad_include).unwrap_err(),
+            ConfigError::Glob { .. }
+        ));
+        let bad_exclude = format!("{base}      exclude: ['[']\n");
+        assert!(matches!(
+            Config::from_yaml(&bad_exclude).unwrap_err(),
             ConfigError::Glob { .. }
         ));
     }

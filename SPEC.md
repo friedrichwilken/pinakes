@@ -54,6 +54,15 @@ eval:
 
 Precedence for a file: `policy.deny` > source `resolver.exclude` > decisions > resolver selection.
 
+`include` and `exclude` glob lists are accepted by every resolver, not only `glob`: for
+`external`, `vitepress`, `docusaurus`, `mdbook` and `sitemap`, files matching `include` are
+selected in addition to whatever the resolver's own mechanism selects — with `selected_by:
+"include"`, title from the first H1 then frontmatter `title:`, empty `doc_type` and `section`,
+and never reported as residue — while `exclude` removes a file from selection exactly as it does
+for `glob`. A file the resolver's own mechanism already selects is unaffected by `include`.
+Precedence is unchanged: `policy.deny` beats `exclude`, which beats decisions, which beats
+selection (resolver or `include`).
+
 ### 2.2 `manifest.json` — curated references (machine-written, committed)
 
 ```json
@@ -147,6 +156,9 @@ pinakes runs `command + args` with cwd = the checked-out repository, env `PINAKE
   the command never mentions are residue too if `residue_scope` (optional glob list in config) covers them.
 - Exit code ≠ 0 fails the resolve for that source with the command's stderr in the message.
 - Missing `title` → pinakes takes the first H1, then a frontmatter `title:`, else empty.
+- Config accepts optional `include` and `exclude` glob lists (§2.1): `include` selects files the
+  command's output never mentions at all, with `selected_by: "include"` and a title derived the
+  same way; `exclude` drops a file from selection regardless of what the command reports.
 
 ## 4. Commands
 
@@ -367,6 +379,10 @@ unlinked Markdown in scope as residue, with title and section from the navigatio
 Each has a `scope` glob list (default: the directory of the navigation file, `**/*.md`) used to
 compute residue. Doc type comes from the section title with the same heuristic as §2.4's
 context: troubleshooting / tutorial / reference / release-notes / concept.
+
+Each also accepts optional `include` and `exclude` glob lists (§2.1), with the same semantics
+as the external resolver: `include` selects extra pages the navigation file does not link (a
+landing `README.md` outside the sidebar, say); `exclude` removes a file from selection.
 
 ## 13. Diff and report detail
 

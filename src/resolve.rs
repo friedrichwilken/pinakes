@@ -357,6 +357,147 @@ struct Plan {
     scope: GlobSet,
     mention: Option<Regex>,
     unresolved: Vec<String>,
+    /// Paths added by a resolver's optional `include` extra (SPEC §2.1), rather than by the
+    /// resolver's own selection mechanism; these are always `selected_by: "include"`.
+    include_selected: BTreeSet<String>,
+}
+
+/// Resolver-specific selection: the candidate map plus, for the precedence pass, the compiled
+/// `exclude` set, the residue `scope`, an external resolver's `residue_mention` and the
+/// resolver's own optional `include` extra (SPEC §2.1), not yet applied to `candidates`.
+type ResolverPlan<'a> = (
+    BTreeMap<String, Candidate>,
+    GlobSet,
+    GlobSet,
+    Option<Regex>,
+    &'a [String],
+);
+
+fn resolver_plan<'a>(
+    source: &'a Source,
+    checkout: &Checkout,
+    files: &[String],
+    config_dir: &Path,
+) -> Result<ResolverPlan<'a>, ResolveError> {
+    let mut candidates: BTreeMap<String, Candidate> = BTreeMap::new();
+    let (exclude, scope, mention, extra_include): (GlobSet, GlobSet, Option<Regex>, &[String]) =
+        match &source.resolver {
+            Resolver::Glob {
+                include,
+                exclude,
+                residue_scope,
+            } => {
+                let include = compile_globs("include", include)?;
+                for file in files {
+                    if include.is_match(file) {
+                        candidates.insert(file.clone(), Candidate::bare(file, true));
+                    }
+                }
+                let scope = if residue_scope.is_empty() {
+                    include
+                } else {
+                    compile_globs("residue_scope", residue_scope)?
+                };
+                (compile_globs("exclude", exclude)?, scope, None, &[])
+            }
+            Resolver::External {
+                command,
+                args,
+                residue_mention,
+                residue_scope,
+                include,
+                exclude,
+            } => {
+                for candidate in run_external(source, command, args, checkout, config_dir)? {
+                    candidates.insert(candidate.path.clone(), candidate);
+                }
+                let mention = residue_mention
+                    .as_deref()
+                    .map(|p| compile_regex("residue_mention", p))
+                    .transpose()?;
+                (
+                    compile_globs("exclude", exclude)?,
+                    compile_globs("residue_scope", residue_scope)?,
+                    mention,
+                    include,
+                )
+            }
+            Resolver::Vitepress {
+                path,
+                scope,
+                include,
+                exclude,
+            } => {
+                let (found, nav_scope) =
+                    vitepress::plan(source, checkout, files, path.as_deref(), scope)?;
+                candidates = found;
+                (compile_globs("exclude", exclude)?, nav_scope, None, include)
+            }
+            Resolver::Docusaurus {
+                path,
+                scope,
+                include,
+                exclude,
+            } => {
+                let (found, nav_scope) =
+                    docusaurus::plan(source, checkout, files, path.as_deref(), scope)?;
+                candidates = found;
+                (compile_globs("exclude", exclude)?, nav_scope, None, include)
+            }
+            Resolver::Mdbook {
+                path,
+                scope,
+                include,
+                exclude,
+            } => {
+                let (found, nav_scope) =
+                    mdbook::plan(source, checkout, files, path.as_deref(), scope)?;
+                candidates = found;
+                (compile_globs("exclude", exclude)?, nav_scope, None, include)
+            }
+            Resolver::Sitemap {
+                path,
+                scope,
+                url_prefix,
+                path_prefix,
+                include,
+                exclude,
+            } => {
+                let (found, nav_scope) = sitemap::plan(
+                    source,
+                    checkout,
+                    files,
+                    path.as_deref(),
+                    scope,
+                    url_prefix,
+                    path_prefix,
+                )?;
+                candidates = found;
+                (compile_globs("exclude", exclude)?, nav_scope, None, include)
+            }
+        };
+    Ok((candidates, exclude, scope, mention, extra_include))
+}
+
+/// Add files matching a resolver's optional `include` extra (SPEC §2.1) to `candidates`, unless
+/// the resolver's own mechanism already selected them; returns the paths added this way, which
+/// are always `selected_by: "include"`.
+fn apply_extra_include(
+    candidates: &mut BTreeMap<String, Candidate>,
+    files: &[String],
+    extra_include: &[String],
+) -> Result<BTreeSet<String>, ResolveError> {
+    let mut include_selected = BTreeSet::new();
+    if !extra_include.is_empty() {
+        let include_set = compile_globs("include", extra_include)?;
+        for file in files {
+            if include_set.is_match(file) && !candidates.contains_key(file) {
+                candidates.insert(file.clone(), Candidate::bare(file, true));
+                include_selected.insert(file.clone());
+            }
+        }
+    }
+    Ok(include_selected)
 }
 
 fn plan(
@@ -366,81 +507,9 @@ fn plan(
     config_dir: &Path,
 ) -> Result<Plan, ResolveError> {
     let file_set: BTreeSet<&str> = files.iter().map(String::as_str).collect();
-    let mut candidates: BTreeMap<String, Candidate> = BTreeMap::new();
-    let (exclude, scope, mention) = match &source.resolver {
-        Resolver::Glob {
-            include,
-            exclude,
-            residue_scope,
-        } => {
-            let include = compile_globs("include", include)?;
-            for file in files {
-                if include.is_match(file) {
-                    candidates.insert(file.clone(), Candidate::bare(file, true));
-                }
-            }
-            let scope = if residue_scope.is_empty() {
-                include
-            } else {
-                compile_globs("residue_scope", residue_scope)?
-            };
-            (compile_globs("exclude", exclude)?, scope, None)
-        }
-        Resolver::External {
-            command,
-            args,
-            residue_mention,
-            residue_scope,
-        } => {
-            for candidate in run_external(source, command, args, checkout, config_dir)? {
-                candidates.insert(candidate.path.clone(), candidate);
-            }
-            let mention = residue_mention
-                .as_deref()
-                .map(|p| compile_regex("residue_mention", p))
-                .transpose()?;
-            (
-                GlobSet::empty(),
-                compile_globs("residue_scope", residue_scope)?,
-                mention,
-            )
-        }
-        Resolver::Vitepress { path, scope } => {
-            let (found, nav_scope) =
-                vitepress::plan(source, checkout, files, path.as_deref(), scope)?;
-            candidates = found;
-            (GlobSet::empty(), nav_scope, None)
-        }
-        Resolver::Docusaurus { path, scope } => {
-            let (found, nav_scope) =
-                docusaurus::plan(source, checkout, files, path.as_deref(), scope)?;
-            candidates = found;
-            (GlobSet::empty(), nav_scope, None)
-        }
-        Resolver::Mdbook { path, scope } => {
-            let (found, nav_scope) = mdbook::plan(source, checkout, files, path.as_deref(), scope)?;
-            candidates = found;
-            (GlobSet::empty(), nav_scope, None)
-        }
-        Resolver::Sitemap {
-            path,
-            scope,
-            url_prefix,
-            path_prefix,
-        } => {
-            let (found, nav_scope) = sitemap::plan(
-                source,
-                checkout,
-                files,
-                path.as_deref(),
-                scope,
-                url_prefix,
-                path_prefix,
-            )?;
-            candidates = found;
-            (GlobSet::empty(), nav_scope, None)
-        }
-    };
+    let (mut candidates, exclude, scope, mention, extra_include) =
+        resolver_plan(source, checkout, files, config_dir)?;
+    let include_selected = apply_extra_include(&mut candidates, files, extra_include)?;
     let unresolved: Vec<String> = candidates
         .keys()
         .filter(|p| !file_set.contains(p.as_str()))
@@ -452,6 +521,7 @@ fn plan(
         scope,
         mention,
         unresolved,
+        include_selected,
     })
 }
 
@@ -516,7 +586,12 @@ pub fn resolve_source(
         let sha256 = sha256_hex(&bytes);
         let text = String::from_utf8_lossy(&bytes);
         let decision = ctx.decisions.get(&id).filter(|d| d.applies_to(&sha256));
-        let selection = candidate.selected.then_some(resolver_kind);
+        let by = if plan.include_selected.contains(path) {
+            SelectedBy::Include
+        } else {
+            resolver_kind
+        };
+        let selection = candidate.selected.then_some(by);
         match precedence(path, ctx.deny, &plan.exclude, decision, selection) {
             Outcome::Denied | Outcome::Excluded => {}
             Outcome::Selected(selected_by) => {
@@ -902,6 +977,8 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
             args: vec![],
             residue_mention: None,
             residue_scope: vec![],
+            include: vec![],
+            exclude: vec![],
         };
         let err = resolve_source(&source, &co, &ctx).unwrap_err();
         assert!(matches!(err, ResolveError::ResolverSpawn { .. }), "{err}");
@@ -943,5 +1020,155 @@ printf '{"path":"docs/missing.md","title":"Ghost","selected":true,"section":"Nav
         assert!(parsed[0].selected);
         assert!(!parsed[1].selected);
         assert_eq!(parse_candidates("{\"path\":\"\"}").unwrap_err().0, 1);
+    }
+
+    #[test]
+    fn external_resolver_include_selects_a_file_the_command_never_mentions() {
+        let (_dir, co) = checkout(&[
+            ("docs/a.md", "# A\n"),
+            ("README.md", "# Landing\n\nNot in the TOC.\n"),
+        ]);
+        let script_dir = tempfile::tempdir().unwrap();
+        let path = script_dir.path().join("resolver.sh");
+        fs::write(
+            &path,
+            "#!/bin/sh\nprintf '{\"path\":\"docs/a.md\",\"title\":\"A\"}\\n'\n",
+        )
+        .unwrap();
+        let source = glob_source(&format!(
+            "      type: external\n      command: ['sh', '{}']\n      include: ['README.md']\n",
+            path.display()
+        ));
+        let result = resolve(&source, &co, &[], &[], false);
+        assert_eq!(result.pages["docs/a.md"].selected_by, SelectedBy::Resolver);
+        let landing = &result.pages["README.md"];
+        assert_eq!(landing.title, "Landing");
+        assert_eq!(landing.doc_type, "");
+        assert_eq!(landing.section, "");
+        assert_eq!(landing.selected_by, SelectedBy::Include);
+        assert!(
+            result.residue.is_empty(),
+            "include selection is never residue"
+        );
+    }
+
+    #[test]
+    fn vitepress_include_selects_an_unlinked_landing_readme() {
+        const CONFIG: &str = "export default { themeConfig: { sidebar: [] } }";
+        let (_dir, co) = checkout(&[
+            ("docs/.vitepress/config.ts", CONFIG),
+            ("docs/README.md", "# Docs Home\n\nLanding page.\n"),
+        ]);
+
+        let source = glob_source("      type: vitepress\n");
+        let result = resolve(&source, &co, &[], &[], false);
+        assert!(result.pages.is_empty());
+        assert_eq!(
+            result.residue[0].path, "docs/README.md",
+            "unselected but in scope"
+        );
+
+        let source = glob_source("      type: vitepress\n      include: ['docs/README.md']\n");
+        let result = resolve(&source, &co, &[], &[], false);
+        let page = &result.pages["docs/README.md"];
+        assert_eq!(page.title, "Docs Home");
+        assert_eq!(page.doc_type, "");
+        assert_eq!(page.section, "");
+        assert_eq!(page.selected_by, SelectedBy::Include);
+        assert!(
+            result.residue.is_empty(),
+            "include selection is never residue"
+        );
+    }
+
+    #[test]
+    fn docusaurus_include_selects_an_unlinked_landing_readme() {
+        const SIDEBARS: &str = "module.exports = { tutorialSidebar: [] };";
+        let (_dir, co) = checkout(&[
+            ("sidebars.js", SIDEBARS),
+            ("docs/orphan.md", "# Orphan Page\n\nNot in any sidebar.\n"),
+        ]);
+
+        let source = glob_source("      type: docusaurus\n      include: ['docs/orphan.md']\n");
+        let result = resolve(&source, &co, &[], &[], false);
+        let page = &result.pages["docs/orphan.md"];
+        assert_eq!(page.title, "Orphan Page");
+        assert_eq!(page.doc_type, "");
+        assert_eq!(page.section, "");
+        assert_eq!(page.selected_by, SelectedBy::Include);
+        assert!(
+            result.residue.is_empty(),
+            "include selection is never residue"
+        );
+    }
+
+    #[test]
+    fn mdbook_include_selects_an_unlinked_landing_readme() {
+        const SUMMARY: &str = "# Summary\n";
+        let (_dir, co) = checkout(&[
+            ("src/SUMMARY.md", SUMMARY),
+            ("src/orphan.md", "# Orphan Page\n\nNot in SUMMARY.md.\n"),
+        ]);
+
+        // `exclude` keeps SUMMARY.md itself out of residue: it sits inside the default residue
+        // scope (`src/**/*.md`) but is never linked from itself, which is unrelated to `include`.
+        let source = glob_source(
+            "      type: mdbook\n      include: ['src/orphan.md']\n      exclude: ['src/SUMMARY.md']\n",
+        );
+        let result = resolve(&source, &co, &[], &[], false);
+        let page = &result.pages["src/orphan.md"];
+        assert_eq!(page.title, "Orphan Page");
+        assert_eq!(page.doc_type, "");
+        assert_eq!(page.section, "");
+        assert_eq!(page.selected_by, SelectedBy::Include);
+        assert!(
+            result.residue.is_empty(),
+            "include selection is never residue"
+        );
+    }
+
+    #[test]
+    fn sitemap_include_selects_an_unlinked_landing_readme() {
+        const SITEMAP: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+</urlset>
+"#;
+        let (_dir, co) = checkout(&[
+            ("sitemap.xml", SITEMAP),
+            ("docs/orphan.md", "# Orphan Page\n\nNot in the sitemap.\n"),
+        ]);
+
+        let source = glob_source(
+            "      type: sitemap\n      url_prefix: 'https://example.com/docs/'\n      \
+             path_prefix: 'docs/'\n      include: ['docs/orphan.md']\n",
+        );
+        let result = resolve(&source, &co, &[], &[], false);
+        let page = &result.pages["docs/orphan.md"];
+        assert_eq!(page.title, "Orphan Page");
+        assert_eq!(page.doc_type, "");
+        assert_eq!(page.section, "");
+        assert_eq!(page.selected_by, SelectedBy::Include);
+        assert!(
+            result.residue.is_empty(),
+            "include selection is never residue"
+        );
+    }
+
+    #[test]
+    fn exclude_removes_a_file_from_navigation_and_external_selection() {
+        const CONFIG: &str = "export default { themeConfig: { sidebar: [] } }";
+        let (_dir, co) = checkout(&[
+            ("docs/.vitepress/config.ts", CONFIG),
+            ("docs/README.md", "# Docs Home\n"),
+        ]);
+        let source = glob_source(
+            "      type: vitepress\n      include: ['docs/README.md']\n      exclude: ['docs/README.md']\n",
+        );
+        let result = resolve(&source, &co, &[], &[], false);
+        assert!(result.pages.is_empty(), "exclude beats include");
+        assert!(
+            result.residue.is_empty(),
+            "excluded files are never residue either"
+        );
     }
 }
