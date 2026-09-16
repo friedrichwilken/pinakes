@@ -140,6 +140,38 @@ jobs:
           pip install dist/*.whl pytest
           pytest python/tests -v
 
+  # The composite setup action (action.yml, SPEC §17.1): install a real release (1.0.0, the
+  # oldest one the action needs to support) with `uses: ./` on each platform the action targets
+  # and check the binary it puts on PATH actually runs.
+  action:
+    name: action (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up pinakes
+        uses: ./
+        with:
+          version: "1.0.0"
+      - name: pinakes --version prints 1.0.0
+        shell: bash
+        run: |
+          out="$(pinakes --version)"
+          echo "$out"
+          case "$out" in
+            *1.0.0*) ;;
+            *)
+              echo "::error::expected pinakes --version to mention 1.0.0, got: $out"
+              exit 1
+              ;;
+          esac
+      - name: pinakes --help works
+        run: pinakes --help
+
   audit:
     name: audit
     runs-on: ubuntu-latest
