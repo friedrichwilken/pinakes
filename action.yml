@@ -14,8 +14,9 @@ inputs:
   github-token:
     description: >-
       Token used to query the GitHub releases API when resolving "latest", so as to avoid the
-      low anonymous rate limit; pass `${{ github.token }}`. Optional, and not needed to download
-      the release assets themselves, which are public. Ignored when `version` is not "latest".
+      low anonymous rate limit; pass the workflow token (the github.token context). Optional, and
+      not needed to download the release assets themselves, which are public. Ignored when
+      `version` is not "latest".
     required: false
     default: ""
   musl:
