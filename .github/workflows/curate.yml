@@ -83,31 +83,11 @@ jobs:
         if: steps.pinakes-repo.outputs.slug == github.repository
         run: cargo install --path . --locked
 
-      - name: Pick the release asset for this runner
+      - name: Set up pinakes (running outside the pinakes repository)
         if: steps.pinakes-repo.outputs.slug != github.repository
-        id: target
-        run: |
-          case "${{ runner.os }}-${{ runner.arch }}" in
-            Linux-X64) echo "target=x86_64-unknown-linux-gnu" >> "$GITHUB_OUTPUT" ;;
-            macOS-ARM64) echo "target=aarch64-apple-darwin" >> "$GITHUB_OUTPUT" ;;
-            *)
-              echo "::error::no pinakes release asset for ${{ runner.os }}-${{ runner.arch }}"
-              exit 1
-              ;;
-          esac
-
-      - name: Download the latest pinakes release
-        if: steps.pinakes-repo.outputs.slug != github.repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/pinakes-bin"
-          gh release download --repo "${{ steps.pinakes-repo.outputs.slug }}" \
-            --pattern "*-${{ steps.target.outputs.target }}.tar.gz" \
-            --dir "$RUNNER_TEMP/pinakes-bin" --clobber
-          tar -xzf "$RUNNER_TEMP"/pinakes-bin/*.tar.gz -C "$RUNNER_TEMP/pinakes-bin" \
-            --strip-components=1
-          echo "$RUNNER_TEMP/pinakes-bin" >> "$GITHUB_PATH"
+        uses: friedrichwilken/pinakes@v1
+        with:
+          github-token: ${{ github.token }}
 
       - run: pinakes --version
 

@@ -33,6 +33,7 @@ sources:
       type: glob                     # "glob" | "external"
       include: ["docs/user/**/*.md"]
       exclude: ["**/_sidebar.md"]
+      extensions: ["md"]             # default; [] means every file regardless of extension
   - name: guides
     repo: https://github.com/example-org/guides.git
     ref: main
@@ -53,6 +54,22 @@ eval:
 ```
 
 Precedence for a file: `policy.deny` > source `resolver.exclude` > decisions > resolver selection.
+
+`include` and `exclude` glob lists are accepted by every resolver, not only `glob`: for
+`external`, `vitepress`, `docusaurus`, `mdbook` and `sitemap`, files matching `include` are
+selected in addition to whatever the resolver's own mechanism selects — with `selected_by:
+"include"`, title from the first H1 then frontmatter `title:`, empty `doc_type` and `section`,
+and never reported as residue — while `exclude` removes a file from selection exactly as it does
+for `glob`. A file the resolver's own mechanism already selects is unaffected by `include`.
+Precedence is unchanged: `policy.deny` beats `exclude`, which beats decisions, which beats
+selection (resolver or `include`).
+
+`glob`'s `extensions` restricts `include` matches to files whose extension (case-insensitive,
+without the dot) is in the list; it does not affect `residue_scope`. Default `["md"]`, so a
+plain `include: ["docs/**/*"]` still only selects Markdown; an empty list selects every file
+regardless of extension. When the source has a `render` step (§10.1) and `extensions` is not
+given explicitly, the default becomes `[]` (every file) instead, since a renderer typically
+consumes YAML or JSON rather than Markdown.
 
 ### 2.2 `manifest.json` — curated references (machine-written, committed)
 
@@ -147,6 +164,9 @@ pinakes runs `command + args` with cwd = the checked-out repository, env `PINAKE
   the command never mentions are residue too if `residue_scope` (optional glob list in config) covers them.
 - Exit code ≠ 0 fails the resolve for that source with the command's stderr in the message.
 - Missing `title` → pinakes takes the first H1, then a frontmatter `title:`, else empty.
+- Config accepts optional `include` and `exclude` glob lists (§2.1): `include` selects files the
+  command's output never mentions at all, with `selected_by: "include"` and a title derived the
+  same way; `exclude` drops a file from selection regardless of what the command reports.
 
 ## 4. Commands
 
@@ -368,6 +388,10 @@ Each has a `scope` glob list (default: the directory of the navigation file, `**
 compute residue. Doc type comes from the section title with the same heuristic as §2.4's
 context: troubleshooting / tutorial / reference / release-notes / concept.
 
+Each also accepts optional `include` and `exclude` glob lists (§2.1), with the same semantics
+as the external resolver: `include` selects extra pages the navigation file does not link (a
+landing `README.md` outside the sidebar, say); `exclude` removes a file from selection.
+
 ## 13. Diff and report detail
 
 `diff` adds, per changed page, `lines_added` and `lines_removed` (computed from the two
@@ -466,6 +490,15 @@ already runs. Timeouts 30 s; errors fail the eval.
 committed manifest, stop when empty, eval before and after, duplicates, report, then open or
 update one PR on branch `pinakes/weekly` with the manifest, residue, duplicates and report
 committed. Inputs: config path, queries path, gate baseline path. Uses `peter-evans/create-pull-request`.
+
+`action.yml` at the repository root, "Set up pinakes", is a composite action that downloads a
+released binary for the runner's platform (`version`, default `latest`, resolved through the
+GitHub releases API; `github-token` to avoid the anonymous rate limit; `musl` to pick the musl
+build over glibc on Linux x86_64), verifies its `SHA256SUMS` line, and adds it to `PATH`.
+`curate.yml` uses it when running outside this repository (falling back to `cargo install --path
+.` inside it); a consumer can use it directly, `uses: friedrichwilken/pinakes@v1`, instead of
+installing pinakes some other way. A moving major tag, `v1`, is force-updated to each `v1.x.y`
+release so `@v1` always resolves to the newest compatible one.
 
 ### 17.2 Python wheel
 

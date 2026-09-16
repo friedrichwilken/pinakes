@@ -131,6 +131,23 @@ jobs:
             dist/SHA256SUMS
           generate_release_notes: true
 
+  # Force-update the moving major tag (SPEC §17.1) once the release's assets are up, so
+  # `uses: friedrichwilken/pinakes@v1` always resolves to the newest v1.x.y release. Only for
+  # v1.x.y tags: a hypothetical v2 series would need its own moving tag, not this one.
+  update-major-tag:
+    name: update major tag
+    needs: release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref_name, 'v1.')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Force-update v1 to this release
+        run: |
+          git tag -f v1
+          git push -f origin v1
+
   # Publishing to crates.io is deliberately not wired up. To enable it, add a
   # CARGO_REGISTRY_TOKEN repository secret and uncomment this job.
   #
