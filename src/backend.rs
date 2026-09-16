@@ -361,7 +361,7 @@ impl Backend for TantivyBackend {
             }
         }
         let boolean = BooleanQuery::new(clauses);
-        let top = tantivy::collector::TopDocs::with_limit(self.total_units);
+        let top = tantivy::collector::TopDocs::with_limit(self.total_units).order_by_score();
         let hits = self.searcher.search(&boolean, &top)?;
 
         let mut best: HashMap<String, (f32, String)> = HashMap::new();
