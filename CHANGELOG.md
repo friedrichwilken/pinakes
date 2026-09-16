@@ -3,6 +3,19 @@
 All notable changes to this project are documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.2] - 2026-09-16
+
+### Fixed
+
+- The composite setup action failed to load on every runner: its input description contained a
+  `${{ github.token }}` example, which the runner evaluates and rejects. Releases 1.0.0 and 1.0.1
+  install fine when downloaded directly; only `uses: friedrichwilken/pinakes@v1` was affected.
+
+### Changed
+
+- CI actions updated: checkout 7, upload-artifact 7, download-artifact 8, create-pull-request 8,
+  action-gh-release 3.
+
 ## [1.0.1] - 2026-09-16
 
 ### Added
