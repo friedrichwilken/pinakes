@@ -17,7 +17,7 @@ use crate::decisions::{Decision, Verdict};
 use crate::manifest::{PageEntry, SelectedBy, page_id};
 use crate::residue::{EXCERPT_TOKENS, Reason, ResidueEntry, Rule, excerpt};
 use crate::sources::{Checkout, SourceError, list_files};
-pub(crate) use crate::text::absolutise;
+use crate::text::absolutise;
 pub use crate::text::{first_h1, frontmatter_title, sha256_hex, strip_frontmatter, title_of};
 
 mod docusaurus;

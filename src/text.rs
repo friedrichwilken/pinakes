@@ -8,7 +8,7 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 /// Make `arg` absolute when it names an existing path relative to `base`.
-pub fn absolutise(base: &Path, arg: &str) -> String {
+pub(crate) fn absolutise(base: &Path, arg: &str) -> String {
     let candidate = base.join(arg);
     if !Path::new(arg).is_absolute() && arg.contains(['/', '\\']) && candidate.exists() {
         std::path::absolute(&candidate)
