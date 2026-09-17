@@ -125,18 +125,16 @@ pub fn resolve_source(
     } else {
         Reason::NotSelected
     };
+    let selection = Selection {
+        source,
+        checkout,
+        ctx,
+        plan: &plan,
+        resolver_kind,
+        reason,
+    };
     for (path, candidate) in &plan.candidates {
-        classify_candidate(
-            source,
-            checkout,
-            ctx,
-            &plan,
-            resolver_kind,
-            reason,
-            path,
-            candidate,
-            &mut result,
-        )?;
+        selection.classify(path, candidate, &mut result)?;
     }
     result
         .residue
@@ -218,163 +216,181 @@ fn first_matching_pattern(patterns: &[String], path: &str) -> Option<String> {
         .cloned()
 }
 
-/// The rule (SPEC §2.4) for a candidate the resolver's own mechanism did not select: which one
-/// depends on the resolver kind and, for `glob` and `external`, on why exactly.
-fn not_selected_rule(source: &Source, plan: &Plan, path: &str, candidate: &Candidate) -> Rule {
-    match &source.resolver {
-        Resolver::Glob {
-            include,
-            extensions,
-            ..
-        } => {
-            let include_set =
-                compile_globs("include", include).unwrap_or_else(|_| GlobSet::empty());
-            let configured = effective_extensions(extensions.as_deref(), source.render.is_some());
-            if include_set.is_match(path) && !matches_extension(path, &configured) {
-                Rule::glob_extension(&configured)
-            } else {
-                Rule::glob_outside_include()
-            }
-        }
-        Resolver::External { .. } => candidate.rule.clone().unwrap_or_else(|| {
-            if plan.mentioned.contains(path) {
-                Rule::external_not_selected()
-            } else {
-                Rule::external_unmatched()
-            }
-        }),
-        Resolver::Vitepress { .. } => {
-            Rule::sidebar_unlinked(plan.nav_path.as_deref().unwrap_or_default())
-        }
-        Resolver::Docusaurus { .. } => {
-            Rule::docusaurus_unlinked(plan.nav_path.as_deref().unwrap_or_default())
-        }
-        Resolver::Mdbook { .. } => {
-            Rule::mdbook_unlinked(plan.nav_path.as_deref().unwrap_or_default())
-        }
-        Resolver::Sitemap { .. } => {
-            Rule::sitemap_unlisted(plan.nav_path.as_deref().unwrap_or_default())
-        }
-    }
-}
-
-/// Apply the precedence rules to one candidate, inserting it into `result.pages` or
-/// `result.residue` as appropriate.
-#[allow(clippy::too_many_arguments)]
-fn classify_candidate(
-    source: &Source,
-    checkout: &Checkout,
-    ctx: &ResolveContext<'_>,
-    plan: &Plan,
+/// The per-source constants [`Selection::classify`], [`Selection::not_selected_rule`],
+/// [`Selection::excluded`] and [`Selection::page_url`] all need, carried together so the
+/// precedence pass can be applied one candidate at a time.
+struct Selection<'a> {
+    source: &'a Source,
+    checkout: &'a Checkout,
+    ctx: &'a ResolveContext<'a>,
+    plan: &'a Plan,
     resolver_kind: SelectedBy,
     reason: Reason,
-    path: &str,
-    candidate: &Candidate,
-    result: &mut ResolvedSource,
-) -> Result<(), ResolveError> {
-    let id = page_id(&source.name, path);
-    let full = checkout.root.join(path);
-    let bytes = std::fs::read(&full).map_err(|source| ResolveError::Io {
-        path: full.clone(),
-        source,
-    })?;
-    let sha256 = sha256_hex(&bytes);
-    let text = String::from_utf8_lossy(&bytes);
-    let decision = ctx.decisions.get(&id).filter(|d| d.applies_to(&sha256));
-    let by = if plan.include_selected.contains(path) {
-        SelectedBy::Include
-    } else {
-        resolver_kind
-    };
-    let selection = candidate.selected.then_some(by);
-    match precedence(path, ctx.deny, &plan.exclude, decision, selection) {
-        Outcome::Denied => excluded_residue(
-            source,
-            checkout,
-            path,
-            &sha256,
-            &text,
-            Rule::policy_deny(&first_matching_pattern(ctx.deny_patterns, path).unwrap_or_default()),
-            result,
-        ),
-        Outcome::Excluded => excluded_residue(
-            source,
-            checkout,
-            path,
-            &sha256,
-            &text,
-            Rule::resolver_exclude(
-                &first_matching_pattern(resolver_exclude(&source.resolver), path)
-                    .unwrap_or_default(),
-            ),
-            result,
-        ),
-        Outcome::Selected(selected_by) => {
-            result.pages.insert(
-                path.to_string(),
-                PageEntry {
-                    sha256,
-                    title: title_of(&candidate.title, &text),
-                    doc_type: candidate.doc_type.clone(),
-                    section: candidate.section.clone(),
-                    selected_by,
-                    rendered_from: None,
-                },
-            );
-        }
-        Outcome::Residue(cause) => {
-            if plan.mention.as_ref().is_some_and(|re| !re.is_match(&text)) {
-                return Ok(());
-            }
-            let rule = match cause {
-                ResidueCause::Decision(d) => Rule::decision_exclude(&d.by, &d.reason),
-                // A brand new source's residue is uniformly unreviewed (SPEC §2.4's
-                // `source:new`), regardless of which resolver mechanism did not select it.
-                ResidueCause::NotSelected if reason == Reason::NewSource => Rule::source_new(),
-                ResidueCause::NotSelected => not_selected_rule(source, plan, path, candidate),
-            };
-            result.residue.push(ResidueEntry {
-                id,
-                source: source.name.clone(),
-                path: path.to_string(),
-                reason,
-                sha256,
-                title: title_of(&candidate.title, &text),
-                excerpt: excerpt(strip_frontmatter(&text), EXCERPT_TOKENS),
-                context: context_of(&candidate.context, &candidate.section),
-                url: page_url(source, checkout, path),
-                rule: Some(rule),
-            });
-        }
-    }
-    Ok(())
 }
 
-/// Record a file `policy.deny` or a resolver's `exclude` kept out of both the corpus and the
-/// ordinary residue pass, as residue in its own right (reason [`Reason::Excluded`], SPEC §2.4)
-/// so nothing disappears from view without a trace.
-#[allow(clippy::too_many_arguments)]
-fn excluded_residue(
-    source: &Source,
-    checkout: &Checkout,
-    path: &str,
-    sha256: &str,
-    text: &str,
-    rule: Rule,
-    result: &mut ResolvedSource,
-) {
-    result.residue.push(ResidueEntry {
-        id: page_id(&source.name, path),
-        source: source.name.clone(),
-        path: path.to_string(),
-        reason: Reason::Excluded,
-        sha256: sha256.to_string(),
-        title: title_of("", text),
-        excerpt: excerpt(strip_frontmatter(text), EXCERPT_TOKENS),
-        context: String::new(),
-        url: page_url(source, checkout, path),
-        rule: Some(rule),
-    });
+impl Selection<'_> {
+    /// The rule (SPEC §2.4) for a candidate the resolver's own mechanism did not select: which
+    /// one depends on the resolver kind and, for `glob` and `external`, on why exactly.
+    fn not_selected_rule(&self, path: &str, candidate: &Candidate) -> Rule {
+        match &self.source.resolver {
+            Resolver::Glob {
+                include,
+                extensions,
+                ..
+            } => {
+                let include_set =
+                    compile_globs("include", include).unwrap_or_else(|_| GlobSet::empty());
+                let configured =
+                    effective_extensions(extensions.as_deref(), self.source.render.is_some());
+                if include_set.is_match(path) && !matches_extension(path, &configured) {
+                    Rule::glob_extension(&configured)
+                } else {
+                    Rule::glob_outside_include()
+                }
+            }
+            Resolver::External { .. } => candidate.rule.clone().unwrap_or_else(|| {
+                if self.plan.mentioned.contains(path) {
+                    Rule::external_not_selected()
+                } else {
+                    Rule::external_unmatched()
+                }
+            }),
+            Resolver::Vitepress { .. } => {
+                Rule::sidebar_unlinked(self.plan.nav_path.as_deref().unwrap_or_default())
+            }
+            Resolver::Docusaurus { .. } => {
+                Rule::docusaurus_unlinked(self.plan.nav_path.as_deref().unwrap_or_default())
+            }
+            Resolver::Mdbook { .. } => {
+                Rule::mdbook_unlinked(self.plan.nav_path.as_deref().unwrap_or_default())
+            }
+            Resolver::Sitemap { .. } => {
+                Rule::sitemap_unlisted(self.plan.nav_path.as_deref().unwrap_or_default())
+            }
+        }
+    }
+
+    /// The upstream URL of `path` pinned to `checkout.commit` (SPEC §2.4): `{base_url}/{path}`
+    /// where `base_url` is `https://github.com/<owner>/<repo>/blob/<commit>`, or empty when
+    /// `source.repo` does not parse as a GitHub URL.
+    fn page_url(&self, path: &str) -> String {
+        RepoSlug::parse(&self.source.repo)
+            .map(|slug| format!("{}/{path}", slug.blob_base_url(&self.checkout.commit)))
+            .unwrap_or_default()
+    }
+
+    /// Apply the precedence rules to one candidate, inserting it into `result.pages` or
+    /// `result.residue` as appropriate.
+    fn classify(
+        &self,
+        path: &str,
+        candidate: &Candidate,
+        result: &mut ResolvedSource,
+    ) -> Result<(), ResolveError> {
+        let id = page_id(&self.source.name, path);
+        let full = self.checkout.root.join(path);
+        let bytes = std::fs::read(&full).map_err(|source| ResolveError::Io {
+            path: full.clone(),
+            source,
+        })?;
+        let sha256 = sha256_hex(&bytes);
+        let text = String::from_utf8_lossy(&bytes);
+        let decision = self
+            .ctx
+            .decisions
+            .get(&id)
+            .filter(|d| d.applies_to(&sha256));
+        let by = if self.plan.include_selected.contains(path) {
+            SelectedBy::Include
+        } else {
+            self.resolver_kind
+        };
+        let selection = candidate.selected.then_some(by);
+        match precedence(path, self.ctx.deny, &self.plan.exclude, decision, selection) {
+            Outcome::Denied => result.residue.push(self.excluded(
+                path,
+                &sha256,
+                &text,
+                Rule::policy_deny(
+                    &first_matching_pattern(self.ctx.deny_patterns, path).unwrap_or_default(),
+                ),
+            )),
+            Outcome::Excluded => result.residue.push(
+                self.excluded(
+                    path,
+                    &sha256,
+                    &text,
+                    Rule::resolver_exclude(
+                        &first_matching_pattern(resolver_exclude(&self.source.resolver), path)
+                            .unwrap_or_default(),
+                    ),
+                ),
+            ),
+            Outcome::Selected(selected_by) => {
+                result.pages.insert(
+                    path.to_string(),
+                    PageEntry {
+                        sha256,
+                        title: title_of(&candidate.title, &text),
+                        doc_type: candidate.doc_type.clone(),
+                        section: candidate.section.clone(),
+                        selected_by,
+                        rendered_from: None,
+                    },
+                );
+            }
+            Outcome::Residue(cause) => {
+                if self
+                    .plan
+                    .mention
+                    .as_ref()
+                    .is_some_and(|re| !re.is_match(&text))
+                {
+                    return Ok(());
+                }
+                let rule = match cause {
+                    ResidueCause::Decision(d) => Rule::decision_exclude(&d.by, &d.reason),
+                    // A brand new source's residue is uniformly unreviewed (SPEC §2.4's
+                    // `source:new`), regardless of which resolver mechanism did not select it.
+                    ResidueCause::NotSelected if self.reason == Reason::NewSource => {
+                        Rule::source_new()
+                    }
+                    ResidueCause::NotSelected => self.not_selected_rule(path, candidate),
+                };
+                result.residue.push(ResidueEntry {
+                    id,
+                    source: self.source.name.clone(),
+                    path: path.to_string(),
+                    reason: self.reason,
+                    sha256,
+                    title: title_of(&candidate.title, &text),
+                    excerpt: excerpt(strip_frontmatter(&text), EXCERPT_TOKENS),
+                    context: context_of(&candidate.context, &candidate.section),
+                    url: self.page_url(path),
+                    rule: Some(rule),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Record a file `policy.deny` or a resolver's `exclude` kept out of both the corpus and the
+    /// ordinary residue pass, as residue in its own right (reason [`Reason::Excluded`], SPEC
+    /// §2.4) so nothing disappears from view without a trace.
+    fn excluded(&self, path: &str, sha256: &str, text: &str, rule: Rule) -> ResidueEntry {
+        ResidueEntry {
+            id: page_id(&self.source.name, path),
+            source: self.source.name.clone(),
+            path: path.to_string(),
+            reason: Reason::Excluded,
+            sha256: sha256.to_string(),
+            title: title_of("", text),
+            excerpt: excerpt(strip_frontmatter(text), EXCERPT_TOKENS),
+            context: String::new(),
+            url: self.page_url(path),
+            rule: Some(rule),
+        }
+    }
 }
 
 /// Turn `resolved`'s would-be pages into residue (reason [`Reason::Excluded`], rule
