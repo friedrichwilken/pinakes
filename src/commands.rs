@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::artifact::{self, ArtifactError, MANIFEST_FILE, Problem};
 use crate::backend::{self, Backend, BackendConfig, BackendError, BackendKind};
-use crate::classify::{self, ClassifyError, DuplicateLookup, PageFacts};
+use crate::classify::{self, ClassifyError};
 use crate::config::{ArchivedPolicy, Config, ConfigError, RepoSlug};
 use crate::corpus::CorpusError;
 use crate::decisions::{self, Decision, DecisionError, Expired, Verdict};
@@ -25,7 +25,7 @@ use crate::llm::{ChatError, ChatTransport, LlmConfig};
 use crate::manifest::{
     Manifest, ManifestError, ManifestSource, PageEntry, SelectedBy, now_rfc3339, split_page_id,
 };
-use crate::page::{PageRecord, PageRegistry};
+use crate::page::{PageRecord, PageRegistry, PageStatus};
 use crate::queries::{self, CheckReport, GradedQuery, NewQuery, QueriesError};
 use crate::render::{self, RenderError};
 use crate::report::{self, ReportInput};
@@ -1065,21 +1065,6 @@ pub struct ClassifyOutcome {
     pub written: bool,
 }
 
-/// The title, an excerpt and the `sha256` of a manifest page read from the artifact, for a
-/// near-duplicate candidate that is not in `residue.jsonl`.
-fn read_manifest_page(artifact: &Path, manifest: Option<&Manifest>, id: &str) -> Option<PageFacts> {
-    let entry = manifest?.page(id)?;
-    let (source, path) = split_page_id(id)?;
-    let bytes = std::fs::read(artifact.join(source).join(path)).ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-    let excerpt = residue::excerpt(strip_frontmatter(&text), residue::EXCERPT_TOKENS);
-    Some(PageFacts {
-        title: entry.title.clone(),
-        excerpt,
-        sha256: entry.sha256.clone(),
-    })
-}
-
 /// Run `classify`: send undecided residue and near-duplicate candidates to the model in
 /// batches and write (or, with `--dry-run`, print) the resulting decisions (SPEC §14.2).
 pub fn classify(
@@ -1100,9 +1085,25 @@ pub fn classify(
     } else {
         None
     };
-    let page_lookup = |id: &str| read_manifest_page(&paths.artifact, manifest.as_ref(), id);
-    let lookup = DuplicateLookup { page: &page_lookup };
-    let candidates = classify::candidates(&residue, &duplicate_pairs, &effective, &lookup);
+    let mut registry = PageRegistry::load(manifest.as_ref(), &residue);
+    // A near-duplicate candidate not already covered by residue needs an excerpt from the
+    // artifact, read here (once, eagerly) so `classify::candidates` stays pure.
+    for pair in &duplicate_pairs {
+        let id = &pair.duplicate;
+        let is_selected = registry
+            .corpus_page(id)
+            .is_some_and(|record| matches!(record.status, PageStatus::Selected { .. }));
+        if !is_selected {
+            continue;
+        }
+        let Some(bytes) = artifact_page_bytes(&paths.artifact, id) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        let excerpt = residue::excerpt(strip_frontmatter(&text), residue::EXCERPT_TOKENS);
+        let _ = registry.set_excerpt(id, excerpt);
+    }
+    let candidates = classify::candidates(&registry, &duplicate_pairs, &effective);
     let batch = options.batch.unwrap_or(classify::DEFAULT_BATCH);
     let at = now_rfc3339();
     let outcome = classify::run(transport, &config, &candidates, batch, &at)?;

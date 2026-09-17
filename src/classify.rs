@@ -1,13 +1,13 @@
 //! `pinakes classify`: batch LLM classification of undecided residue and near-duplicate
 //! candidates (SPEC §14.2).
 //!
-//! This module is pure: it turns residue entries, duplicate pairs and a page lookup into
-//! [`Candidate`]s, sends them to the model in batches through [`crate::llm`], and turns the
-//! model's verdicts into [`Decision`]s. Two rules are enforced regardless of what the model
-//! says: a `new_source` residue page is never written as `include`, and an id the model did not
-//! name in the batch it was given is ignored rather than guessed at. All file I/O (reading
-//! `residue.jsonl`/`duplicates.jsonl`/the artifact, appending to `decisions.jsonl`) is the
-//! caller's job (`commands::classify`).
+//! This module is pure: it turns the page registry's residue records, duplicate pairs and their
+//! corpus records into [`ClassifyItem`]s, sends them to the model in batches through
+//! [`crate::llm`], and turns the model's verdicts into [`Decision`]s. Two rules are enforced
+//! regardless of what the model says: a `new_source` residue page is never written as `include`,
+//! and an id the model did not name in the batch it was given is ignored rather than guessed at.
+//! All file I/O (reading `residue.jsonl`/`duplicates.jsonl`/the artifact, appending to
+//! `decisions.jsonl`) is the caller's job (`commands::classify`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,7 +17,8 @@ use thiserror::Error;
 use crate::decisions::{Decision, Verdict};
 use crate::duplicates::DuplicatePair;
 use crate::llm::{self, ChatError, ChatTransport, LlmConfig};
-use crate::residue::{Reason, ResidueEntry};
+use crate::page::{PageRegistry, PageStatus};
+use crate::residue::Reason;
 
 /// Default `--batch` size (SPEC §14.2).
 pub const DEFAULT_BATCH: usize = 20;
@@ -32,7 +33,7 @@ pub enum ClassifyError {
 
 /// One residue or near-duplicate item offered to the model.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Candidate {
+pub struct ClassifyItem {
     /// `<source>::<path>`.
     pub id: String,
     /// Hash of the page bytes the candidate reflects, for the decision that is written.
@@ -48,24 +49,6 @@ pub struct Candidate {
     pub context: String,
 }
 
-/// Title, excerpt and `sha256` of a manifest page, as read from the artifact.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PageFacts {
-    /// Page title.
-    pub title: String,
-    /// An excerpt of the page body.
-    pub excerpt: String,
-    /// Hex SHA-256 of the file bytes.
-    pub sha256: String,
-}
-
-/// External facts needed to build a candidate from a near-duplicate pair, so this module never
-/// touches the filesystem (mirrors [`crate::duplicates::DuplicateContext`]).
-pub struct DuplicateLookup<'a> {
-    /// Facts about a manifest page by id; `None` when it cannot be read.
-    pub page: &'a dyn Fn(&str) -> Option<PageFacts>,
-}
-
 /// Whether `decision` still applies to a candidate at `sha256` (mirrors [`Decision::applies_to`]
 /// without requiring a residue entry).
 fn already_decided(effective: &BTreeMap<String, Decision>, id: &str, sha256: &str) -> bool {
@@ -75,25 +58,30 @@ fn already_decided(effective: &BTreeMap<String, Decision>, id: &str, sha256: &st
 /// Build the candidate list: undecided residue, then near-duplicate pairs' `duplicate` id not
 /// already covered by residue or an active decision (SPEC §14.2).
 pub fn candidates(
-    residue: &[ResidueEntry],
+    registry: &PageRegistry,
     duplicates: &[DuplicatePair],
     effective: &BTreeMap<String, Decision>,
-    lookup: &DuplicateLookup<'_>,
-) -> Vec<Candidate> {
+) -> Vec<ClassifyItem> {
     let mut out = Vec::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
-    for entry in residue {
-        if already_decided(effective, &entry.id, &entry.sha256) {
+    for record in registry.residue() {
+        let PageStatus::Residue {
+            reason, context, ..
+        } = &record.status
+        else {
+            continue;
+        };
+        if already_decided(effective, &record.id, &record.sha256) {
             continue;
         }
-        seen.insert(entry.id.clone());
-        out.push(Candidate {
-            id: entry.id.clone(),
-            sha256: entry.sha256.clone(),
-            title: entry.title.clone(),
-            excerpt: entry.excerpt.clone(),
-            reason: entry.reason.as_str().to_string(),
-            context: entry.context.clone(),
+        seen.insert(record.id.clone());
+        out.push(ClassifyItem {
+            id: record.id.clone(),
+            sha256: record.sha256.clone(),
+            title: record.title.clone(),
+            excerpt: record.excerpt.clone().unwrap_or_default(),
+            reason: reason.as_str().to_string(),
+            context: context.clone(),
         });
     }
     for pair in duplicates {
@@ -101,18 +89,20 @@ pub fn candidates(
         if seen.contains(id) {
             continue;
         }
-        let Some(facts) = (lookup.page)(id) else {
+        let Some(record) = registry.corpus_page(id).filter(|record| {
+            matches!(record.status, PageStatus::Selected { .. }) && record.excerpt.is_some()
+        }) else {
             continue;
         };
-        if already_decided(effective, id, &facts.sha256) {
+        if already_decided(effective, id, &record.sha256) {
             continue;
         }
         seen.insert(id.clone());
-        out.push(Candidate {
+        out.push(ClassifyItem {
             id: id.clone(),
-            sha256: facts.sha256,
-            title: facts.title,
-            excerpt: facts.excerpt,
+            sha256: record.sha256.clone(),
+            title: record.title.clone(),
+            excerpt: record.excerpt.clone().unwrap_or_default(),
             reason: "duplicate".to_string(),
             context: format!(
                 "canonical {} (similarity {:.3})",
@@ -152,14 +142,14 @@ you were given, in this exact shape: \
 [{\"id\": \"...\", \"decision\": \"include\"|\"exclude\"|\"unsure\", \"rationale\": \"one \
 sentence\", \"confidence\": 0.0}]";
 
-fn user_prompt(batch: &[Candidate]) -> String {
+fn user_prompt(batch: &[ClassifyItem]) -> String {
     serde_json::to_string_pretty(batch).unwrap_or_default()
 }
 
 /// Apply the `new_source` rule and stamp `by`/`at`; returns the decision and, when the rule
 /// overrode the model, a warning describing it.
 fn apply_rules(
-    candidate: &Candidate,
+    candidate: &ClassifyItem,
     verdict: &ModelVerdict,
     model: &str,
     at: &str,
@@ -196,7 +186,7 @@ fn apply_rules(
 pub fn run(
     transport: &dyn ChatTransport,
     config: &LlmConfig,
-    candidates: &[Candidate],
+    candidates: &[ClassifyItem],
     batch_size: usize,
     at: &str,
 ) -> Result<Outcome, ClassifyError> {
@@ -205,7 +195,8 @@ pub fn run(
     for batch in candidates.chunks(batch_size) {
         let user = user_prompt(batch);
         let verdicts: Vec<ModelVerdict> = llm::chat(transport, config, SYSTEM_PROMPT, &user)?;
-        let by_id: BTreeMap<&str, &Candidate> = batch.iter().map(|c| (c.id.as_str(), c)).collect();
+        let by_id: BTreeMap<&str, &ClassifyItem> =
+            batch.iter().map(|c| (c.id.as_str(), c)).collect();
         for verdict in &verdicts {
             let Some(candidate) = by_id.get(verdict.id.as_str()) else {
                 outcome
@@ -228,19 +219,51 @@ mod tests {
     use super::*;
     use crate::duplicates::{DuplicateKind, Suggested};
     use crate::llm::testing::{Scripted, ScriptedTransport, completion};
+    use crate::manifest::SelectedBy;
+    use crate::page::PageRecord;
 
-    fn residue_entry(id: &str, reason: Reason) -> ResidueEntry {
-        ResidueEntry {
+    /// A residue registry record for `id`, matching what `residue_entry` used to build.
+    fn residue_record(id: &str, reason: Reason) -> PageRecord {
+        let (source, path) = id.split_once("::").unwrap();
+        PageRecord {
             id: id.to_string(),
-            source: id.split("::").next().unwrap().to_string(),
-            path: id.split("::").nth(1).unwrap().to_string(),
-            reason,
-            sha256: "aa".repeat(32),
+            source: source.to_string(),
+            path: path.to_string(),
+            repo: String::new(),
+            commit: String::new(),
             title: "Title".to_string(),
-            excerpt: "some excerpt text".to_string(),
-            context: "sidebar".to_string(),
+            doc_type: String::new(),
+            section: String::new(),
             url: String::new(),
-            rule: None,
+            sha256: "aa".repeat(32),
+            excerpt: Some("some excerpt text".to_string()),
+            status: PageStatus::Residue {
+                reason,
+                rule: None,
+                context: "sidebar".to_string(),
+            },
+        }
+    }
+
+    /// A selected corpus registry record for `id`, with an optional excerpt.
+    fn selected_record(id: &str, title: &str, excerpt: Option<&str>, sha256: &str) -> PageRecord {
+        let (source, path) = id.split_once("::").unwrap();
+        PageRecord {
+            id: id.to_string(),
+            source: source.to_string(),
+            path: path.to_string(),
+            repo: String::new(),
+            commit: String::new(),
+            title: title.to_string(),
+            doc_type: String::new(),
+            section: String::new(),
+            url: String::new(),
+            sha256: sha256.to_string(),
+            excerpt: excerpt.map(str::to_string),
+            status: PageStatus::Selected {
+                by: SelectedBy::Include,
+                rendered_from: None,
+            },
         }
     }
 
@@ -254,9 +277,8 @@ mod tests {
 
     #[test]
     fn candidates_skip_residue_already_decided() {
-        let mut r1 = residue_entry("h::a.md", Reason::NotSelected);
-        r1.sha256 = "aa".repeat(32);
-        let r2 = residue_entry("h::b.md", Reason::NotSelected);
+        let r1 = residue_record("h::a.md", Reason::NotSelected);
+        let r2 = residue_record("h::b.md", Reason::NotSelected);
         let mut decisions = BTreeMap::new();
         decisions.insert(
             r1.id.clone(),
@@ -269,8 +291,8 @@ mod tests {
                 at: "t".to_string(),
             },
         );
-        let lookup = DuplicateLookup { page: &|_| None };
-        let cands = candidates(&[r1, r2.clone()], &[], &decisions, &lookup);
+        let registry = PageRegistry::from_records([r1, r2.clone()]);
+        let cands = candidates(&registry, &[], &decisions);
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].id, r2.id);
     }
@@ -287,15 +309,13 @@ mod tests {
             canonical_url: String::new(),
             duplicate_url: String::new(),
         };
-        let page = |id: &str| -> Option<PageFacts> {
-            (id == "h::b.md").then(|| PageFacts {
-                title: "B".to_string(),
-                excerpt: "excerpt".to_string(),
-                sha256: "bb".repeat(32),
-            })
-        };
-        let lookup = DuplicateLookup { page: &page };
-        let cands = candidates(&[], &[pair], &BTreeMap::new(), &lookup);
+        let registry = PageRegistry::from_records([selected_record(
+            "h::b.md",
+            "B",
+            Some("excerpt"),
+            &"bb".repeat(32),
+        )]);
+        let cands = candidates(&registry, &[pair], &BTreeMap::new());
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].reason, "duplicate");
         assert!(cands[0].context.contains("h::a.md"));
@@ -303,26 +323,70 @@ mod tests {
     }
 
     #[test]
-    fn candidates_skip_a_duplicate_the_lookup_cannot_read() {
-        let pair = DuplicatePair {
+    fn candidates_skip_a_duplicate_with_no_excerpt_or_no_selected_corpus_record() {
+        let mut registry = PageRegistry::from_records([
+            selected_record("h::no-excerpt.md", "No excerpt", None, &"cc".repeat(32)),
+            PageRecord::artifact_only("h", "artifact-only.md", "dd".repeat(32), String::new()),
+            residue_record("h::residue-only.md", Reason::NotSelected),
+        ]);
+        // An artifact-only record can have an excerpt too, but it is still not `Selected`.
+        assert!(registry.set_excerpt("h::artifact-only.md", "has an excerpt".to_string()));
+        // Already decided so the residue loop does not itself add it to `seen`, isolating what
+        // the duplicate loop's lookup does with a residue-only id.
+        let mut already_decided = BTreeMap::new();
+        already_decided.insert(
+            "h::residue-only.md".to_string(),
+            Decision {
+                id: "h::residue-only.md".to_string(),
+                sha256: "aa".repeat(32),
+                decision: Verdict::Exclude,
+                reason: "reviewed separately".to_string(),
+                by: "me".to_string(),
+                at: "t".to_string(),
+            },
+        );
+
+        let pair = |duplicate: &str| DuplicatePair {
             kind: DuplicateKind::Mirror,
             similarity: 1.0,
             canonical: "h::a.md".to_string(),
-            duplicate: "h::gone.md".to_string(),
+            duplicate: duplicate.to_string(),
             why: "priority".to_string(),
             suggested: Suggested::Exclude,
             canonical_url: String::new(),
             duplicate_url: String::new(),
         };
-        let lookup = DuplicateLookup { page: &|_| None };
-        let cands = candidates(&[], &[pair], &BTreeMap::new(), &lookup);
-        assert!(cands.is_empty());
+        let pairs = vec![
+            pair("h::no-excerpt.md"),
+            pair("h::artifact-only.md"),
+            pair("h::residue-only.md"),
+            pair("h::missing.md"),
+        ];
+        let cands = candidates(&registry, &pairs, &already_decided);
+        assert!(cands.is_empty(), "{cands:?}");
+    }
+
+    #[test]
+    fn candidates_preserve_residue_order_across_sources_a_and_a_b() {
+        // By id string, "a-b::r.md" sorts before "a::r.md" (`-` is 0x2D, `:` is 0x3A): inserting
+        // them the other way round pins that `candidates` follows the registry's insertion
+        // order, not a re-sort by id.
+        let registry = PageRegistry::from_records([
+            residue_record("a::r.md", Reason::NotSelected),
+            residue_record("a-b::r.md", Reason::NotSelected),
+        ]);
+        let cands = candidates(&registry, &[], &BTreeMap::new());
+        assert_eq!(
+            cands.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["a::r.md", "a-b::r.md"],
+            "residue candidates follow the registry's residue() order, not id order"
+        );
     }
 
     #[test]
     fn run_batches_at_the_given_size() {
-        let cands: Vec<Candidate> = (0..5)
-            .map(|i| Candidate {
+        let cands: Vec<ClassifyItem> = (0..5)
+            .map(|i| ClassifyItem {
                 id: format!("h::{i}.md"),
                 sha256: "aa".repeat(32),
                 title: format!("T{i}"),
@@ -354,7 +418,7 @@ mod tests {
 
     #[test]
     fn new_source_include_is_overridden_to_unsure() {
-        let candidate = Candidate {
+        let candidate = ClassifyItem {
             id: "h::new.md".to_string(),
             sha256: "aa".repeat(32),
             title: "New".to_string(),
@@ -378,7 +442,7 @@ mod tests {
 
     #[test]
     fn unknown_id_from_the_model_is_a_warning_not_a_decision() {
-        let candidate = Candidate {
+        let candidate = ClassifyItem {
             id: "h::a.md".to_string(),
             sha256: "aa".repeat(32),
             title: "A".to_string(),
@@ -401,7 +465,7 @@ mod tests {
 
     #[test]
     fn unparseable_decision_defaults_to_unsure() {
-        let candidate = Candidate {
+        let candidate = ClassifyItem {
             id: "h::a.md".to_string(),
             sha256: "aa".repeat(32),
             title: "A".to_string(),
