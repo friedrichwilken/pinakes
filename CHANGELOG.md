@@ -11,6 +11,30 @@ All notable changes to this project are documented in this file. The format is b
   gates), `just e2e` (the example against the network), `just update-golden`, `just wheel`,
   `just audit`, and `just skill <project>` to symlink the curate skill into a project.
 
+### Internal
+
+- Restructured the crate's internals (issue #16): the page registry (`page::PageRecord`,
+  `PageStatus`, `PageRegistry`) replaces five separate ad-hoc shapes for a page; resolvers now
+  implement one `Resolver` trait instead of being matched on in four places; `commands.rs`,
+  `resolve.rs`, `index.rs` and `backend.rs` (each 1,100-2,400 lines) are split into
+  `commands/`, `resolve/`, `select.rs`, `pipeline/`, `corpus.rs`, `index/` and `backend/`, one
+  file per command/resolver/backend/pipeline stage; the eval decision layer moved from
+  `main.rs` into the library. No file format, CLI flag, output text or exit code changed;
+  `tests/golden.rs`, `tests/reproduce.rs` and `tests/snapshots/` (including the new
+  `tests/pipeline_pin.rs`) pass unrefreshed.
+- A Rust consumer of the library may notice: `resolve::Candidate.rule` is now
+  `Option<resolve::Mechanism>` instead of `Option<residue::Rule>`, and the eight
+  resolver-specific `Rule` constructors moved to `residue::Rule` itself; `IndexError`'s four
+  page-loading variants moved to the new `corpus::CorpusError`, reachable as
+  `IndexError::Corpus`; `index::CuratorTokenizer` / `CuratorTokenStream` are renamed
+  `PinakesTokenizer` / `PinakesTokenStream`; `duplicates::find_duplicates`, `classify::candidates`
+  and `report::ReportInput` now take a `&page::PageRegistry` instead of the old closure-based
+  `DuplicateContext`/`DuplicateLookup`/`PageFacts`, all three of which are gone, and
+  `classify::Candidate` is renamed `ClassifyItem`; five new public modules, `page`, `select`,
+  `corpus`, `pipeline` and `error`, are now part of the crate's public surface (the resolver,
+  index and backend files each module was split into stay private or `pub(crate)`, reached
+  only through the existing `resolve`, `index` and `backend` modules).
+
 ## [1.1.0] - 2026-09-16
 
 ### Added
