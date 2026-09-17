@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::artifact::RESIDUE_DIR;
 use crate::index::{clean_content, index_text, tokenize};
+use crate::layout::RESIDUE_DIR;
 use crate::manifest::{Manifest, page_id};
 use crate::sources::to_slash_path;
 use crate::trail::TrailEntry;

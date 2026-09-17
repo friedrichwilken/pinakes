@@ -22,8 +22,8 @@ use thiserror::Error;
 
 use crate::config::Render;
 use crate::manifest::PageEntry;
-use crate::resolve::{absolutise, sha256_hex};
 use crate::sources::Checkout;
+use crate::text::{absolutise, sha256_hex};
 
 /// Errors raised while running a source's render step.
 #[derive(Debug, Error)]

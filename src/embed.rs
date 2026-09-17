@@ -281,9 +281,9 @@ pub const NO_MANIFEST: &str = "none";
 
 /// The `sha256` of `<artifact>/manifest.json`, or [`NO_MANIFEST`] when it does not exist.
 pub fn artifact_manifest_hash(artifact: &Path) -> Result<String, EmbedError> {
-    let path = artifact.join(crate::artifact::MANIFEST_FILE);
+    let path = artifact.join(crate::layout::MANIFEST_FILE);
     match std::fs::read(&path) {
-        Ok(bytes) => Ok(crate::resolve::sha256_hex(&bytes)),
+        Ok(bytes) => Ok(crate::text::sha256_hex(&bytes)),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(NO_MANIFEST.to_string()),
         Err(err) => Err(io(&path)(err)),
     }
@@ -451,7 +451,7 @@ mod tests {
         assert_eq!(artifact_manifest_hash(dir.path()).unwrap(), NO_MANIFEST);
         std::fs::write(dir.path().join("manifest.json"), b"{}").unwrap();
         let hash = artifact_manifest_hash(dir.path()).unwrap();
-        assert_eq!(hash, crate::resolve::sha256_hex(b"{}"));
+        assert_eq!(hash, crate::text::sha256_hex(b"{}"));
     }
 
     #[test]

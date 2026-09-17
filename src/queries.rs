@@ -19,10 +19,10 @@ use thiserror::Error;
 use crate::eval::{self, Query};
 use crate::grade::GradedRow;
 use crate::manifest::{self, Manifest};
-use crate::resolve::sha256_hex;
+use crate::text::sha256_hex;
 
-/// Default minimum share of queries that must be held out (`eval.holdout_min`).
-pub const DEFAULT_HOLDOUT_MIN: f64 = 0.2;
+pub use crate::config::DEFAULT_HOLDOUT_MIN;
+
 /// Default `--min-grade` for `queries import` (SPEC §15.2).
 pub const DEFAULT_MIN_GRADE: u8 = 2;
 
