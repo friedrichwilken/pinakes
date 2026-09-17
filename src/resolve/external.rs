@@ -1,15 +1,17 @@
 //! `resolver.type: external` (SPEC §3): run a command in the checkout and parse its JSONL
 //! candidate output.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
-use crate::config::Source;
+use crate::config::{Source, compile_globs, compile_regex};
 use crate::jsonl;
+use crate::residue::Rule;
 use crate::sources::Checkout;
 use crate::text::absolutise;
 
-use super::{Candidate, ResolveError};
+use super::{Candidate, Discovery, Plan, ResolveError, Resolver};
 
 /// Parse resolver stdout: one JSON object per non-blank line.
 pub fn parse_candidates(text: &str) -> Result<Vec<Candidate>, (usize, String)> {
@@ -67,6 +69,61 @@ pub fn run_external(
         line,
         message,
     })
+}
+
+/// The `external` resolver's own mechanism: run `command` in the checkout and parse its JSONL
+/// candidate output (SPEC §3).
+pub(super) struct External<'a> {
+    pub(super) command: &'a [String],
+    pub(super) args: &'a [String],
+    pub(super) residue_mention: Option<&'a str>,
+    pub(super) residue_scope: &'a [String],
+    pub(super) include: &'a [String],
+    pub(super) exclude: &'a [String],
+}
+
+impl Resolver for External<'_> {
+    fn exclude(&self) -> &[String] {
+        self.exclude
+    }
+
+    fn extra_include(&self) -> &[String] {
+        self.include
+    }
+
+    fn discover(
+        &self,
+        source: &Source,
+        checkout: &Checkout,
+        _files: &[String],
+        config_dir: &Path,
+    ) -> Result<Discovery, ResolveError> {
+        let mut candidates = BTreeMap::new();
+        for candidate in run_external(source, self.command, self.args, checkout, config_dir)? {
+            candidates.insert(candidate.path.clone(), candidate);
+        }
+        let mention = self
+            .residue_mention
+            .map(|p| compile_regex("residue_mention", p))
+            .transpose()?;
+        Ok(Discovery {
+            candidates,
+            exclude: compile_globs("exclude", self.exclude)?,
+            scope: compile_globs("residue_scope", self.residue_scope)?,
+            mention,
+            nav_path: None,
+        })
+    }
+
+    fn not_selected(&self, path: &str, candidate: &Candidate, plan: &Plan<'_>) -> Rule {
+        candidate.rule.clone().unwrap_or_else(|| {
+            if plan.mentioned.contains(path) {
+                Rule::external_not_selected()
+            } else {
+                Rule::external_unmatched()
+            }
+        })
+    }
 }
 
 #[cfg(test)]

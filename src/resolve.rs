@@ -1,6 +1,11 @@
 //! Candidate discovery: the glob resolver, the external resolver (SPEC §3) and the
 //! navigation-based resolvers (`vitepress`, `docusaurus`, `mdbook`, `sitemap`) report candidate
 //! pages for the `select` module to apply the selection policy to.
+//!
+//! Every resolver kind implements the crate-private `Resolver` trait. `resolver_for` is the only
+//! place that matches on [`config::Resolver`] in this module or `select`; adding a resolver kind
+//! means one new file implementing `Resolver` plus one arm there (and, separately, the new
+//! `config::Resolver` variant itself).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -10,8 +15,9 @@ use regex::Regex;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::config::{ConfigError, Resolver, Source, compile_globs, compile_regex};
+use crate::config::{self, ConfigError, Source, compile_globs};
 use crate::manifest::SelectedBy;
+use crate::residue::Rule;
 use crate::sources::{Checkout, SourceError};
 pub use crate::text::{first_h1, frontmatter_title, sha256_hex, strip_frontmatter, title_of};
 
@@ -28,7 +34,6 @@ pub use crate::select::{
     resolve_source,
 };
 pub use external::{parse_candidates, run_external};
-pub(crate) use glob::{effective_extensions, matches_extension};
 
 /// Errors raised while resolving one source.
 #[derive(Debug, Error)]
@@ -114,7 +119,7 @@ pub struct Candidate {
     /// pinakes assigns [`crate::residue::Rule::external_not_selected`] or
     /// [`crate::residue::Rule::external_unmatched`] instead. Ignored for a selected candidate.
     #[serde(default)]
-    pub rule: Option<crate::residue::Rule>,
+    pub rule: Option<Rule>,
 }
 
 fn default_true() -> bool {
@@ -145,7 +150,7 @@ fn read_file(checkout: &Checkout, path: &str) -> Result<String, ResolveError> {
 }
 
 /// Resolver-specific inputs collected before the precedence pass.
-pub(crate) struct Plan {
+pub(crate) struct Plan<'a> {
     pub(crate) candidates: BTreeMap<String, Candidate>,
     pub(crate) exclude: GlobSet,
     pub(crate) scope: GlobSet,
@@ -162,24 +167,25 @@ pub(crate) struct Plan {
     /// resolver's rule (SPEC §2.4) to tell a file its own output named from one it never
     /// mentioned at all.
     pub(crate) mentioned: BTreeSet<String>,
+    /// The resolver mechanism itself, for `select` to ask for its `selected_by`, its `exclude`
+    /// patterns and, for a candidate it did not select, the [`Rule`] behind that (SPEC §2.4).
+    pub(crate) resolver: Box<dyn Resolver + 'a>,
 }
 
-/// What one resolver's own mechanism reports (SPEC §3): the candidate map plus, for the
-/// precedence pass, the compiled `exclude` set, the residue `scope`, an external resolver's
-/// `residue_mention`, the resolver's own optional `include` extra (SPEC §2.1) not yet applied to
-/// `candidates`, and the navigation file path for the four navigation-based resolvers (SPEC §12),
-/// used to name the mechanism behind a residue entry (SPEC §2.4).
-pub(crate) struct Discovery<'a> {
+/// What one resolver's own mechanism reports (SPEC §3): the candidate map, the compiled
+/// `exclude` set, the residue `scope`, an external resolver's `residue_mention`, and the
+/// navigation file path for the four navigation-based resolvers (SPEC §12), used to name the
+/// mechanism behind a residue entry (SPEC §2.4).
+pub(crate) struct Discovery {
     pub(crate) candidates: BTreeMap<String, Candidate>,
     pub(crate) exclude: GlobSet,
     pub(crate) scope: GlobSet,
     pub(crate) mention: Option<Regex>,
-    pub(crate) extra_include: &'a [String],
     pub(crate) nav_path: Option<String>,
 }
 
-impl<'a> Discovery<'a> {
-    /// The common shape of every navigation-based resolver arm of [`resolver_plan`]: take the
+impl Discovery {
+    /// The common shape of every navigation-based resolver's [`Resolver::discover`]: take the
     /// candidate map and residue scope a `vitepress`, `docusaurus`, `mdbook` or `sitemap` plan
     /// produced, record the navigation file path, and compile `exclude`.
     fn navigation(
@@ -187,113 +193,122 @@ impl<'a> Discovery<'a> {
         scope: GlobSet,
         nav_path: String,
         exclude: &[String],
-        include: &'a [String],
-    ) -> Result<Discovery<'a>, ResolveError> {
+    ) -> Result<Discovery, ResolveError> {
         Ok(Discovery {
             candidates: found,
             exclude: compile_globs("exclude", exclude)?,
             scope,
             mention: None,
-            extra_include: include,
             nav_path: Some(nav_path),
         })
     }
 }
 
-fn resolver_plan<'a>(
-    source: &'a Source,
-    checkout: &Checkout,
-    files: &[String],
-    config_dir: &Path,
-) -> Result<Discovery<'a>, ResolveError> {
+/// A resolver kind's own discovery-and-not-selected mechanism (SPEC §3, §12). One implementation
+/// per `config::Resolver` variant, constructed by [`resolver_for`]; to add a resolver kind,
+/// implement this trait in a new `resolve/*.rs` file and add its arm there.
+pub(crate) trait Resolver {
+    /// What a page this resolver selects counts as (SPEC §2.2's `selected_by`).
+    fn selected_by(&self) -> SelectedBy {
+        SelectedBy::Resolver
+    }
+    /// This resolver's own `exclude` glob patterns (SPEC §2.1), raw; `select` compiles them to
+    /// match, and names the one that matched, for a residue entry excluded this way.
+    fn exclude(&self) -> &[String];
+    /// This resolver's optional `include` extra (SPEC §2.1); empty when it has none.
+    fn extra_include(&self) -> &[String] {
+        &[]
+    }
+    /// Run this resolver's discovery mechanism.
+    fn discover(
+        &self,
+        source: &Source,
+        checkout: &Checkout,
+        files: &[String],
+        config_dir: &Path,
+    ) -> Result<Discovery, ResolveError>;
+    /// The rule (SPEC §2.4) for a candidate this resolver's own mechanism did not select.
+    fn not_selected(&self, path: &str, candidate: &Candidate, plan: &Plan<'_>) -> Rule;
+}
+
+/// Build the [`Resolver`] implementation for `source`'s resolver kind: the only `match` on
+/// [`config::Resolver`] in `resolve` or `select`.
+pub(crate) fn resolver_for(source: &Source) -> Box<dyn Resolver + '_> {
     match &source.resolver {
-        Resolver::Glob {
+        config::Resolver::Glob {
             include,
             exclude,
             residue_scope,
             extensions,
-        } => glob::glob_plan(
-            source,
-            files,
+        } => Box::new(glob::Glob {
             include,
             exclude,
             residue_scope,
-            extensions.as_deref(),
-        ),
-        Resolver::External {
+            extensions: glob::effective_extensions(extensions.as_deref(), source.render.is_some()),
+        }),
+        config::Resolver::External {
             command,
             args,
             residue_mention,
             residue_scope,
             include,
             exclude,
-        } => {
-            let mut candidates = BTreeMap::new();
-            for candidate in external::run_external(source, command, args, checkout, config_dir)? {
-                candidates.insert(candidate.path.clone(), candidate);
-            }
-            let mention = residue_mention
-                .as_deref()
-                .map(|p| compile_regex("residue_mention", p))
-                .transpose()?;
-            Ok(Discovery {
-                candidates,
-                exclude: compile_globs("exclude", exclude)?,
-                scope: compile_globs("residue_scope", residue_scope)?,
-                mention,
-                extra_include: include,
-                nav_path: None,
-            })
-        }
-        Resolver::Vitepress {
+        } => Box::new(external::External {
+            command,
+            args,
+            residue_mention: residue_mention.as_deref(),
+            residue_scope,
+            include,
+            exclude,
+        }),
+        config::Resolver::Vitepress {
             path,
             scope,
             include,
             exclude,
-        } => {
-            let (found, nav_scope, nav_path) =
-                vitepress::plan(source, checkout, files, path.as_deref(), scope)?;
-            Discovery::navigation(found, nav_scope, nav_path, exclude, include)
-        }
-        Resolver::Docusaurus {
+        } => Box::new(vitepress::Vitepress {
+            path: path.as_deref(),
+            scope,
+            include,
+            exclude,
+        }),
+        config::Resolver::Docusaurus {
             path,
             scope,
             include,
             exclude,
-        } => {
-            let (found, nav_scope, nav_path) =
-                docusaurus::plan(source, checkout, files, path.as_deref(), scope)?;
-            Discovery::navigation(found, nav_scope, nav_path, exclude, include)
-        }
-        Resolver::Mdbook {
+        } => Box::new(docusaurus::Docusaurus {
+            path: path.as_deref(),
+            scope,
+            include,
+            exclude,
+        }),
+        config::Resolver::Mdbook {
             path,
             scope,
             include,
             exclude,
-        } => {
-            let (found, nav_scope, nav_path) =
-                mdbook::plan(source, checkout, files, path.as_deref(), scope)?;
-            Discovery::navigation(found, nav_scope, nav_path, exclude, include)
-        }
-        Resolver::Sitemap {
-            path,
+        } => Box::new(mdbook::Mdbook {
+            path: path.as_deref(),
             scope,
+            include,
+            exclude,
+        }),
+        config::Resolver::Sitemap {
+            path,
             url_prefix,
             path_prefix,
+            scope,
             include,
             exclude,
-        } => {
-            let (found, nav_scope, nav_path) = sitemap::plan(
-                source,
-                checkout,
-                files,
-                path.as_deref(),
-                scope,
-                url_prefix,
-                path_prefix,
-            )?;
-            Discovery::navigation(found, nav_scope, nav_path, exclude, include)
-        }
+        } => Box::new(sitemap::Sitemap {
+            path: path.as_deref(),
+            url_prefix,
+            path_prefix,
+            scope,
+            include,
+            exclude,
+        }),
     }
 }
 
@@ -318,23 +333,23 @@ fn apply_extra_include(
     Ok(include_selected)
 }
 
-pub(crate) fn plan(
-    source: &Source,
+pub(crate) fn plan<'a>(
+    source: &'a Source,
     checkout: &Checkout,
     files: &[String],
     config_dir: &Path,
-) -> Result<Plan, ResolveError> {
+) -> Result<Plan<'a>, ResolveError> {
     let file_set: BTreeSet<&str> = files.iter().map(String::as_str).collect();
+    let resolver = resolver_for(source);
     let Discovery {
         mut candidates,
         exclude,
         scope,
         mention,
-        extra_include,
         nav_path,
-    } = resolver_plan(source, checkout, files, config_dir)?;
+    } = resolver.discover(source, checkout, files, config_dir)?;
     let mentioned: BTreeSet<String> = candidates.keys().cloned().collect();
-    let include_selected = apply_extra_include(&mut candidates, files, extra_include)?;
+    let include_selected = apply_extra_include(&mut candidates, files, resolver.extra_include())?;
     let unresolved: Vec<String> = candidates
         .keys()
         .filter(|p| !file_set.contains(p.as_str()))
@@ -349,31 +364,6 @@ pub(crate) fn plan(
         include_selected,
         nav_path,
         mentioned,
+        resolver,
     })
-}
-
-/// What a resolver's own selection mechanism counts as (SPEC §2.2's `selected_by`): a plain
-/// `glob` include is `"include"`, everything else (including a resolver's own `include` extra,
-/// handled separately) is `"resolver"`.
-pub(crate) fn resolver_kind_of(resolver: &Resolver) -> SelectedBy {
-    match resolver {
-        Resolver::Glob { .. } => SelectedBy::Include,
-        Resolver::External { .. }
-        | Resolver::Vitepress { .. }
-        | Resolver::Docusaurus { .. }
-        | Resolver::Mdbook { .. }
-        | Resolver::Sitemap { .. } => SelectedBy::Resolver,
-    }
-}
-
-/// A resolver's own `exclude` glob patterns (SPEC §2.1); every resolver kind has one.
-pub(crate) fn resolver_exclude(resolver: &Resolver) -> &[String] {
-    match resolver {
-        Resolver::Glob { exclude, .. }
-        | Resolver::External { exclude, .. }
-        | Resolver::Vitepress { exclude, .. }
-        | Resolver::Docusaurus { exclude, .. }
-        | Resolver::Mdbook { exclude, .. }
-        | Resolver::Sitemap { exclude, .. } => exclude,
-    }
 }

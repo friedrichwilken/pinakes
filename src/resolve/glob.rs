@@ -3,45 +3,74 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::{Candidate, Discovery, ResolveError};
-use crate::config::{Source, compile_globs};
+use globset::GlobSet;
 
-/// The `glob` resolver arm of [`super::resolver_plan`]: populate `candidates` from `include`
-/// (filtered by `extensions`) and return the resulting [`Discovery`].
-pub(super) fn glob_plan<'a>(
-    source: &Source,
-    files: &[String],
-    include: &[String],
-    exclude: &[String],
-    residue_scope: &[String],
-    extensions: Option<&[String]>,
-) -> Result<Discovery<'a>, ResolveError> {
-    let include = compile_globs("include", include)?;
-    let extensions = effective_extensions(extensions, source.render.is_some());
-    let mut candidates = BTreeMap::new();
-    for file in files {
-        if include.is_match(file) && matches_extension(file, &extensions) {
-            candidates.insert(file.clone(), Candidate::bare(file, true));
+use super::{Candidate, Discovery, Plan, ResolveError, Resolver};
+use crate::config::{Source, compile_globs};
+use crate::manifest::SelectedBy;
+use crate::residue::Rule;
+use crate::sources::Checkout;
+
+/// The `glob` resolver's own mechanism: select `include`, filtered by the effective
+/// `extensions`, which [`super::resolver_for`] computes once via [`effective_extensions`].
+pub(super) struct Glob<'a> {
+    pub(super) include: &'a [String],
+    pub(super) exclude: &'a [String],
+    pub(super) residue_scope: &'a [String],
+    pub(super) extensions: Vec<String>,
+}
+
+impl Resolver for Glob<'_> {
+    fn selected_by(&self) -> SelectedBy {
+        SelectedBy::Include
+    }
+
+    fn exclude(&self) -> &[String] {
+        self.exclude
+    }
+
+    fn discover(
+        &self,
+        _source: &Source,
+        _checkout: &Checkout,
+        files: &[String],
+        _config_dir: &Path,
+    ) -> Result<Discovery, ResolveError> {
+        let include = compile_globs("include", self.include)?;
+        let mut candidates = BTreeMap::new();
+        for file in files {
+            if include.is_match(file) && matches_extension(file, &self.extensions) {
+                candidates.insert(file.clone(), Candidate::bare(file, true));
+            }
+        }
+        let scope = if self.residue_scope.is_empty() {
+            include
+        } else {
+            compile_globs("residue_scope", self.residue_scope)?
+        };
+        Ok(Discovery {
+            candidates,
+            exclude: compile_globs("exclude", self.exclude)?,
+            scope,
+            mention: None,
+            nav_path: None,
+        })
+    }
+
+    fn not_selected(&self, path: &str, _candidate: &Candidate, _plan: &Plan<'_>) -> Rule {
+        let include_set =
+            compile_globs("include", self.include).unwrap_or_else(|_| GlobSet::empty());
+        if include_set.is_match(path) && !matches_extension(path, &self.extensions) {
+            Rule::glob_extension(&self.extensions)
+        } else {
+            Rule::glob_outside_include()
         }
     }
-    let scope = if residue_scope.is_empty() {
-        include
-    } else {
-        compile_globs("residue_scope", residue_scope)?
-    };
-    Ok(Discovery {
-        candidates,
-        exclude: compile_globs("exclude", exclude)?,
-        scope,
-        mention: None,
-        extra_include: &[],
-        nav_path: None,
-    })
 }
 
 /// The `glob` resolver's effective `extensions` (SPEC §2.1): `configured` verbatim when given,
 /// else `["md"]`, or every file (an empty list) when the source has a `render` step.
-pub(crate) fn effective_extensions(configured: Option<&[String]>, has_render: bool) -> Vec<String> {
+pub(super) fn effective_extensions(configured: Option<&[String]>, has_render: bool) -> Vec<String> {
     match configured {
         Some(extensions) => extensions.to_vec(),
         None if has_render => Vec::new(),
@@ -51,7 +80,7 @@ pub(crate) fn effective_extensions(configured: Option<&[String]>, has_render: bo
 
 /// Whether `path`'s extension (case-insensitive, without the dot) is in `extensions`; an empty
 /// list matches every file.
-pub(crate) fn matches_extension(path: &str, extensions: &[String]) -> bool {
+fn matches_extension(path: &str, extensions: &[String]) -> bool {
     if extensions.is_empty() {
         return true;
     }
