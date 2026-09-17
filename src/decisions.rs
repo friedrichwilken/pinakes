@@ -6,11 +6,12 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::jsonl::{self, JsonlError, KeyOrder};
 
 /// Errors raised while reading or writing `decisions.jsonl`.
 #[derive(Debug, Error)]
@@ -112,52 +113,23 @@ pub struct Expired {
     pub current_sha256: Option<String>,
 }
 
+impl From<JsonlError> for DecisionError {
+    fn from(err: JsonlError) -> Self {
+        match err {
+            JsonlError::Io { path, source } => DecisionError::Io { path, source },
+            JsonlError::Json { path, line, source } => DecisionError::Json { path, line, source },
+        }
+    }
+}
+
 /// Read every decision line in file order; a missing file yields no decisions.
 pub fn read_jsonl(path: &Path) -> Result<Vec<Decision>, DecisionError> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(source) => {
-            return Err(DecisionError::Io {
-                path: path.to_path_buf(),
-                source,
-            });
-        }
-    };
-    let mut decisions = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let decision = serde_json::from_str(line).map_err(|source| DecisionError::Json {
-            path: path.to_path_buf(),
-            line: index + 1,
-            source,
-        })?;
-        decisions.push(decision);
-    }
-    Ok(decisions)
+    Ok(jsonl::read_or_empty(path)?)
 }
 
 /// Append one decision line, creating the file when needed.
 pub fn append(path: &Path, decision: &Decision) -> Result<(), DecisionError> {
-    let io = |source| DecisionError::Io {
-        path: path.to_path_buf(),
-        source,
-    };
-    let value = serde_json::to_value(decision).map_err(|source| DecisionError::Json {
-        path: path.to_path_buf(),
-        line: 0,
-        source,
-    })?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(io)?;
-    let mut line = value.to_string();
-    line.push('\n');
-    file.write_all(line.as_bytes()).map_err(io)
+    Ok(jsonl::append(path, &[decision], KeyOrder::Sorted)?)
 }
 
 /// The effective decision per id: later lines override earlier ones.

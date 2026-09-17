@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::index::{Index, IndexError};
+use crate::jsonl::{self, JsonlError};
 
 /// Errors raised while reading queries or evaluation results.
 #[derive(Debug, Error)]
@@ -84,20 +85,10 @@ pub struct Query {
 
 /// Read `queries.jsonl`; blank lines are skipped.
 pub fn load_queries(path: &Path) -> Result<Vec<Query>, EvalError> {
-    let text = std::fs::read_to_string(path).map_err(io(path))?;
-    let mut queries = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let query = serde_json::from_str(line).map_err(|source| EvalError::Query {
-            path: path.to_path_buf(),
-            line: index + 1,
-            source,
-        })?;
-        queries.push(query);
-    }
-    Ok(queries)
+    jsonl::read(path).map_err(|err| match err {
+        JsonlError::Io { path, source } => EvalError::Io { path, source },
+        JsonlError::Json { path, line, source } => EvalError::Query { path, line, source },
+    })
 }
 
 /// Whether `page_id` (`<source>::<path>`) satisfies an `expected` entry.
