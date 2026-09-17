@@ -25,6 +25,7 @@ use crate::llm::{ChatError, ChatTransport, LlmConfig};
 use crate::manifest::{
     Manifest, ManifestError, ManifestSource, PageEntry, SelectedBy, now_rfc3339, split_page_id,
 };
+use crate::page::PageRegistry;
 use crate::queries::{self, CheckReport, GradedQuery, NewQuery, QueriesError};
 use crate::render::{self, RenderError};
 use crate::report::{self, ReportInput};
@@ -215,6 +216,9 @@ pub struct ResolveOutcome {
     pub warnings: Vec<String>,
     /// The duplicate pairs written to `duplicates.jsonl` (SPEC §11).
     pub duplicates: Vec<DuplicatePair>,
+    /// Every page of the run, selected or residue, as one registry. It equals
+    /// [`PageRegistry::load`] over the manifest and residue files that were written.
+    pub registry: PageRegistry,
 }
 
 fn io_err(path: &Path) -> impl FnOnce(std::io::Error) -> CommandError + '_ {
@@ -337,21 +341,16 @@ fn resolve_fresh(
         checkouts.insert(source.name.clone(), checkout);
     }
 
-    let expired = decisions::expired(&effective, |id| {
-        manifest.page(id).map(|p| p.sha256.clone()).or_else(|| {
-            all_residue
-                .iter()
-                .find(|r| r.id == id)
-                .map(|r| r.sha256.clone())
-        })
-    });
-    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts)?;
+    let registry = PageRegistry::from_resolve(&manifest, &all_residue);
+    let expired = decisions::expired(&effective, |id| registry.get(id).map(|r| r.sha256.clone()));
+    let duplicates = write_outputs(paths, &manifest, &registry, &checkouts)?;
     Ok(ResolveOutcome {
         manifest,
         residue: all_residue,
         expired,
         warnings,
         duplicates,
+        registry,
     })
 }
 
@@ -390,13 +389,15 @@ fn reproduce(
         all_residue.extend(recorded_residue(name, source, &checkout)?);
         checkouts.insert(name.clone(), checkout);
     }
-    let duplicates = write_outputs(paths, &manifest, &all_residue, &checkouts)?;
+    let registry = PageRegistry::from_resolve(&manifest, &all_residue);
+    let duplicates = write_outputs(paths, &manifest, &registry, &checkouts)?;
     Ok(ResolveOutcome {
         manifest,
         residue: all_residue,
         expired: Vec::new(),
         warnings: Vec::new(),
         duplicates,
+        registry,
     })
 }
 
@@ -474,12 +475,12 @@ fn recorded_residue(
 fn write_outputs(
     paths: &Paths,
     manifest: &Manifest,
-    all_residue: &[ResidueEntry],
+    registry: &PageRegistry,
     checkouts: &BTreeMap<String, Checkout>,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     artifact::materialise(&paths.artifact, manifest, checkouts)?;
     manifest.save(&paths.manifest)?;
-    residue::write_jsonl(&paths.residue, all_residue)?;
+    residue::write_jsonl(&paths.residue, &registry.residue_entries())?;
     let pairs = compute_duplicates(paths, Some(manifest), duplicates::DEFAULT_THRESHOLD)?;
     duplicates::write_jsonl(&paths.duplicates, &pairs)?;
     Ok(pairs)
@@ -1667,6 +1668,58 @@ mod tests {
             report(&paths, &options, &fetcher()).unwrap_err(),
             CommandError::Eval(_)
         ));
+    }
+
+    /// The registry `resolve` returns is the one a later command gets by loading the files
+    /// `resolve` wrote.
+    fn assert_registry_matches_the_written_files(paths: &Paths, outcome: &ResolveOutcome) {
+        let manifest = Manifest::load(&paths.manifest).unwrap();
+        let residue = residue::read_jsonl(&paths.residue).unwrap();
+        assert_eq!(
+            outcome.registry,
+            PageRegistry::load(Some(&manifest), &residue)
+        );
+        assert_eq!(
+            outcome.registry.selected().count(),
+            outcome.manifest.pages().count()
+        );
+        assert_eq!(outcome.registry.residue().count(), outcome.residue.len());
+    }
+
+    #[test]
+    fn resolve_returns_the_registry_of_the_files_it_wrote() {
+        // A fresh resolve.
+        let (_dir, paths) = workspace(CONFIG);
+        let mut fetcher = fetcher();
+        let fresh = resolve(&paths, &opts(), &fetcher).unwrap();
+        assert_registry_matches_the_written_files(&paths, &fresh);
+        assert_eq!(fresh.registry.len(), 4);
+        let excluded = fresh.registry.get("handbook::docs/adr/1.md").unwrap();
+        assert!(excluded.is_excluded());
+        assert_eq!(excluded.commit, SHA);
+
+        // `--from-manifest` over the manifest just written.
+        let reproduced = resolve(
+            &paths,
+            &ResolveOptions {
+                from_manifest: Some(paths.manifest.clone()),
+                generated_at: None,
+            },
+            &fetcher,
+        )
+        .unwrap();
+        assert_registry_matches_the_written_files(&paths, &reproduced);
+        assert_eq!(reproduced.registry.len(), 4);
+
+        // A dropped archived source: residue only, from a source the manifest does not list.
+        fetcher.set_archived("o/handbook", true);
+        fs::write(&paths.config, format!("{CONFIG}  archived: drop\n")).unwrap();
+        let dropped = resolve(&paths, &opts(), &fetcher).unwrap();
+        assert_registry_matches_the_written_files(&paths, &dropped);
+        assert_eq!(dropped.registry.selected().count(), 0);
+        let page = dropped.registry.get("handbook::docs/a.md").unwrap();
+        assert_eq!((page.repo.as_str(), page.commit.as_str()), ("", ""));
+        assert!(page.url.ends_with("/docs/a.md"), "{}", page.url);
     }
 
     #[test]
