@@ -13,6 +13,8 @@
 //! [`grade`] uses the judge (via [`llm`]) to grade what it retrieved, and [`usage`] turns a
 //! trail into pages-never-used and gap statistics. [`corpus`] loads an artifact directory into
 //! pages (source priorities, the mirror rule); [`index`] builds on it and re-exports its items.
+//! [`page`] is the one description of a page, selected or residue, built from [`manifest`] and
+//! [`residue`] types once per run.
 //!
 //! Four leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
 //! (content hashing, front matter, content cleaning, titles, path helpers), [`tokenizer`] (the
@@ -37,6 +39,7 @@ pub mod jsonl;
 pub mod layout;
 pub mod llm;
 pub mod manifest;
+pub mod page;
 pub mod queries;
 pub mod render;
 pub mod report;
