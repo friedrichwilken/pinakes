@@ -6,11 +6,11 @@
 //! for candidates; pairs at or above the threshold are reported. Exact duplicates (identical
 //! `sha256`) and same-title mirrors are reported too, with `kind` set accordingly.
 //!
-//! This module never touches the filesystem or the network: the sha256 and `selected_by` facts
-//! the winner rule needs are supplied by the caller through [`DuplicateContext`], which
-//! `commands::duplicates` populates from the manifest; the winner rule's final tie-break (the
-//! lexically first page id) needs no external fact at all, so the result depends only on the
-//! artifact and manifest, never on the time or order a run happens in.
+//! This module never touches the filesystem or the network: the sha256, `selected_by` and url
+//! facts the winner rule and the reported pairs need come from the [`PageRegistry`] the caller
+//! passes in, built from the manifest; the winner rule's final tie-break (the lexically first
+//! page id) needs no external fact at all, so the result depends only on the artifact and
+//! manifest, never on the time or order a run happens in.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -23,6 +23,7 @@ use thiserror::Error;
 use crate::index::{self, Page};
 use crate::jsonl::{self, JsonlError, KeyOrder};
 use crate::manifest::SelectedBy;
+use crate::page::PageRegistry;
 
 /// Tokens per shingle (SPEC §11).
 pub const SHINGLE_SIZE: usize = 5;
@@ -104,16 +105,6 @@ pub struct DuplicatePair {
     /// `duplicate`'s upstream URL, as [`Self::canonical_url`].
     #[serde(default)]
     pub duplicate_url: String,
-}
-
-/// External facts the winner rule and exact-duplicate detection need, looked up by page id, so
-/// the detection algorithm here stays pure (no file or network I/O) and its result depends only
-/// on the artifact and manifest, never on the time or order it happens to run in.
-pub struct DuplicateContext<'a> {
-    /// `sha256` of the original file bytes, by page id; `None` when it cannot be determined.
-    pub sha256: &'a dyn Fn(&str) -> Option<String>,
-    /// What selected the page, by page id; `None` when there is no manifest.
-    pub selected_by: &'a dyn Fn(&str) -> Option<SelectedBy>,
 }
 
 /// Serialise pairs as JSONL with sorted keys, one object per line, pairs themselves sorted by
@@ -291,7 +282,7 @@ fn selected_by_name(selected_by: SelectedBy) -> &'static str {
 /// else a tie. Returns `(winner index, loser index, why, is_tie)`.
 fn decide_winner(
     pages: &[Page],
-    context: &DuplicateContext<'_>,
+    registry: &PageRegistry,
     a: usize,
     b: usize,
 ) -> (usize, usize, String, bool) {
@@ -310,8 +301,13 @@ fn decide_winner(
         );
     }
 
-    let sel_a = (context.selected_by)(&pa.id);
-    let sel_b = (context.selected_by)(&pb.id);
+    let selected_by = |id: &str| {
+        registry
+            .corpus_page(id)
+            .and_then(crate::page::PageRecord::selected_by)
+    };
+    let sel_a = selected_by(&pa.id);
+    let sel_b = selected_by(&pb.id);
     if let (Some(sel_a), Some(sel_b)) = (sel_a, sel_b) {
         let (rank_a, rank_b) = (selected_by_rank(sel_a), selected_by_rank(sel_b));
         if rank_a != rank_b {
@@ -346,29 +342,40 @@ fn decide_winner(
     )
 }
 
-/// Build the reported pair for `a`/`b` (`a`/`b` unordered), applying the winner rule.
+/// Build the reported pair for `a`/`b` (`a`/`b` unordered), applying the winner rule. The
+/// reported urls come from the registry's corpus record for each id, or `""` when there is none.
 fn make_pair(
     pages: &[Page],
-    context: &DuplicateContext<'_>,
+    registry: &PageRegistry,
     a: usize,
     b: usize,
     kind: DuplicateKind,
     similarity: f64,
 ) -> DuplicatePair {
-    let (winner, loser, why, tie) = decide_winner(pages, context, a, b);
+    let (winner, loser, why, tie) = decide_winner(pages, registry, a, b);
+    let url_of = |id: &str| {
+        registry
+            .corpus_page(id)
+            .map(|r| r.url.clone())
+            .unwrap_or_default()
+    };
+    let canonical = pages[winner].id.clone();
+    let duplicate = pages[loser].id.clone();
+    let canonical_url = url_of(&canonical);
+    let duplicate_url = url_of(&duplicate);
     DuplicatePair {
         kind,
         similarity,
-        canonical: pages[winner].id.clone(),
-        duplicate: pages[loser].id.clone(),
+        canonical,
+        duplicate,
         why,
         suggested: if tie {
             Suggested::Review
         } else {
             Suggested::Exclude
         },
-        canonical_url: String::new(),
-        duplicate_url: String::new(),
+        canonical_url,
+        duplicate_url,
     }
 }
 
@@ -388,17 +395,23 @@ fn page_title_key(page: &Page) -> String {
 /// pairs are sorted by `(canonical, duplicate)`.
 pub fn find_duplicates(
     pages: &[Page],
-    context: &DuplicateContext<'_>,
+    registry: &PageRegistry,
     threshold: f64,
 ) -> Vec<DuplicatePair> {
     let mut reported: HashSet<(usize, usize)> = HashSet::new();
     let mut pairs = Vec::new();
+    let sha256_of = |id: &str| {
+        registry
+            .corpus_page(id)
+            .map(|r| r.sha256.as_str())
+            .filter(|s| !s.is_empty())
+    };
 
     // 1. Exact duplicates: same sha256.
     let mut by_sha: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, page) in pages.iter().enumerate() {
-        if let Some(sha) = (context.sha256)(&page.id).filter(|s| !s.is_empty()) {
-            by_sha.entry(sha).or_default().push(i);
+        if let Some(sha) = sha256_of(&page.id) {
+            by_sha.entry(sha.to_string()).or_default().push(i);
         }
     }
     let mut exact_pairs: Vec<(usize, usize)> = by_sha
@@ -409,7 +422,7 @@ pub fn find_duplicates(
     exact_pairs.sort_unstable();
     for (a, b) in exact_pairs {
         if reported.insert((a, b)) {
-            pairs.push(make_pair(pages, context, a, b, DuplicateKind::Exact, 1.0));
+            pairs.push(make_pair(pages, registry, a, b, DuplicateKind::Exact, 1.0));
         }
     }
 
@@ -437,7 +450,7 @@ pub fn find_duplicates(
             let similarity = jaccard(&shingles[a], &shingles[b]);
             pairs.push(make_pair(
                 pages,
-                context,
+                registry,
                 a,
                 b,
                 DuplicateKind::Mirror,
@@ -469,7 +482,7 @@ pub fn find_duplicates(
         if similarity >= threshold && reported.insert((a, b)) {
             pairs.push(make_pair(
                 pages,
-                context,
+                registry,
                 a,
                 b,
                 DuplicateKind::Near,
@@ -489,6 +502,7 @@ pub fn find_duplicates(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::page::{PageRecord, PageStatus};
 
     fn page(id: &str, priority: i64, title: &str, content: &str) -> Page {
         let (source, path) = id.split_once("::").unwrap();
@@ -508,10 +522,26 @@ mod tests {
         }
     }
 
-    fn no_facts() -> DuplicateContext<'static> {
-        DuplicateContext {
-            sha256: &|_| None,
-            selected_by: &|_| None,
+    /// A registry record for `id`, selected with `by`; used to give `decide_winner` a
+    /// `selected_by` fact without a full manifest.
+    fn selected_record(id: &str, by: SelectedBy) -> PageRecord {
+        let (source, path) = id.split_once("::").unwrap();
+        PageRecord {
+            id: id.to_string(),
+            source: source.to_string(),
+            path: path.to_string(),
+            repo: String::new(),
+            commit: String::new(),
+            title: String::new(),
+            doc_type: String::new(),
+            section: String::new(),
+            url: String::new(),
+            sha256: String::new(),
+            excerpt: None,
+            status: PageStatus::Selected {
+                by,
+                rendered_from: None,
+            },
         }
     }
 
@@ -550,8 +580,8 @@ mod tests {
             page("b::y.md", 1, "Y", LONG_B),
             page("c::z.md", 1, "Z", UNRELATED),
         ];
-        let context = no_facts();
-        let pairs = find_duplicates(&pages, &context, DEFAULT_THRESHOLD);
+        let registry = PageRegistry::default();
+        let pairs = find_duplicates(&pages, &registry, DEFAULT_THRESHOLD);
         assert_eq!(pairs.len(), 1, "{pairs:?}");
         assert_eq!(pairs[0].kind, DuplicateKind::Near);
         assert!(pairs[0].similarity >= DEFAULT_THRESHOLD, "{:?}", pairs[0]);
@@ -565,12 +595,11 @@ mod tests {
             page("a::x.md", 1, "X", LONG_A),
             page("b::y.md", 1, "Y", LONG_A),
         ];
-        let sha = |_id: &str| Some("h1".to_string());
-        let context = DuplicateContext {
-            sha256: &sha,
-            selected_by: &|_| None,
-        };
-        let pairs = find_duplicates(&pages, &context, DEFAULT_THRESHOLD);
+        let registry = PageRegistry::from_records([
+            PageRecord::artifact_only("a", "x.md", "h1".to_string(), String::new()),
+            PageRecord::artifact_only("b", "y.md", "h1".to_string(), String::new()),
+        ]);
+        let pairs = find_duplicates(&pages, &registry, DEFAULT_THRESHOLD);
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].kind, DuplicateKind::Exact);
         assert!((pairs[0].similarity - 1.0).abs() < f64::EPSILON);
@@ -592,7 +621,7 @@ mod tests {
                 "An unrelated paragraph about billing invoices and payments.",
             ),
         ];
-        let pairs = find_duplicates(&pages, &no_facts(), DEFAULT_THRESHOLD);
+        let pairs = find_duplicates(&pages, &PageRegistry::default(), DEFAULT_THRESHOLD);
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].kind, DuplicateKind::Mirror);
     }
@@ -603,7 +632,7 @@ mod tests {
             page("a::x.md", 10, "X", LONG_A),
             page("b::y.md", 1, "Y", LONG_B),
         ];
-        let (winner, loser, why, tie) = decide_winner(&pages, &no_facts(), 0, 1);
+        let (winner, loser, why, tie) = decide_winner(&pages, &PageRegistry::default(), 0, 1);
         assert_eq!((winner, loser, tie), (0, 1, false));
         assert_eq!(why, "priority 10 > 1");
 
@@ -611,28 +640,22 @@ mod tests {
             page("a::x.md", 5, "X", LONG_A),
             page("b::y.md", 5, "Y", LONG_B),
         ];
-        let selected_by = |id: &str| {
-            Some(if id == "b::y.md" {
-                SelectedBy::Resolver
-            } else {
-                SelectedBy::Include
-            })
-        };
-        let context = DuplicateContext {
-            sha256: &|_| None,
-            selected_by: &selected_by,
-        };
-        let (winner, loser, why, tie) = decide_winner(&pages, &context, 0, 1);
+        let registry = PageRegistry::from_records([
+            selected_record("a::x.md", SelectedBy::Include),
+            selected_record("b::y.md", SelectedBy::Resolver),
+        ]);
+        let (winner, loser, why, tie) = decide_winner(&pages, &registry, 0, 1);
         assert_eq!((winner, loser, tie), (1, 0, false));
         assert_eq!(why, "resolver beats include");
 
-        // Priority and selected_by both tie (here: no manifest at all, so selected_by is
-        // unknown for both): the lexically first id wins, deterministically, every time this
-        // pair is compared, in either argument order.
-        let (winner, loser, why, tie) = decide_winner(&pages, &no_facts(), 0, 1);
+        // Priority and selected_by both tie (here: an empty registry, so selected_by is unknown
+        // for both): the lexically first id wins, deterministically, every time this pair is
+        // compared, in either argument order.
+        let empty = PageRegistry::default();
+        let (winner, loser, why, tie) = decide_winner(&pages, &empty, 0, 1);
         assert_eq!((winner, loser, tie), (0, 1, true), "a::x.md sorts first");
         assert_eq!(why, "priority and selected_by tie; a::x.md sorts first");
-        let (winner, loser, _, tie) = decide_winner(&pages, &no_facts(), 1, 0);
+        let (winner, loser, _, tie) = decide_winner(&pages, &empty, 1, 0);
         assert_eq!(
             (winner, loser, tie),
             (0, 1, true),
@@ -646,7 +669,7 @@ mod tests {
             page("a::x.md", 1, "X", LONG_A),
             page("b::y.md", 1, "Y", LONG_B),
         ];
-        let pairs = find_duplicates(&pages, &no_facts(), DEFAULT_THRESHOLD);
+        let pairs = find_duplicates(&pages, &PageRegistry::default(), DEFAULT_THRESHOLD);
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].suggested, Suggested::Review);
 
@@ -654,7 +677,7 @@ mod tests {
             page("a::x.md", 10, "X", LONG_A),
             page("b::y.md", 1, "Y", LONG_B),
         ];
-        let pairs = find_duplicates(&pages, &no_facts(), DEFAULT_THRESHOLD);
+        let pairs = find_duplicates(&pages, &PageRegistry::default(), DEFAULT_THRESHOLD);
         assert_eq!(pairs[0].canonical, "a::x.md");
         assert_eq!(pairs[0].suggested, Suggested::Exclude);
     }
@@ -701,8 +724,8 @@ mod tests {
             page("a::x.md", 1, "X", LONG_A),
             page("c::z.md", 1, "X", LONG_A),
         ];
-        let first = find_duplicates(&pages, &no_facts(), DEFAULT_THRESHOLD);
-        let second = find_duplicates(&pages, &no_facts(), DEFAULT_THRESHOLD);
+        let first = find_duplicates(&pages, &PageRegistry::default(), DEFAULT_THRESHOLD);
+        let second = find_duplicates(&pages, &PageRegistry::default(), DEFAULT_THRESHOLD);
         assert_eq!(first, second, "pure function of the same input");
 
         let dir = tempfile::tempdir().unwrap();
@@ -723,5 +746,74 @@ mod tests {
         let mut sorted = pairs.clone();
         sorted.sort_unstable();
         assert_eq!(pairs, sorted, "already sorted by (canonical, duplicate)");
+    }
+
+    #[test]
+    fn urls_come_from_the_registry_and_an_artifact_only_record_has_no_selected_by() {
+        let pages = vec![
+            page("a::x.md", 1, "X", LONG_A),
+            page("b::y.md", 1, "Y", LONG_A),
+        ];
+        let registry = PageRegistry::from_records([
+            PageRecord::artifact_only(
+                "a",
+                "x.md",
+                "h1".to_string(),
+                "https://example.test/a/x.md".to_string(),
+            ),
+            PageRecord::artifact_only(
+                "b",
+                "y.md",
+                "h1".to_string(),
+                "https://example.test/b/y.md".to_string(),
+            ),
+        ]);
+        let pairs = find_duplicates(&pages, &registry, DEFAULT_THRESHOLD);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].kind, DuplicateKind::Exact);
+        // Neither page has a `selected_by` fact (both are artifact-only): priority and
+        // selected_by both tie, so the lexically first id wins, as canonical.
+        assert_eq!(pairs[0].canonical, "a::x.md");
+        assert_eq!(pairs[0].suggested, Suggested::Review);
+        assert_eq!(pairs[0].canonical_url, "https://example.test/a/x.md");
+        assert_eq!(pairs[0].duplicate_url, "https://example.test/b/y.md");
+    }
+
+    #[test]
+    fn a_residue_record_is_invisible_to_find_duplicates_even_at_the_same_id_as_a_page() {
+        let pages = vec![
+            page("a::x.md", 1, "X", LONG_A),
+            page("b::y.md", 1, "Y", LONG_B),
+        ];
+        // `b::y.md` is a real corpus fact; `a::x.md` has only a residue record, with a sha256
+        // that would form an exact pair if `find_duplicates` read it. It must not: sha lookups
+        // go through `corpus_page`, never `get`.
+        let residue_record = PageRecord {
+            id: "a::x.md".to_string(),
+            source: "a".to_string(),
+            path: "x.md".to_string(),
+            repo: String::new(),
+            commit: String::new(),
+            title: String::new(),
+            doc_type: String::new(),
+            section: String::new(),
+            url: String::new(),
+            sha256: "h1".to_string(),
+            excerpt: Some(String::new()),
+            status: PageStatus::Residue {
+                reason: crate::residue::Reason::NotSelected,
+                rule: None,
+                context: String::new(),
+            },
+        };
+        let registry = PageRegistry::from_records([
+            PageRecord::artifact_only("b", "y.md", "h1".to_string(), String::new()),
+            residue_record,
+        ]);
+        let pairs = find_duplicates(&pages, &registry, DEFAULT_THRESHOLD);
+        assert!(
+            pairs.iter().all(|p| p.kind != DuplicateKind::Exact),
+            "{pairs:?}"
+        );
     }
 }

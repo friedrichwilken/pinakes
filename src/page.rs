@@ -123,6 +123,25 @@ impl PageRecord {
         }
     }
 
+    /// A page found under `<artifact>/<source>/` that the manifest does not know about.
+    #[must_use]
+    pub fn artifact_only(source: &str, path: &str, sha256: String, url: String) -> PageRecord {
+        PageRecord {
+            id: page_id(source, path),
+            source: source.to_string(),
+            path: path.to_string(),
+            repo: String::new(),
+            commit: String::new(),
+            title: String::new(),
+            doc_type: String::new(),
+            section: String::new(),
+            url,
+            sha256,
+            excerpt: None,
+            status: PageStatus::ArtifactOnly,
+        }
+    }
+
     /// What selected the page, when it is a selected page.
     #[must_use]
     pub fn selected_by(&self) -> Option<SelectedBy> {
@@ -226,6 +245,8 @@ impl PageRegistry {
     /// is by `(source, path)`, then `residue` in the order given.
     #[must_use]
     pub fn load(manifest: Option<&Manifest>, residue: &[ResidueEntry]) -> PageRegistry {
+        // Not `manifest.pages()`: building a record needs the page's own `&ManifestSource` (for
+        // `repo`, `commit` and `page_url`), which that iterator does not hand back.
         let selected = manifest.into_iter().flat_map(|manifest| {
             manifest.sources.iter().flat_map(|(name, source)| {
                 source.pages.iter().map(move |(path, entry)| {
@@ -285,7 +306,9 @@ impl PageRegistry {
 
     /// The residue records, in insertion order, including records that share an id.
     pub fn residue(&self) -> impl Iterator<Item = &PageRecord> {
-        self.records.iter().filter(|r| !r.is_corpus())
+        self.records
+            .iter()
+            .filter(|r| matches!(r.status, PageStatus::Residue { .. }))
     }
 
     /// The residue records as `residue.jsonl` entries, in insertion order.
@@ -307,6 +330,34 @@ impl PageRegistry {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
+    }
+
+    /// Add an [`PageStatus::ArtifactOnly`] record found in the artifact but not the manifest.
+    /// Does nothing and returns `false` when a corpus record with this id already exists (a
+    /// selected page always wins); otherwise inserts it and returns `true`.
+    #[must_use]
+    pub fn insert_artifact_only(&mut self, record: PageRecord) -> bool {
+        if self.corpus.contains_key(&record.id) {
+            return false;
+        }
+        let position = self.records.len();
+        self.corpus.insert(record.id.clone(), position);
+        self.records.push(record);
+        true
+    }
+
+    /// Set the excerpt of the corpus record (selected or artifact-only) with this id. Does
+    /// nothing and returns `false` when there is no such record; residue excerpts are set only
+    /// at construction, from the residue entry.
+    #[must_use]
+    pub fn set_excerpt(&mut self, id: &str, excerpt: String) -> bool {
+        match self.corpus.get(id).and_then(|&i| self.records.get_mut(i)) {
+            Some(record) => {
+                record.excerpt = Some(excerpt);
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -423,6 +474,10 @@ mod tests {
             ids(registry.selected()),
             ["a::b.md", "a::z.md", "a-b::c.md"]
         );
+        // `load` does not call `Manifest::pages()` (see its doc comment), but must still agree
+        // with the order that iterator defines.
+        let from_manifest_pages: Vec<String> = manifest.pages().map(|(id, ..)| id).collect();
+        assert_eq!(ids(registry.selected()), from_manifest_pages);
         assert_eq!(ids(registry.residue()), ["a-b::r.md", "a::r.md"]);
         assert_eq!(
             ids(registry.records()),
@@ -569,5 +624,95 @@ mod tests {
         let empty = PageRegistry::load(None, &[]);
         assert!(empty.is_empty());
         assert_eq!(empty, PageRegistry::default());
+    }
+
+    #[test]
+    fn artifact_only_is_a_bare_corpus_record() {
+        let record = PageRecord::artifact_only(
+            "handbook",
+            "docs/orphan.md",
+            "ab".repeat(32),
+            "https://example.test/orphan.md".to_string(),
+        );
+        assert_eq!(record.id, "handbook::docs/orphan.md");
+        assert_eq!(record.source, "handbook");
+        assert_eq!(record.path, "docs/orphan.md");
+        assert_eq!((record.repo.as_str(), record.commit.as_str()), ("", ""));
+        assert_eq!(record.title, "");
+        assert_eq!(record.excerpt, None);
+        assert!(record.is_corpus());
+        assert_eq!(record.selected_by(), None);
+        assert_eq!(record.to_residue_entry(), None);
+        assert_eq!(record.status, PageStatus::ArtifactOnly);
+    }
+
+    #[test]
+    fn insert_artifact_only_loses_to_an_existing_corpus_record_but_wins_over_nothing() {
+        let manifest = manifest(&[("handbook", vec![("docs/a.md", page("A", None))])]);
+        let mut registry = PageRegistry::load(Some(&manifest), &[]);
+
+        // A corpus record already exists at this id: the manifest's selected page wins.
+        let shadowed = PageRecord::artifact_only(
+            "handbook",
+            "docs/a.md",
+            "cd".repeat(32),
+            "https://example.test/a.md".to_string(),
+        );
+        assert!(!registry.insert_artifact_only(shadowed));
+        assert_eq!(registry.len(), 1);
+        assert_eq!(
+            registry
+                .get("handbook::docs/a.md")
+                .map(|r| r.title.as_str()),
+            Some("A")
+        );
+
+        // No corpus record at this id: the artifact-only record is inserted.
+        let orphan =
+            PageRecord::artifact_only("handbook", "docs/orphan.md", "ef".repeat(32), String::new());
+        assert!(registry.insert_artifact_only(orphan.clone()));
+        assert_eq!(registry.len(), 2);
+        assert_eq!(
+            registry.corpus_page("handbook::docs/orphan.md"),
+            Some(&orphan)
+        );
+
+        // Inserting again at the same id now loses too: the first artifact-only record wins.
+        let later =
+            PageRecord::artifact_only("handbook", "docs/orphan.md", "00".repeat(32), String::new());
+        assert!(!registry.insert_artifact_only(later));
+        assert_eq!(registry.len(), 2);
+    }
+
+    #[test]
+    fn set_excerpt_only_reaches_a_corpus_record() {
+        let manifest = manifest(&[("handbook", vec![("docs/a.md", page("A", None))])]);
+        let residue = [residue("handbook", "docs/b.md", Reason::NotSelected)];
+        let mut registry = PageRegistry::load(Some(&manifest), &residue);
+
+        assert!(registry.set_excerpt("handbook::docs/a.md", "hello".to_string()));
+        assert_eq!(
+            registry
+                .get("handbook::docs/a.md")
+                .and_then(|r| r.excerpt.as_deref()),
+            Some("hello")
+        );
+
+        // A residue record is not a corpus record: its excerpt is untouched.
+        let before = registry
+            .residue_page("handbook::docs/b.md")
+            .unwrap()
+            .excerpt
+            .clone();
+        assert!(!registry.set_excerpt("handbook::docs/b.md", "ignored".to_string()));
+        assert_eq!(
+            registry
+                .residue_page("handbook::docs/b.md")
+                .unwrap()
+                .excerpt,
+            before
+        );
+
+        assert!(!registry.set_excerpt("handbook::docs/missing.md", "x".to_string()));
     }
 }

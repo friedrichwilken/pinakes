@@ -14,6 +14,7 @@ use crate::diff::{Diff, RemovalReason, SourceDiff};
 use crate::duplicates::{DuplicateKind, DuplicatePair, Suggested};
 use crate::eval::{EvalSummary, Metrics, Split};
 use crate::manifest::Manifest;
+use crate::page::PageRegistry;
 use crate::residue::{Reason, ResidueEntry};
 use crate::usage::{UncitedQuery, Usage};
 
@@ -32,8 +33,9 @@ pub struct ReportInput<'a> {
     /// `None` and `old` is given, one is computed from the manifests alone, with zero line
     /// counts.
     pub diff: Option<&'a Diff>,
-    /// Current residue entries.
-    pub residue: &'a [ResidueEntry],
+    /// The page registry (selected and residue records) built from `new` and the current
+    /// residue file.
+    pub registry: &'a PageRegistry,
     /// Every decision line, in file order.
     pub decisions: &'a [Decision],
     /// Evaluation on the previous corpus.
@@ -49,14 +51,9 @@ pub struct ReportInput<'a> {
 /// Render the report as Markdown.
 pub fn render(input: ReportInput<'_>) -> String {
     let effective = decisions::effective(input.decisions);
+    let residue = input.registry.residue_entries();
     let expired = decisions::expired(&effective, |id| {
-        input.new.page(id).map(|p| p.sha256.clone()).or_else(|| {
-            input
-                .residue
-                .iter()
-                .find(|r| r.id == id)
-                .map(|r| r.sha256.clone())
-        })
+        input.registry.get(id).map(|r| r.sha256.clone())
     });
     let computed;
     let diff = match input.diff {
@@ -69,8 +66,7 @@ pub fn render(input: ReportInput<'_>) -> String {
             None => None,
         },
     };
-    let undecided: Vec<&ResidueEntry> = input
-        .residue
+    let undecided: Vec<&ResidueEntry> = residue
         .iter()
         .filter(|r| {
             !effective
@@ -78,8 +74,7 @@ pub fn render(input: ReportInput<'_>) -> String {
                 .is_some_and(|d| d.applies_to(&r.sha256))
         })
         .collect();
-    let active_excludes: BTreeSet<&str> = input
-        .residue
+    let active_excludes: BTreeSet<&str> = residue
         .iter()
         .filter(|r| {
             effective
@@ -90,14 +85,14 @@ pub fn render(input: ReportInput<'_>) -> String {
         .collect();
 
     let mut out = String::from("# Corpus report\n\n");
-    summary(&mut out, input, diff, &undecided, &effective);
+    summary(&mut out, input, &residue, diff, &undecided, &effective);
     eval_section(&mut out, input.eval_before, input.eval_after);
-    pages_section(&mut out, diff, &active_excludes, input.old, input.new);
-    residue_section(&mut out, input, &undecided);
+    pages_section(&mut out, diff, &active_excludes, input.old, input.registry);
+    residue_section(&mut out, input, &residue, &undecided);
     expired_section(&mut out, &expired);
-    unresolved_section(&mut out, input.residue);
+    unresolved_section(&mut out, &residue);
     archived_section(&mut out, input.new);
-    duplicates_section(&mut out, input.duplicates, input.new);
+    duplicates_section(&mut out, input.duplicates, input.registry);
     if let Some(usage) = input.usage {
         // `duplicates_section`'s empty branch has no trailing blank line (it used to be the
         // last section); restore one so "Usage" is not glued to it.
@@ -112,6 +107,7 @@ pub fn render(input: ReportInput<'_>) -> String {
 fn summary(
     out: &mut String,
     input: ReportInput<'_>,
+    residue: &[ResidueEntry],
     diff: Option<&Diff>,
     undecided: &[&ResidueEntry],
     effective: &BTreeMap<String, Decision>,
@@ -123,7 +119,7 @@ fn summary(
     let _ = writeln!(
         out,
         "- Residue: {} entries, {} undecided",
-        input.residue.len(),
+        residue.len(),
         undecided.len()
     );
     let _ = writeln!(out, "- Decisions: {}", effective.len());
@@ -216,14 +212,19 @@ fn pages_section(
     diff: Option<&Diff>,
     active_excludes: &BTreeSet<&str>,
     old: Option<&Manifest>,
-    new: &Manifest,
+    registry: &PageRegistry,
 ) {
+    let url_of = |id: &str| {
+        registry
+            .corpus_page(id)
+            .map(|r| r.url.clone())
+            .unwrap_or_default()
+    };
     out.push_str("## Added pages\n\n");
     match diff {
         Some(diff) if !diff.added.is_empty() => {
             for page in &diff.added {
-                let url = new.page_url(&page.id).unwrap_or_default();
-                let mention = page_mention(&page.title, &page.id, &url);
+                let mention = page_mention(&page.title, &page.id, &url_of(&page.id));
                 let _ = writeln!(out, "- {mention}");
             }
         }
@@ -253,8 +254,7 @@ fn pages_section(
                 let source = page.id.split("::").next().unwrap_or_default();
                 let compare = diff.sources.get(source).and_then(SourceDiff::compare_url);
                 let lines = format!("+{}/-{}", page.lines_added, page.lines_removed);
-                let url = new.page_url(&page.id).unwrap_or_default();
-                let mention = page_mention(&page.title, &page.id, &url);
+                let mention = page_mention(&page.title, &page.id, &url_of(&page.id));
                 match compare {
                     Some(compare_url) => {
                         let _ = writeln!(out, "- {mention} ({lines}) ([compare]({compare_url}))");
@@ -322,7 +322,12 @@ fn render_residue_entry(out: &mut String, entry: &ResidueEntry) {
 /// grouped by rule (SPEC §2.4), each group headed by the rule's sentence; excluded entries are
 /// never "new" in this sense, but are always accounted for in a collapsed, always-present count
 /// (SPEC §2.4) regardless of report history.
-fn residue_section(out: &mut String, input: ReportInput<'_>, undecided: &[&ResidueEntry]) {
+fn residue_section(
+    out: &mut String,
+    input: ReportInput<'_>,
+    residue: &[ResidueEntry],
+    undecided: &[&ResidueEntry],
+) {
     out.push_str("## New residue\n\n");
     let previous: BTreeSet<String> = input
         .old
@@ -349,7 +354,7 @@ fn residue_section(out: &mut String, input: ReportInput<'_>, undecided: &[&Resid
             out.push('\n');
         }
     }
-    excluded_details(out, input.residue);
+    excluded_details(out, residue);
 }
 
 /// A collapsed `<details>` block naming every currently excluded page (SPEC §2.4), grouped by
@@ -445,13 +450,18 @@ fn archived_section(out: &mut String, manifest: &Manifest) {
 
 /// The "Duplicates" section (SPEC §11): exact, mirror and near-duplicate pairs, grouped by kind
 /// in that order, each page mentioned as a Markdown link (SPEC §2.7).
-fn duplicates_section(out: &mut String, duplicates: &[DuplicatePair], new: &Manifest) {
+fn duplicates_section(out: &mut String, duplicates: &[DuplicatePair], registry: &PageRegistry) {
     out.push_str("## Duplicates\n\n");
     if duplicates.is_empty() {
         out.push_str("_none_\n");
         return;
     }
-    let title_of = |id: &str| new.page(id).map(|p| p.title.clone()).unwrap_or_default();
+    let title_of = |id: &str| {
+        registry
+            .corpus_page(id)
+            .map(|p| p.title.clone())
+            .unwrap_or_default()
+    };
     for kind in [
         DuplicateKind::Exact,
         DuplicateKind::Mirror,
@@ -827,11 +837,12 @@ mod tests {
             }
         });
         let duplicates = sample_duplicates();
+        let registry = PageRegistry::load(Some(&new), &residue);
         let rendered = render(ReportInput {
             old: Some(&old),
             new: &new,
             diff: Some(&diff),
-            residue: &residue,
+            registry: &registry,
             decisions: &decisions,
             eval_before: Some(&before),
             eval_after: Some(&after),
@@ -846,11 +857,12 @@ mod tests {
     #[test]
     fn minimal_report_without_old_manifest_or_eval() {
         let (_, new, residue, decisions) = manifests();
+        let registry = PageRegistry::load(Some(&new), &residue);
         let rendered = render(ReportInput {
             old: None,
             new: &new,
             diff: None,
-            residue: &residue,
+            registry: &registry,
             decisions: &decisions,
             eval_before: None,
             eval_after: None,
@@ -866,11 +878,12 @@ mod tests {
     fn eval_with_only_after_side() {
         let (_, new, _, _) = manifests();
         let (_, after) = evals();
+        let registry = PageRegistry::load(Some(&new), &[]);
         let rendered = render(ReportInput {
             old: None,
             new: &new,
             diff: None,
-            residue: &[],
+            registry: &registry,
             decisions: &[],
             eval_before: None,
             eval_after: Some(&after),
@@ -898,11 +911,12 @@ mod tests {
             "nav",
             "",
         ));
+        let registry = PageRegistry::load(Some(&new), &entries);
         let rendered = render(ReportInput {
             old: None,
             new: &new,
             diff: None,
-            residue: &entries,
+            registry: &registry,
             decisions: &decisions,
             eval_before: None,
             eval_after: None,
@@ -928,11 +942,12 @@ mod tests {
         // Omitting excluded residue entirely omits the block, unlike the always-rendered
         // "New residue" heading itself.
         let (_, new, entries, decisions) = manifests();
+        let registry = PageRegistry::load(Some(&new), &entries);
         let without_excluded = render(ReportInput {
             old: None,
             new: &new,
             diff: None,
-            residue: &entries,
+            registry: &registry,
             decisions: &decisions,
             eval_before: None,
             eval_after: None,
@@ -946,11 +961,12 @@ mod tests {
     fn duplicates_section_groups_pairs_by_kind() {
         let (_, new, _, _) = manifests();
         let duplicates = sample_duplicates();
+        let registry = PageRegistry::load(Some(&new), &[]);
         let rendered = render(ReportInput {
             old: None,
             new: &new,
             diff: None,
-            residue: &[],
+            registry: &registry,
             decisions: &[],
             eval_before: None,
             eval_after: None,
@@ -970,7 +986,7 @@ mod tests {
             old: None,
             new: &new,
             diff: None,
-            residue: &[],
+            registry: &registry,
             decisions: &[],
             eval_before: None,
             eval_after: None,
@@ -978,6 +994,50 @@ mod tests {
             usage: None,
         });
         assert!(rendered_empty.ends_with("## Duplicates\n\n_none_\n"));
+    }
+
+    #[test]
+    fn duplicates_section_titles_come_from_the_corpus_record_only_never_residue() {
+        let (_, new, _, _) = manifests();
+        // A residue record at this id, titled differently from any corpus page.
+        let entries = vec![residue(
+            "handbook::docs/known-residue.md",
+            Reason::NotSelected,
+            "Residue Title",
+            "text",
+            "",
+        )];
+        let registry = PageRegistry::load(Some(&new), &entries);
+        let duplicates = vec![DuplicatePair {
+            kind: DuplicateKind::Mirror,
+            similarity: 1.0,
+            canonical: "handbook::docs/getting-started.md".to_string(),
+            duplicate: "handbook::docs/known-residue.md".to_string(),
+            why: "priority".to_string(),
+            suggested: Suggested::Exclude,
+            canonical_url: String::new(),
+            duplicate_url: String::new(),
+        }];
+        let rendered = render(ReportInput {
+            old: None,
+            new: &new,
+            diff: None,
+            registry: &registry,
+            decisions: &[],
+            eval_before: None,
+            eval_after: None,
+            duplicates: &duplicates,
+            usage: None,
+        });
+        // `known-residue.md` is not a corpus page (only residue), so in the Duplicates section
+        // its mention falls back to the bare id, never the residue entry's title (which does
+        // appear, correctly, over in "New residue").
+        let duplicates_section = rendered.split("## Duplicates").nth(1).unwrap();
+        assert!(!duplicates_section.contains("Residue Title"), "{rendered}");
+        assert!(
+            duplicates_section.contains("`handbook::docs/known-residue.md`"),
+            "{rendered}"
+        );
     }
 
     fn sample_usage() -> Usage {
@@ -1006,11 +1066,12 @@ mod tests {
     fn usage_section_is_rendered_only_when_given_and_matches_snapshot() {
         let (_, new, residue, decisions) = manifests();
         let usage = sample_usage();
+        let registry = PageRegistry::load(Some(&new), &residue);
         let rendered = render(ReportInput {
             old: None,
             new: &new,
             diff: None,
-            residue: &residue,
+            registry: &registry,
             decisions: &decisions,
             eval_before: None,
             eval_after: None,
@@ -1026,7 +1087,7 @@ mod tests {
             old: None,
             new: &new,
             diff: None,
-            residue: &residue,
+            registry: &registry,
             decisions: &decisions,
             eval_before: None,
             eval_after: None,
