@@ -2,7 +2,8 @@
 //! measured corpus for a retrieval system (see `SPEC.md` at the repository root).
 //!
 //! The library is organised by file contract: [`config`] reads `pinakes.yaml`, [`sources`]
-//! downloads checkouts, [`resolve`] selects pages, [`artifact`] and [`manifest`] materialise
+//! downloads checkouts, [`resolve`] discovers candidate pages and [`select`] applies the
+//! selection policy to them, [`artifact`] and [`manifest`] materialise
 //! the result, [`residue`] and [`decisions`] track what was left out and why, [`diff`] and
 //! [`report`] describe changes, [`duplicates`] finds near-duplicate and mirror pages, [`index`] /
 //! [`eval`] measure retrieval quality, [`queries`] grows and validates the judge
@@ -45,6 +46,7 @@ pub mod render;
 pub mod report;
 pub mod residue;
 pub mod resolve;
+pub mod select;
 pub mod sources;
 pub mod text;
 pub mod tokenizer;
