@@ -14,6 +14,7 @@ use std::str::FromStr;
 
 use thiserror::Error;
 
+use crate::corpus::CorpusError;
 use crate::embed::{EmbedError, Embedder};
 use crate::index::{Hit, IndexError, Priorities};
 
@@ -75,6 +76,13 @@ pub enum BackendError {
     /// The requested backend name is not one of the five SPEC §16.1 backends.
     #[error("unknown backend {0:?}: expected bm25, bm25-tantivy, dense, hybrid or external")]
     UnknownBackend(String),
+}
+
+/// A page-loading failure is reported as the [`IndexError`] it has always been.
+impl From<CorpusError> for BackendError {
+    fn from(err: CorpusError) -> Self {
+        BackendError::Index(IndexError::from(err))
+    }
 }
 
 /// One of the five retriever shapes of SPEC §16.1.

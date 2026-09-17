@@ -5,6 +5,7 @@ use std::path::Path;
 
 use super::{Backend, BackendConfig, BackendError, Bm25Backend, DenseBackend};
 use crate::index::Hit;
+use crate::index::bm25::float;
 
 /// `k` in the reciprocal rank fusion formula (SPEC §16.3).
 pub const RRF_K: f64 = 60.0;
@@ -41,11 +42,6 @@ pub fn reciprocal_rank_fusion(rankings: &[&[Hit]], k: usize) -> Vec<Hit> {
             page_id: id,
         })
         .collect()
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn float(n: usize) -> f64 {
-    n as f64
 }
 
 /// `hybrid` (SPEC §16.3): reciprocal rank fusion of the `bm25` and `dense` page rankings, over

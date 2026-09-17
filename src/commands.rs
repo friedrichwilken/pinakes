@@ -12,6 +12,7 @@ use crate::artifact::{self, ArtifactError, MANIFEST_FILE, Problem};
 use crate::backend::{self, Backend, BackendConfig, BackendError, BackendKind};
 use crate::classify::{self, ClassifyError, DuplicateLookup, PageFacts};
 use crate::config::{ArchivedPolicy, Config, ConfigError, RepoSlug};
+use crate::corpus::CorpusError;
 use crate::decisions::{self, Decision, DecisionError, Expired, Verdict};
 use crate::diff::{self, Diff};
 use crate::duplicates::{self, DuplicateContext, DuplicatePair, DuplicatesError};
@@ -139,6 +140,13 @@ pub enum CommandError {
     /// Bad or unreadable usage report, or an invalid `--since`.
     #[error(transparent)]
     Usage(#[from] UsageError),
+}
+
+/// A page-loading failure is reported as the [`IndexError`] it has always been.
+impl From<CorpusError> for CommandError {
+    fn from(err: CorpusError) -> Self {
+        CommandError::Index(IndexError::from(err))
+    }
 }
 
 /// File locations shared by the commands; every path is taken as given (no implicit cwd magic

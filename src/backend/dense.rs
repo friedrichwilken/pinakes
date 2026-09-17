@@ -96,11 +96,11 @@ impl Backend for DenseBackend {
     }
 }
 
-/// Shared by [`DenseBackend`] and [`HybridBackend`]: embed `query`, rank pages by their best
-/// unit's cosine similarity, de-duplicate by title key and apply the module filter — the same
-/// shape as [`Index::search`], but scored densely.
+/// The search behind [`DenseBackend`] (and so the dense half of `hybrid`, which calls
+/// [`DenseBackend::search`]): embed `query`, rank pages by their best unit's cosine similarity,
+/// de-duplicate by title key and apply the module filter — the same shape as [`Index::search`],
+/// but scored densely.
 ///
-/// [`HybridBackend`]: super::HybridBackend
 /// [`Index::search`]: crate::index::Index::search
 #[allow(clippy::too_many_arguments)]
 fn dense_search(

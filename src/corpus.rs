@@ -2,14 +2,50 @@
 //! residue pages, source priorities and the mirror rule (SPEC §5).
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use thiserror::Error;
 
 use crate::config::Config;
-use crate::index::sections::{clean_content, extract_title};
-use crate::index::tokenizer::title_key;
-use crate::index::{IndexError, io};
 use crate::layout::{META_FILE, RESIDUE_DIR};
 use crate::manifest::page_id;
+use crate::text::{clean_content, extract_title};
+use crate::tokenizer::title_key;
+
+/// Errors raised while loading an artifact directory into pages.
+#[derive(Debug, Error)]
+pub enum CorpusError {
+    /// A filesystem operation failed.
+    #[error("{path}: {source}")]
+    Io {
+        /// The path involved.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
+    /// The artifact path is not a directory.
+    #[error("{0}: not an artifact directory")]
+    NotADirectory(PathBuf),
+    /// A page id is not `<source>::<path>`.
+    #[error("invalid page id {0:?}: expected <source>::<path>")]
+    BadPageId(String),
+    /// `--with` named a page that is not in `_residue`.
+    #[error("{id}: no residue page at {path}")]
+    MissingResidue {
+        /// The page id.
+        id: String,
+        /// Where the page was expected.
+        path: PathBuf,
+    },
+}
+
+fn io(path: &Path) -> impl FnOnce(std::io::Error) -> CorpusError + '_ {
+    move |source| CorpusError::Io {
+        path: path.to_path_buf(),
+        source,
+    }
+}
 
 /// Priority of a source that `pinakes.yaml` does not list (or of every source without a
 /// config): the config default, so unconfigured sources never collapse each other.
@@ -132,7 +168,7 @@ fn read_meta(dir: &Path) -> SourceMeta {
 }
 
 /// Relative paths (`/`-separated) of every `.md` file under `root`, sorted per directory.
-fn markdown_files(root: &Path, prefix: &str, out: &mut Vec<String>) -> Result<(), IndexError> {
+fn markdown_files(root: &Path, prefix: &str, out: &mut Vec<String>) -> Result<(), CorpusError> {
     let mut entries: Vec<_> = std::fs::read_dir(root)
         .map_err(io(root))?
         .collect::<Result<_, _>>()
@@ -186,15 +222,15 @@ pub(crate) fn make_page(
     }
 }
 
-fn read_lossy(path: &Path) -> Result<String, IndexError> {
+fn read_lossy(path: &Path) -> Result<String, CorpusError> {
     let bytes = std::fs::read(path).map_err(io(path))?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Read every page of an artifact directory, in source and path order, mirrors not yet marked.
-pub fn load_pages(artifact: &Path, priorities: &Priorities) -> Result<Vec<Page>, IndexError> {
+pub fn load_pages(artifact: &Path, priorities: &Priorities) -> Result<Vec<Page>, CorpusError> {
     if !artifact.is_dir() {
-        return Err(IndexError::NotADirectory(artifact.to_path_buf()));
+        return Err(CorpusError::NotADirectory(artifact.to_path_buf()));
     }
     let mut sources: Vec<_> = std::fs::read_dir(artifact)
         .map_err(io(artifact))?
@@ -232,14 +268,14 @@ pub fn load_residue_page(
     artifact: &Path,
     id: &str,
     priorities: &Priorities,
-) -> Result<Page, IndexError> {
+) -> Result<Page, CorpusError> {
     let (source, path) = id
         .split_once("::")
         .filter(|(s, p)| !s.is_empty() && !p.is_empty())
-        .ok_or_else(|| IndexError::BadPageId(id.to_string()))?;
+        .ok_or_else(|| CorpusError::BadPageId(id.to_string()))?;
     let file = artifact.join(RESIDUE_DIR).join(source).join(path);
     if !file.is_file() {
-        return Err(IndexError::MissingResidue {
+        return Err(CorpusError::MissingResidue {
             id: id.to_string(),
             path: file,
         });
