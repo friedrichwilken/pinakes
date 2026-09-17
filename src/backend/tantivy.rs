@@ -12,7 +12,7 @@ use tantivy::{IndexWriter, Searcher, Term};
 
 use super::{Backend, BackendConfig, BackendError};
 use crate::index::{
-    CuratorTokenizer, HEADING_BOOST, Hit, Page, TITLE_BOOST, TOKENIZER_NAME, index_text,
+    HEADING_BOOST, Hit, Page, PinakesTokenizer, TITLE_BOOST, TOKENIZER_NAME, index_text,
     load_pages, mark_mirrors, split_sections, title_key, tokenize,
 };
 
@@ -64,7 +64,7 @@ impl Backend for TantivyBackend {
         let index = tantivy::Index::create_in_ram(schema);
         index
             .tokenizers()
-            .register(TOKENIZER_NAME, CuratorTokenizer);
+            .register(TOKENIZER_NAME, PinakesTokenizer);
         let mut writer: IndexWriter<TantivyDocument> =
             index.writer_with_num_threads(1, 32 << 20)?;
         let mut total_units = 0usize;

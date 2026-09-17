@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::index::{self, Page};
+use crate::jsonl::{self, JsonlError, KeyOrder};
 use crate::manifest::SelectedBy;
 
 /// Tokens per shingle (SPEC §11).
@@ -119,54 +120,32 @@ pub struct DuplicateContext<'a> {
 /// `(canonical, duplicate)` (SPEC §11) so the file is byte-for-byte stable across runs
 /// regardless of the order they were found in.
 pub fn to_jsonl(pairs: &[DuplicatePair]) -> Result<String, serde_json::Error> {
+    jsonl::to_string(&sorted(pairs), KeyOrder::Sorted)
+}
+
+fn sorted(pairs: &[DuplicatePair]) -> Vec<&DuplicatePair> {
     let mut sorted: Vec<&DuplicatePair> = pairs.iter().collect();
     sorted.sort_by(|a, b| (&a.canonical, &a.duplicate).cmp(&(&b.canonical, &b.duplicate)));
-    let mut out = String::new();
-    for pair in sorted {
-        out.push_str(&serde_json::to_string(&serde_json::to_value(pair)?)?);
-        out.push('\n');
+    sorted
+}
+
+impl From<JsonlError> for DuplicatesError {
+    fn from(err: JsonlError) -> Self {
+        match err {
+            JsonlError::Io { path, source } => DuplicatesError::Io { path, source },
+            JsonlError::Json { path, line, source } => DuplicatesError::Json { path, line, source },
+        }
     }
-    Ok(out)
 }
 
 /// Write pairs to `path` as JSONL.
 pub fn write_jsonl(path: &Path, pairs: &[DuplicatePair]) -> Result<(), DuplicatesError> {
-    let text = to_jsonl(pairs).map_err(|source| DuplicatesError::Json {
-        path: path.to_path_buf(),
-        line: 0,
-        source,
-    })?;
-    std::fs::write(path, text).map_err(|source| DuplicatesError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
+    Ok(jsonl::write(path, &sorted(pairs), KeyOrder::Sorted)?)
 }
 
 /// Read pairs from `path`; blank lines are skipped, a missing file yields none.
 pub fn read_jsonl(path: &Path) -> Result<Vec<DuplicatePair>, DuplicatesError> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(source) => {
-            return Err(DuplicatesError::Io {
-                path: path.to_path_buf(),
-                source,
-            });
-        }
-    };
-    let mut pairs = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let pair = serde_json::from_str(line).map_err(|source| DuplicatesError::Json {
-            path: path.to_path_buf(),
-            line: index + 1,
-            source,
-        })?;
-        pairs.push(pair);
-    }
-    Ok(pairs)
+    Ok(jsonl::read_or_empty(path)?)
 }
 
 // -------------------------------------------------------------------------------------------

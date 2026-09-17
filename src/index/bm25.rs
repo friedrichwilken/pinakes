@@ -12,8 +12,8 @@ use tantivy::{DocAddress, DocSet, IndexWriter, Searcher, TERMINATED, Term};
 
 use super::IndexError;
 use super::sections::{index_text, split_sections};
-use super::tokenizer::{PinakesTokenizer, TOKENIZER_NAME, title_key, tokenize};
 use crate::corpus::{Page, Priorities, load_pages, mark_mirrors};
+use crate::tokenizer::{PinakesTokenizer, TOKENIZER_NAME, title_key, tokenize};
 
 /// Weight of the page title in a unit.
 pub const TITLE_BOOST: u32 = 3;
@@ -158,7 +158,7 @@ impl Stats {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn float(n: usize) -> f64 {
+pub(crate) fn float(n: usize) -> f64 {
     n as f64
 }
 
@@ -441,9 +441,9 @@ fn dense_units(searcher: &Searcher) -> Result<(Vec<usize>, Vec<usize>, Vec<f64>)
 
 #[cfg(test)]
 mod tests {
-    use super::super::testing::{SourceSpec, write_artifact};
     use super::*;
-    use crate::corpus::{SourceMeta, load_residue_page, make_page};
+    use crate::corpus::{CorpusError, SourceMeta, load_residue_page, make_page};
+    use crate::index::testing::{SourceSpec, write_artifact};
     /// The two-source test artifact's priorities: the first source outranks the second.
     fn priorities() -> Priorities {
         Priorities {
@@ -565,11 +565,11 @@ mod tests {
         assert_eq!(extra.repo, "example-org/handbook");
         assert!(matches!(
             load_residue_page(dir.path(), "handbook::nope.md", &priorities).unwrap_err(),
-            IndexError::MissingResidue { .. }
+            CorpusError::MissingResidue { .. }
         ));
         assert!(matches!(
             load_residue_page(dir.path(), "no-separator", &priorities).unwrap_err(),
-            IndexError::BadPageId(_)
+            CorpusError::BadPageId(_)
         ));
         let mut pages = load_pages(dir.path(), &priorities).unwrap();
         pages.push(extra);
@@ -610,7 +610,10 @@ mod tests {
     fn missing_artifact_is_an_error() {
         let err =
             Index::build(Path::new("/nonexistent/artifact"), &Priorities::default()).unwrap_err();
-        assert!(matches!(err, IndexError::NotADirectory(_)));
+        assert!(matches!(
+            err,
+            IndexError::Corpus(CorpusError::NotADirectory(_))
+        ));
     }
 
     #[test]

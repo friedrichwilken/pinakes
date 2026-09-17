@@ -12,6 +12,7 @@ use crate::artifact::{self, ArtifactError, MANIFEST_FILE, Problem};
 use crate::backend::{self, Backend, BackendConfig, BackendError, BackendKind};
 use crate::classify::{self, ClassifyError, DuplicateLookup, PageFacts};
 use crate::config::{ArchivedPolicy, Config, ConfigError, RepoSlug};
+use crate::corpus::CorpusError;
 use crate::decisions::{self, Decision, DecisionError, Expired, Verdict};
 use crate::diff::{self, Diff};
 use crate::duplicates::{self, DuplicateContext, DuplicatePair, DuplicatesError};
@@ -19,6 +20,7 @@ use crate::embed::{self, EmbedError, Embedder};
 use crate::eval::{self, Delta, EvalError, EvalSummary, Gate};
 use crate::grade::{self, GradeError, GradedRow};
 use crate::index::{self, Index, IndexError, Page, Priorities};
+use crate::jsonl;
 use crate::llm::{ChatError, ChatTransport, LlmConfig};
 use crate::manifest::{
     Manifest, ManifestError, ManifestSource, PageEntry, SelectedBy, now_rfc3339, split_page_id,
@@ -138,6 +140,13 @@ pub enum CommandError {
     /// Bad or unreadable usage report, or an invalid `--since`.
     #[error(transparent)]
     Usage(#[from] UsageError),
+}
+
+/// A page-loading failure is reported as the [`IndexError`] it has always been.
+impl From<CorpusError> for CommandError {
+    fn from(err: CorpusError) -> Self {
+        CommandError::Index(IndexError::from(err))
+    }
 }
 
 /// File locations shared by the commands; every path is taken as given (no implicit cwd magic
@@ -1138,13 +1147,7 @@ pub fn queries_import(
     let eval_config = config.as_ref().and_then(|c| c.eval.as_ref());
     let queries_path = resolve_queries_path(paths, eval_config, options.queries.as_deref())?;
     let graded_text = std::fs::read_to_string(&options.graded).map_err(io_err(&options.graded))?;
-    let mut graded = Vec::new();
-    for line in graded_text.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        graded.push(serde_json::from_str::<GradedRow>(line)?);
-    }
+    let graded: Vec<GradedRow> = jsonl::parse(&graded_text).map_err(|err| err.source)?;
     let (imported, skipped) = queries::import_graded(
         &graded,
         options.min_grade,
