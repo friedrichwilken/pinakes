@@ -8,9 +8,8 @@ use std::path::Path;
 use globset::GlobSet;
 
 use super::navigation::{self, JsValue, LinkTarget, NavEntry};
-use super::{Candidate, Discovery, Plan, ResolveError, Resolver, read_file};
+use super::{Candidate, Discovery, Mechanism, Plan, ResolveError, Resolver, read_file};
 use crate::config::Source;
-use crate::residue::Rule;
 use crate::sources::Checkout;
 
 /// Default navigation files, tried in order, when `path` is not given.
@@ -47,8 +46,16 @@ impl Resolver for Docusaurus<'_> {
         Discovery::navigation(found, nav_scope, nav_path, self.exclude)
     }
 
-    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Rule {
-        Rule::docusaurus_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Mechanism {
+        docusaurus_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+    }
+}
+
+/// A `docusaurus` sidebar links other pages but not this one.
+fn docusaurus_unlinked(nav_file: &str) -> Mechanism {
+    Mechanism {
+        key: "docusaurus:unlinked".to_string(),
+        text: format!("not linked from `{nav_file}`"),
     }
 }
 
@@ -361,5 +368,12 @@ module.exports = {
             LinkTarget::Unresolved("docs/c.md".to_string())
         );
         assert_eq!(resolve_doc_id("", &files), LinkTarget::Skipped);
+    }
+
+    #[test]
+    fn docusaurus_unlinked_names_the_nav_file() {
+        let mechanism = docusaurus_unlinked("sidebars.js");
+        assert_eq!(mechanism.key, "docusaurus:unlinked");
+        assert_eq!(mechanism.text, "not linked from `sidebars.js`");
     }
 }

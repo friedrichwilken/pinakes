@@ -15,9 +15,22 @@ use crate::config::{RepoSlug, Source};
 use crate::decisions::{Decision, Verdict};
 use crate::manifest::{PageEntry, SelectedBy, page_id};
 use crate::residue::{EXCERPT_TOKENS, Reason, ResidueEntry, Rule, excerpt};
-use crate::resolve::{Candidate, Plan, ResolveError, plan};
+use crate::resolve::{Candidate, Mechanism, Plan, ResolveError, plan};
 use crate::sources::{Checkout, list_files};
 use crate::text::{sha256_hex, strip_frontmatter, title_of};
+
+/// The resolver mechanism behind a not-selected candidate, turned into the [`Rule`] a residue
+/// entry carries (SPEC §2.4): `resolve` names the mechanism without depending on `residue`, and
+/// `select` (which already depends on both) does the naming-to-storage conversion at the point it
+/// builds each residue entry's `rule`.
+impl From<Mechanism> for Rule {
+    fn from(mechanism: Mechanism) -> Rule {
+        Rule {
+            key: mechanism.key,
+            text: mechanism.text,
+        }
+    }
+}
 
 /// Why [`precedence`] decided a file is residue (SPEC §2.4's `rule`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,9 +245,9 @@ struct Selection<'a> {
 }
 
 impl Selection<'_> {
-    /// The rule (SPEC §2.4) for a candidate the resolver's own mechanism did not select: the
-    /// resolver kind's own [`crate::resolve::Resolver::not_selected`].
-    fn not_selected_rule(&self, path: &str, candidate: &Candidate) -> Rule {
+    /// The mechanism (SPEC §2.4) behind a candidate the resolver's own mechanism did not select:
+    /// the resolver kind's own [`crate::resolve::Resolver::not_selected`].
+    fn not_selected_rule(&self, path: &str, candidate: &Candidate) -> Mechanism {
         self.plan.resolver.not_selected(path, candidate, self.plan)
     }
 
@@ -320,7 +333,9 @@ impl Selection<'_> {
                     ResidueCause::NotSelected if self.reason == Reason::NewSource => {
                         Rule::source_new()
                     }
-                    ResidueCause::NotSelected => self.not_selected_rule(path, candidate),
+                    ResidueCause::NotSelected => {
+                        Rule::from(self.not_selected_rule(path, candidate))
+                    }
                 };
                 result.residue.push(ResidueEntry {
                     id,

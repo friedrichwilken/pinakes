@@ -9,9 +9,8 @@ use globset::GlobSet;
 use regex::Regex;
 
 use super::navigation::{self, LinkTarget};
-use super::{Candidate, Discovery, Plan, ResolveError, Resolver, read_file};
+use super::{Candidate, Discovery, Mechanism, Plan, ResolveError, Resolver, read_file};
 use crate::config::Source;
-use crate::residue::Rule;
 use crate::sources::Checkout;
 
 /// Default navigation file when `path` is not given.
@@ -45,8 +44,16 @@ impl Resolver for Mdbook<'_> {
         Discovery::navigation(found, nav_scope, nav_path, self.exclude)
     }
 
-    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Rule {
-        Rule::mdbook_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Mechanism {
+        mdbook_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+    }
+}
+
+/// An `mdbook` `SUMMARY.md` links other pages but not this one.
+fn mdbook_unlinked(nav_file: &str) -> Mechanism {
+    Mechanism {
+        key: "mdbook:unlinked".to_string(),
+        text: format!("not linked from `{nav_file}`"),
     }
 }
 
@@ -247,5 +254,12 @@ mod tests {
         let src = source("      type: mdbook\n");
         let err = plan(&src, &co, &[], None, &[]).unwrap_err();
         assert!(matches!(err, ResolveError::Navigation { .. }), "{err}");
+    }
+
+    #[test]
+    fn mdbook_unlinked_names_the_nav_file() {
+        let mechanism = mdbook_unlinked("src/SUMMARY.md");
+        assert_eq!(mechanism.key, "mdbook:unlinked");
+        assert_eq!(mechanism.text, "not linked from `src/SUMMARY.md`");
     }
 }

@@ -7,11 +7,10 @@ use std::process::Command;
 
 use crate::config::{Source, compile_globs, compile_regex};
 use crate::jsonl;
-use crate::residue::Rule;
 use crate::sources::Checkout;
 use crate::text::absolutise;
 
-use super::{Candidate, Discovery, Plan, ResolveError, Resolver};
+use super::{Candidate, Discovery, Mechanism, Plan, ResolveError, Resolver};
 
 /// Parse resolver stdout: one JSON object per non-blank line.
 pub fn parse_candidates(text: &str) -> Result<Vec<Candidate>, (usize, String)> {
@@ -115,14 +114,32 @@ impl Resolver for External<'_> {
         })
     }
 
-    fn not_selected(&self, path: &str, candidate: &Candidate, plan: &Plan<'_>) -> Rule {
+    fn not_selected(&self, path: &str, candidate: &Candidate, plan: &Plan<'_>) -> Mechanism {
         candidate.rule.clone().unwrap_or_else(|| {
             if plan.mentioned.contains(path) {
-                Rule::external_not_selected()
+                external_not_selected()
             } else {
-                Rule::external_unmatched()
+                external_unmatched()
             }
         })
+    }
+}
+
+/// The external resolver command (SPEC §3) reported this candidate with `selected: false`, and
+/// did not supply its own `rule`.
+fn external_not_selected() -> Mechanism {
+    Mechanism {
+        key: "external:not-selected".to_string(),
+        text: "the resolver command reported it unselected".to_string(),
+    }
+}
+
+/// A file inside the external resolver's `residue_scope` (SPEC §3) that its command's output
+/// never mentioned at all, selected or not.
+fn external_unmatched() -> Mechanism {
+    Mechanism {
+        key: "external:unmatched".to_string(),
+        text: "outside the paths the resolver command's output covers".to_string(),
     }
 }
 
@@ -138,5 +155,21 @@ mod tests {
         assert!(parsed[0].selected);
         assert!(!parsed[1].selected);
         assert_eq!(parse_candidates("{\"path\":\"\"}").unwrap_err().0, 1);
+    }
+
+    #[test]
+    fn external_not_selected_and_unmatched_name_their_reasons() {
+        let not_selected = external_not_selected();
+        assert_eq!(not_selected.key, "external:not-selected");
+        assert_eq!(
+            not_selected.text,
+            "the resolver command reported it unselected"
+        );
+        let unmatched = external_unmatched();
+        assert_eq!(unmatched.key, "external:unmatched");
+        assert_eq!(
+            unmatched.text,
+            "outside the paths the resolver command's output covers"
+        );
     }
 }
