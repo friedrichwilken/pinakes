@@ -11,7 +11,8 @@
 //! client; [`classify`] uses it to judge undecided residue and near-duplicate candidates.
 //! [`trail`] reads `trail.jsonl`, the consumer-written record of what was actually served;
 //! [`grade`] uses the judge (via [`llm`]) to grade what it retrieved, and [`usage`] turns a
-//! trail into pages-never-used and gap statistics.
+//! trail into pages-never-used and gap statistics. [`corpus`] loads an artifact directory into
+//! pages (source priorities, the mirror rule); [`index`] builds on it and re-exports its items.
 //!
 //! Two leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
 //! (content hashing, front matter, titles, path helpers) and [`layout`] (the artifact's file and
@@ -22,6 +23,7 @@ pub mod backend;
 pub mod classify;
 pub mod commands;
 pub mod config;
+pub mod corpus;
 pub mod decisions;
 pub mod diff;
 pub mod duplicates;
