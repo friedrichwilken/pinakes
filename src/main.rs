@@ -3,7 +3,7 @@
 //! Human output goes to stderr, data to stdout. Exit codes follow SPEC §4.
 
 use std::io::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
@@ -12,12 +12,12 @@ use clap::{Args, Parser, Subcommand};
 use pinakes::backend::BackendKind;
 use pinakes::commands::{
     self, BackendEvalOptions, ClassifyOptions, DiffOptions, DuplicatesOptions, EmbedOptions,
-    EvalOptions, GradeOptions, Paths, QueriesAddOptions, QueriesImportOptions, ReportOptions,
-    ResolveOptions, UsageOptions,
+    EvalFlags, EvalOptions, EvalPlan, GradeOptions, Paths, QueriesAddOptions, QueriesImportOptions,
+    ReportOptions, ResolveOptions, UsageOptions,
 };
 use pinakes::decisions::Verdict;
 use pinakes::duplicates::{self, DuplicateKind, Suggested};
-use pinakes::embed::{Embedder, HttpEmbedder};
+use pinakes::embed::HttpEmbedder;
 use pinakes::eval;
 use pinakes::llm::UreqChatTransport;
 use pinakes::manifest::Manifest;
@@ -635,69 +635,49 @@ fn run_duplicates(mut paths: Paths, args: DuplicatesArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn run_eval(mut paths: Paths, mut args: EvalArgs) -> Result<ExitCode> {
-    if let Some(dir) = &args.artifact {
-        paths.artifact.clone_from(dir);
-    }
-    apply_eval_config_defaults(&paths, &mut args)?;
-    if !args.compare.is_empty() {
-        return run_eval_compare(&paths, args);
-    }
-    if args.backend.is_none()
-        && args.backend_url.is_none()
-        && args.embeddings.is_none()
-        && !args.allow_stale
-    {
-        return run_eval_plain(&paths, args);
-    }
-    run_eval_with_backend(&paths, args)
-}
-
-/// Fill the backend choices `pinakes.yaml` fixes under `eval` (`backend`, `backend_url`,
-/// `embeddings`, `compare`; SPEC §16.1) into the flags the user left out. A flag always wins;
-/// a configured `compare` applies only to a bare `eval`, so `--backend NAME` still measures
-/// that one backend.
-fn apply_eval_config_defaults(paths: &Paths, args: &mut EvalArgs) -> Result<()> {
-    if !paths.config.is_file() {
-        return Ok(());
-    }
-    let Some(eval) = pinakes::config::Config::load(&paths.config)?.eval else {
-        return Ok(());
-    };
-    if args.compare.is_empty() && args.backend.is_none() {
-        args.compare = eval.compare;
-    }
-    if args.backend.is_none() {
-        args.backend = eval.backend;
-    }
-    if args.backend_url.is_none() {
-        args.backend_url = eval.backend_url;
-    }
-    if args.embeddings.is_none() {
-        let dir = paths.config.parent().unwrap_or(std::path::Path::new("."));
-        args.embeddings = eval.embeddings.map(|path| {
-            if path.is_absolute() {
-                path
-            } else {
-                dir.join(path)
-            }
-        });
-    }
-    Ok(())
-}
-
-/// The plain `eval` path: no `--backend`/`--compare`/backend-only flags at all, so it goes
-/// through [`commands::eval`] exactly as before backend selection existed.
-fn run_eval_plain(paths: &Paths, args: EvalArgs) -> Result<ExitCode> {
-    let options = EvalOptions {
+/// The command-line flags as [`commands::EvalFlags`], before `pinakes.yaml`'s defaults are
+/// applied.
+fn eval_flags(args: EvalArgs) -> EvalFlags {
+    EvalFlags {
         queries: args.queries,
         k: args.k,
         json: args.json,
         gate: args.gate,
         with: args.with,
         without: args.without,
-    };
-    let outcome = commands::eval(paths, &options)?;
+        backend: args.backend,
+        backend_url: args.backend_url,
+        embeddings: args.embeddings,
+        allow_stale: args.allow_stale,
+        compare: args.compare,
+    }
+}
+
+fn run_eval(mut paths: Paths, args: EvalArgs) -> Result<ExitCode> {
+    if let Some(dir) = &args.artifact {
+        paths.artifact.clone_from(dir);
+    }
+    let mut flags = eval_flags(args);
+    commands::apply_eval_config_defaults(&paths, &mut flags)?;
+    let mut plan = commands::eval_plan(flags)?;
+    if plan.needs_embedder() {
+        plan = plan.with_embedder(commands::eval_embedder_from_env()?);
+    }
+    match plan {
+        EvalPlan::Plain(options) => run_eval_plain(&paths, &options),
+        EvalPlan::Backend(options) => run_eval_with_backend(&paths, &options),
+        EvalPlan::Compare {
+            backends,
+            common,
+            json,
+        } => run_eval_compare(&paths, &backends, &common, json.as_deref()),
+    }
+}
+
+/// The plain `eval` path: no `--backend`/`--compare`/backend-only flags at all, so it goes
+/// through [`commands::eval`] exactly as before backend selection existed.
+fn run_eval_plain(paths: &Paths, options: &EvalOptions) -> Result<ExitCode> {
+    let outcome = commands::eval(paths, options)?;
     eprintln!(
         "{}: {} pages, {} searchable, k = {}",
         paths.artifact.display(),
@@ -734,43 +714,12 @@ fn run_eval_plain(paths: &Paths, args: EvalArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// An embedder for `PINAKES_EMBED_URL`/`PINAKES_EMBED_KEY`, for backends that embed queries
-/// (`dense`, `hybrid`). The model itself comes from `embeddings.json`, not from here.
-fn embedder_from_env() -> Result<std::rc::Rc<dyn Embedder>> {
-    let base = std::env::var("PINAKES_EMBED_URL")
-        .context("PINAKES_EMBED_URL is not set (needed for --backend dense/hybrid)")?;
-    let key = std::env::var("PINAKES_EMBED_KEY")
-        .ok()
-        .filter(|v| !v.trim().is_empty());
-    Ok(std::rc::Rc::new(HttpEmbedder::new(base, key)))
-}
-
-fn needs_embedder(kind: BackendKind) -> bool {
-    matches!(kind, BackendKind::Dense | BackendKind::Hybrid)
-}
-
 /// `eval --backend NAME` (or any backend-only flag without `--compare`): through
 /// [`commands::eval_backend`].
-fn run_eval_with_backend(paths: &Paths, args: EvalArgs) -> Result<ExitCode> {
-    let backend: BackendKind = args.backend.as_deref().unwrap_or("bm25").parse()?;
-    let embedder = needs_embedder(backend)
-        .then(embedder_from_env)
-        .transpose()?;
-    let json = args.json.clone();
-    let options = BackendEvalOptions {
-        queries: args.queries,
-        k: args.k,
-        json: json.clone(),
-        gate: args.gate,
-        with: args.with,
-        without: args.without,
-        backend,
-        backend_url: args.backend_url,
-        embeddings: args.embeddings,
-        allow_stale: args.allow_stale,
-        embedder,
-    };
-    let outcome = commands::eval_backend(paths, &options)?;
+fn run_eval_with_backend(paths: &Paths, options: &BackendEvalOptions) -> Result<ExitCode> {
+    let backend = options.backend;
+    let json = options.json.clone();
+    let outcome = commands::eval_backend(paths, options)?;
     print_eval_outcome(
         paths,
         backend,
@@ -799,32 +748,13 @@ fn run_eval_with_backend(paths: &Paths, args: EvalArgs) -> Result<ExitCode> {
 }
 
 /// `eval --compare a,b,c`: one table per backend on the same query set, one combined JSON.
-fn run_eval_compare(paths: &Paths, args: EvalArgs) -> Result<ExitCode> {
-    let backends: Vec<BackendKind> = args
-        .compare
-        .iter()
-        .map(|name| name.trim().parse())
-        .collect::<std::result::Result<_, _>>()?;
-    let embedder = backends
-        .iter()
-        .copied()
-        .any(needs_embedder)
-        .then(embedder_from_env)
-        .transpose()?;
-    let common = BackendEvalOptions {
-        queries: args.queries,
-        k: args.k,
-        json: None,
-        gate: args.gate,
-        with: args.with,
-        without: args.without,
-        backend: BackendKind::default(),
-        backend_url: args.backend_url,
-        embeddings: args.embeddings,
-        allow_stale: args.allow_stale,
-        embedder,
-    };
-    let results = commands::eval_compare(paths, &backends, &common)?;
+fn run_eval_compare(
+    paths: &Paths,
+    backends: &[BackendKind],
+    common: &BackendEvalOptions,
+    json: Option<&Path>,
+) -> Result<ExitCode> {
+    let results = commands::eval_compare(paths, backends, common)?;
     let mut failed_gate = false;
     let mut combined = serde_json::Map::new();
     for (backend, outcome) in &results {
@@ -848,7 +778,7 @@ fn run_eval_compare(paths: &Paths, args: EvalArgs) -> Result<ExitCode> {
     }
     let text =
         serde_json::to_string_pretty(&combined).context("serialising the combined result")? + "\n";
-    if let Some(path) = &args.json {
+    if let Some(path) = json {
         std::fs::write(path, &text).with_context(|| format!("writing {}", path.display()))?;
         eprintln!("wrote {}", path.display());
     } else {
