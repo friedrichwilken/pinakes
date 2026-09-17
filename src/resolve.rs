@@ -243,43 +243,55 @@ pub(crate) fn matches_extension(path: &str, extensions: &[String]) -> bool {
     extensions.iter().any(|e| e.eq_ignore_ascii_case(ext))
 }
 
-/// Resolver-specific selection: the candidate map plus, for the precedence pass, the compiled
-/// `exclude` set, the residue `scope`, an external resolver's `residue_mention`, the resolver's
-/// own optional `include` extra (SPEC §2.1) not yet applied to `candidates`, and the navigation
-/// file path for the four navigation-based resolvers (SPEC §12), used to name the mechanism
-/// behind a residue entry (SPEC §2.4).
-type ResolverPlan<'a> = (
-    BTreeMap<String, Candidate>,
-    GlobSet,
-    GlobSet,
-    Option<Regex>,
-    &'a [String],
-    Option<String>,
-);
+/// What one resolver's own mechanism reports (SPEC §3): the candidate map plus, for the
+/// precedence pass, the compiled `exclude` set, the residue `scope`, an external resolver's
+/// `residue_mention`, the resolver's own optional `include` extra (SPEC §2.1) not yet applied to
+/// `candidates`, and the navigation file path for the four navigation-based resolvers (SPEC §12),
+/// used to name the mechanism behind a residue entry (SPEC §2.4).
+pub(crate) struct Discovery<'a> {
+    pub(crate) candidates: BTreeMap<String, Candidate>,
+    pub(crate) exclude: GlobSet,
+    pub(crate) scope: GlobSet,
+    pub(crate) mention: Option<Regex>,
+    pub(crate) extra_include: &'a [String],
+    pub(crate) nav_path: Option<String>,
+}
 
-/// Everything [`resolver_plan`] returns besides the candidate map: see [`ResolverPlan`].
-type ResolverPlanTail<'a> = (
-    GlobSet,
-    GlobSet,
-    Option<Regex>,
-    &'a [String],
-    Option<String>,
-);
+impl<'a> Discovery<'a> {
+    /// The common shape of every navigation-based resolver arm of [`resolver_plan`]: take the
+    /// candidate map and residue scope a `vitepress`, `docusaurus`, `mdbook` or `sitemap` plan
+    /// produced, record the navigation file path, and compile `exclude`.
+    fn navigation(
+        found: BTreeMap<String, Candidate>,
+        scope: GlobSet,
+        nav_path: String,
+        exclude: &[String],
+        include: &'a [String],
+    ) -> Result<Discovery<'a>, ResolveError> {
+        Ok(Discovery {
+            candidates: found,
+            exclude: compile_globs("exclude", exclude)?,
+            scope,
+            mention: None,
+            extra_include: include,
+            nav_path: Some(nav_path),
+        })
+    }
+}
 
 /// The `glob` resolver arm of [`resolver_plan`]: populate `candidates` from `include` (filtered
-/// by `extensions`) and return the compiled residue `scope` and `exclude` set.
-#[allow(clippy::too_many_arguments)]
-fn glob_plan(
+/// by `extensions`) and return the resulting [`Discovery`].
+fn glob_plan<'a>(
     source: &Source,
     files: &[String],
     include: &[String],
     exclude: &[String],
     residue_scope: &[String],
     extensions: Option<&[String]>,
-    candidates: &mut BTreeMap<String, Candidate>,
-) -> Result<(GlobSet, GlobSet), ResolveError> {
+) -> Result<Discovery<'a>, ResolveError> {
     let include = compile_globs("include", include)?;
     let extensions = effective_extensions(extensions, source.render.is_some());
+    let mut candidates = BTreeMap::new();
     for file in files {
         if include.is_match(file) && matches_extension(file, &extensions) {
             candidates.insert(file.clone(), Candidate::bare(file, true));
@@ -290,27 +302,14 @@ fn glob_plan(
     } else {
         compile_globs("residue_scope", residue_scope)?
     };
-    Ok((scope, compile_globs("exclude", exclude)?))
-}
-
-/// The common shape of every navigation-based resolver arm of [`resolver_plan`]: take the
-/// candidate map, residue scope and navigation file path a `vitepress`, `docusaurus`, `mdbook`
-/// or `sitemap` plan produced, install the candidates, and compile `exclude`.
-fn navigation_plan<'a>(
-    planned: Result<(BTreeMap<String, Candidate>, GlobSet, String), ResolveError>,
-    exclude: &[String],
-    include: &'a [String],
-    candidates: &mut BTreeMap<String, Candidate>,
-) -> Result<ResolverPlanTail<'a>, ResolveError> {
-    let (found, nav_scope, nav_path) = planned?;
-    *candidates = found;
-    Ok((
-        compile_globs("exclude", exclude)?,
-        nav_scope,
-        None,
-        include,
-        Some(nav_path),
-    ))
+    Ok(Discovery {
+        candidates,
+        exclude: compile_globs("exclude", exclude)?,
+        scope,
+        mention: None,
+        extra_include: &[],
+        nav_path: None,
+    })
 }
 
 fn resolver_plan<'a>(
@@ -318,106 +317,96 @@ fn resolver_plan<'a>(
     checkout: &Checkout,
     files: &[String],
     config_dir: &Path,
-) -> Result<ResolverPlan<'a>, ResolveError> {
-    let mut candidates: BTreeMap<String, Candidate> = BTreeMap::new();
-    let (exclude, scope, mention, extra_include, nav_path): ResolverPlanTail<'a> =
-        match &source.resolver {
-            Resolver::Glob {
-                include,
-                exclude,
-                residue_scope,
-                extensions,
-            } => {
-                let (scope, exclude) = glob_plan(
-                    source,
-                    files,
-                    include,
-                    exclude,
-                    residue_scope,
-                    extensions.as_deref(),
-                    &mut candidates,
-                )?;
-                (exclude, scope, None, &[], None)
+) -> Result<Discovery<'a>, ResolveError> {
+    match &source.resolver {
+        Resolver::Glob {
+            include,
+            exclude,
+            residue_scope,
+            extensions,
+        } => glob_plan(
+            source,
+            files,
+            include,
+            exclude,
+            residue_scope,
+            extensions.as_deref(),
+        ),
+        Resolver::External {
+            command,
+            args,
+            residue_mention,
+            residue_scope,
+            include,
+            exclude,
+        } => {
+            let mut candidates = BTreeMap::new();
+            for candidate in run_external(source, command, args, checkout, config_dir)? {
+                candidates.insert(candidate.path.clone(), candidate);
             }
-            Resolver::External {
-                command,
-                args,
-                residue_mention,
-                residue_scope,
-                include,
-                exclude,
-            } => {
-                for candidate in run_external(source, command, args, checkout, config_dir)? {
-                    candidates.insert(candidate.path.clone(), candidate);
-                }
-                let mention = residue_mention
-                    .as_deref()
-                    .map(|p| compile_regex("residue_mention", p))
-                    .transpose()?;
-                (
-                    compile_globs("exclude", exclude)?,
-                    compile_globs("residue_scope", residue_scope)?,
-                    mention,
-                    include,
-                    None,
-                )
-            }
-            Resolver::Vitepress {
-                path,
-                scope,
-                include,
-                exclude,
-            } => navigation_plan(
-                vitepress::plan(source, checkout, files, path.as_deref(), scope),
-                exclude,
-                include,
-                &mut candidates,
-            )?,
-            Resolver::Docusaurus {
-                path,
-                scope,
-                include,
-                exclude,
-            } => navigation_plan(
-                docusaurus::plan(source, checkout, files, path.as_deref(), scope),
-                exclude,
-                include,
-                &mut candidates,
-            )?,
-            Resolver::Mdbook {
-                path,
-                scope,
-                include,
-                exclude,
-            } => navigation_plan(
-                mdbook::plan(source, checkout, files, path.as_deref(), scope),
-                exclude,
-                include,
-                &mut candidates,
-            )?,
-            Resolver::Sitemap {
-                path,
+            let mention = residue_mention
+                .as_deref()
+                .map(|p| compile_regex("residue_mention", p))
+                .transpose()?;
+            Ok(Discovery {
+                candidates,
+                exclude: compile_globs("exclude", exclude)?,
+                scope: compile_globs("residue_scope", residue_scope)?,
+                mention,
+                extra_include: include,
+                nav_path: None,
+            })
+        }
+        Resolver::Vitepress {
+            path,
+            scope,
+            include,
+            exclude,
+        } => {
+            let (found, nav_scope, nav_path) =
+                vitepress::plan(source, checkout, files, path.as_deref(), scope)?;
+            Discovery::navigation(found, nav_scope, nav_path, exclude, include)
+        }
+        Resolver::Docusaurus {
+            path,
+            scope,
+            include,
+            exclude,
+        } => {
+            let (found, nav_scope, nav_path) =
+                docusaurus::plan(source, checkout, files, path.as_deref(), scope)?;
+            Discovery::navigation(found, nav_scope, nav_path, exclude, include)
+        }
+        Resolver::Mdbook {
+            path,
+            scope,
+            include,
+            exclude,
+        } => {
+            let (found, nav_scope, nav_path) =
+                mdbook::plan(source, checkout, files, path.as_deref(), scope)?;
+            Discovery::navigation(found, nav_scope, nav_path, exclude, include)
+        }
+        Resolver::Sitemap {
+            path,
+            scope,
+            url_prefix,
+            path_prefix,
+            include,
+            exclude,
+        } => {
+            let (found, nav_scope, nav_path) = sitemap::plan(
+                source,
+                checkout,
+                files,
+                path.as_deref(),
                 scope,
                 url_prefix,
                 path_prefix,
-                include,
-                exclude,
-            } => navigation_plan(
-                sitemap::plan(
-                    source,
-                    checkout,
-                    files,
-                    path.as_deref(),
-                    scope,
-                    url_prefix,
-                    path_prefix,
-                ),
-                exclude,
-                include,
-                &mut candidates,
-            )?,
-        };
-    Ok((candidates, exclude, scope, mention, extra_include, nav_path))
+            )?;
+            Discovery::navigation(found, nav_scope, nav_path, exclude, include)
+        }
+    }
 }
 
 /// Add files matching a resolver's optional `include` extra (SPEC §2.1) to `candidates`, unless
@@ -448,8 +437,14 @@ pub(crate) fn plan(
     config_dir: &Path,
 ) -> Result<Plan, ResolveError> {
     let file_set: BTreeSet<&str> = files.iter().map(String::as_str).collect();
-    let (mut candidates, exclude, scope, mention, extra_include, nav_path) =
-        resolver_plan(source, checkout, files, config_dir)?;
+    let Discovery {
+        mut candidates,
+        exclude,
+        scope,
+        mention,
+        extra_include,
+        nav_path,
+    } = resolver_plan(source, checkout, files, config_dir)?;
     let mentioned: BTreeSet<String> = candidates.keys().cloned().collect();
     let include_selected = apply_extra_include(&mut candidates, files, extra_include)?;
     let unresolved: Vec<String> = candidates
