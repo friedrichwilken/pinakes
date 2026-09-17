@@ -22,76 +22,45 @@
 //! with that library; tantivy's own scorer (`k1 = 1.2`, Lucene IDF, quantised lengths) would
 //! rank differently and is not used.
 //!
-//! The code lives in three submodules, `tokenizer`, `sections` and `bm25`, re-exported here;
-//! loading an artifact into pages is [`crate::corpus`], re-exported here as well.
-
-use std::path::{Path, PathBuf};
+//! The code lives in two submodules, `sections` and `bm25`, re-exported here; the tokeniser is
+//! [`crate::tokenizer`] and loading an artifact into pages is [`crate::corpus`], both re-exported
+//! here as well.
 
 use thiserror::Error;
 
 pub(crate) mod bm25;
 pub(crate) mod sections;
-pub(crate) mod tokenizer;
 
 pub use crate::corpus::{
-    DEFAULT_PRIORITY, Page, Priorities, load_pages, load_residue_page, mark_mirrors,
+    CorpusError, DEFAULT_PRIORITY, Page, Priorities, load_pages, load_residue_page, mark_mirrors,
+};
+pub use crate::tokenizer::{
+    PinakesTokenStream, PinakesTokenizer, STOPWORDS, TOKENIZER_NAME, is_stopword, title_key,
+    tokenize,
 };
 pub use bm25::{HEADING_BOOST, Hit, Index, TITLE_BOOST, Unit, iter_units};
 pub use sections::{
     SECTION_SPLIT_TOKENS, Section, clean_content, extract_title, index_text, split_sections,
 };
-// Old name, still used by backend; remove once backend is updated.
-pub use tokenizer::PinakesTokenizer as CuratorTokenizer;
-pub use tokenizer::{
-    PinakesTokenStream, PinakesTokenizer, STOPWORDS, TOKENIZER_NAME, is_stopword, title_key,
-    tokenize,
-};
 
 /// Errors raised while loading pages or building the index.
 #[derive(Debug, Error)]
 pub enum IndexError {
-    /// A filesystem operation failed.
-    #[error("{path}: {source}")]
-    Io {
-        /// The path involved.
-        path: PathBuf,
-        /// Underlying I/O error.
-        #[source]
-        source: std::io::Error,
-    },
-    /// The artifact path is not a directory.
-    #[error("{0}: not an artifact directory")]
-    NotADirectory(PathBuf),
+    /// Loading the artifact into pages failed.
+    #[error(transparent)]
+    Corpus(#[from] CorpusError),
     /// tantivy failed.
     #[error("index: {0}")]
     Tantivy(#[from] tantivy::TantivyError),
     /// Reading postings failed.
     #[error("index: reading postings: {0}")]
     Postings(#[from] std::io::Error),
-    /// A page id is not `<source>::<path>`.
-    #[error("invalid page id {0:?}: expected <source>::<path>")]
-    BadPageId(String),
-    /// `--with` named a page that is not in `_residue`.
-    #[error("{id}: no residue page at {path}")]
-    MissingResidue {
-        /// The page id.
-        id: String,
-        /// Where the page was expected.
-        path: PathBuf,
-    },
     /// `--with` named a page that is already in the corpus.
     #[error("{0}: already in the corpus")]
     AlreadyPresent(String),
     /// `--without` named a page that is not in the corpus.
     #[error("{0}: not in the corpus")]
     UnknownPage(String),
-}
-
-pub(crate) fn io(path: &Path) -> impl FnOnce(std::io::Error) -> IndexError + '_ {
-    move |source| IndexError::Io {
-        path: path.to_path_buf(),
-        source,
-    }
 }
 
 /// Helpers for building synthetic artifacts in tests.

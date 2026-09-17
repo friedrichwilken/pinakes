@@ -4,8 +4,13 @@
 //! This module depends on nothing else in the crate, so every other module may use it.
 
 use std::path::Path;
+use std::sync::LazyLock;
 
+use regex::Regex;
 use sha2::{Digest, Sha256};
+
+static HTML_COMMENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<!--.*?-->").expect("static pattern is valid"));
 
 /// Make `arg` absolute when it names an existing path relative to `base`.
 pub(crate) fn absolutise(base: &Path, arg: &str) -> String {
@@ -98,6 +103,19 @@ pub fn title_of(nav_title: &str, content: &str) -> String {
     first_h1(content)
         .or_else(|| frontmatter_title(content))
         .unwrap_or_default()
+}
+
+/// The page content handed to a reader: frontmatter and HTML comments removed.
+pub fn clean_content(raw: &str) -> String {
+    HTML_COMMENT
+        .replace_all(strip_frontmatter(raw), "")
+        .trim_matches('\n')
+        .to_string()
+}
+
+/// The title found in the page itself: the first H1, else the frontmatter `title:`, else empty.
+pub fn extract_title(raw: &str) -> String {
+    title_of("", raw)
 }
 
 #[cfg(test)]

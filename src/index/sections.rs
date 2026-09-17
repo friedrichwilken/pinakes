@@ -5,13 +5,12 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::tokenizer::tokenize;
-use crate::text::{strip_frontmatter, title_of};
+pub use crate::text::{clean_content, extract_title};
+use crate::tokenizer::tokenize;
 
 /// H2 sections with more tokens than this are split at H3.
 pub const SECTION_SPLIT_TOKENS: usize = 1200;
 
-static HTML_COMMENT: LazyLock<Regex> = LazyLock::new(|| regex(r"(?s)<!--.*?-->"));
 static HTML_TAG: LazyLock<Regex> = LazyLock::new(|| regex(r"</?[a-zA-Z][^>]*>"));
 static MD_IMAGE: LazyLock<Regex> = LazyLock::new(|| regex(r"!\[([^\]]*)\]\([^)]*\)"));
 static MD_LINK: LazyLock<Regex> = LazyLock::new(|| regex(r"\[([^\]]*)\]\([^)]*\)"));
@@ -22,25 +21,12 @@ fn regex(pattern: &str) -> Regex {
     Regex::new(pattern).expect("static pattern is valid")
 }
 
-/// The page content handed to a reader: frontmatter and HTML comments removed.
-pub fn clean_content(raw: &str) -> String {
-    HTML_COMMENT
-        .replace_all(strip_frontmatter(raw), "")
-        .trim_matches('\n')
-        .to_string()
-}
-
 /// Reduce cleaned content to the text worth indexing: link and image targets replaced by their
 /// labels, HTML tags by a space.
 pub fn index_text(text: &str) -> String {
     let text = MD_IMAGE.replace_all(text, "$1");
     let text = MD_LINK.replace_all(&text, "$1");
     HTML_TAG.replace_all(&text, " ").into_owned()
-}
-
-/// The title found in the page itself: the first H1, else the frontmatter `title:`, else empty.
-pub fn extract_title(raw: &str) -> String {
-    title_of("", raw)
 }
 
 /// One retrieval unit of a page.
