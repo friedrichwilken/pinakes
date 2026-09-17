@@ -87,23 +87,23 @@ pub fn eval(paths: &Paths, options: &EvalOptions) -> Result<EvalOutcome, Command
     let queries = eval::load_queries(&queries_path)?;
     let pages = index::load_pages(&paths.artifact, &priorities)?;
 
-    let (index, summary, delta) = if options.with.is_empty() && options.without.is_empty() {
-        let index = Index::from_pages(pages)?;
-        let summary = eval::evaluate(&index, &queries, k)?;
-        (index, summary, None)
-    } else {
-        let before = eval::evaluate(&Index::from_pages(pages.clone())?, &queries, k)?;
-        let index = Index::from_pages(adjust_pages(
-            pages,
-            &paths.artifact,
-            &priorities,
-            &options.with,
-            &options.without,
-        )?)?;
-        let after = eval::evaluate(&index, &queries, k)?;
-        let delta = eval::delta(&before, &after);
-        (index, after, Some(delta))
-    };
+    let (summary, page_count, searchable_count, delta) =
+        if options.with.is_empty() && options.without.is_empty() {
+            let index = Index::from_pages(pages)?;
+            let summary = eval::evaluate(&index, &queries, k)?;
+            (summary, index.page_count(), index.searchable_count(), None)
+        } else {
+            let (summary, page_count, searchable_count, delta) = evaluate_adjusted(
+                pages,
+                &paths.artifact,
+                &priorities,
+                &queries,
+                k,
+                &options.with,
+                &options.without,
+            )?;
+            (summary, page_count, searchable_count, Some(delta))
+        };
     let gate = match &options.gate {
         Some(path) => Some(eval::gate(&summary, &EvalSummary::load(path)?, max_drop)),
         None => None,
@@ -113,12 +113,31 @@ pub fn eval(paths: &Paths, options: &EvalOptions) -> Result<EvalOutcome, Command
     }
     Ok(EvalOutcome {
         summary,
-        page_count: index.page_count(),
-        searchable_count: index.searchable_count(),
+        page_count,
+        searchable_count,
         k,
         gate,
         delta,
     })
+}
+
+/// Adjust `pages` by `with`/`without`, index it, and return the before/after summaries' delta
+/// alongside the after index's counts — the `--with`/`--without` computation shared by [`eval`]
+/// and [`eval_backend`]'s `bm25` adjusting branch.
+fn evaluate_adjusted(
+    pages: Vec<Page>,
+    artifact: &Path,
+    priorities: &Priorities,
+    queries: &[eval::Query],
+    k: usize,
+    with: &[String],
+    without: &[String],
+) -> Result<(EvalSummary, usize, usize, Delta), CommandError> {
+    let before = eval::evaluate(&Index::from_pages(pages.clone())?, queries, k)?;
+    let index = Index::from_pages(adjust_pages(pages, artifact, priorities, with, without)?)?;
+    let after = eval::evaluate(&index, queries, k)?;
+    let delta = eval::delta(&before, &after);
+    Ok((after, index.page_count(), index.searchable_count(), delta))
 }
 
 /// Apply `--with` (add residue pages) and `--without` (remove pages) to the page list.
@@ -263,20 +282,19 @@ pub fn eval_backend(
 
     let (summary, page_count, searchable_count, delta) = if adjusting {
         let pages = index::load_pages(&paths.artifact, &priorities)?;
-        let before = eval::evaluate(&Index::from_pages(pages.clone())?, &queries, k)?;
-        let index = Index::from_pages(adjust_pages(
+        let (summary, page_count, searchable_count, delta) = evaluate_adjusted(
             pages,
             &paths.artifact,
             &priorities,
+            &queries,
+            k,
             &options.with,
             &options.without,
-        )?)?;
-        let after = eval::evaluate(&index, &queries, k)?.with_backend(options.backend.name());
-        let delta = eval::delta(&before, &after);
+        )?;
         (
-            after,
-            index.page_count(),
-            index.searchable_count(),
+            summary.with_backend(options.backend.name()),
+            page_count,
+            searchable_count,
             Some(delta),
         )
     } else {
