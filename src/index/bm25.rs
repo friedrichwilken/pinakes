@@ -13,7 +13,7 @@ use tantivy::{DocAddress, DocSet, IndexWriter, Searcher, TERMINATED, Term};
 use super::IndexError;
 use super::sections::{index_text, split_sections};
 use crate::corpus::{Page, Priorities, load_pages, mark_mirrors};
-pub(crate) use crate::num::float;
+use crate::num::float;
 use crate::tokenizer::{PinakesTokenizer, TOKENIZER_NAME, title_key, tokenize};
 
 /// Weight of the page title in a unit.
