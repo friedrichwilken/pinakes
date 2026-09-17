@@ -28,6 +28,11 @@ pub enum EmbedError {
     /// A required environment variable (or `--model`) was not set.
     #[error("{0} is not set")]
     MissingConfig(String),
+    /// `PINAKES_EMBED_URL` was not set for `eval --backend dense/hybrid` (a distinct variant
+    /// from [`EmbedError::MissingConfig`] because its wording predates this one and several
+    /// tests pin it verbatim).
+    #[error("PINAKES_EMBED_URL is not set (needed for --backend dense/hybrid)")]
+    MissingEmbedUrl,
     /// The embeddings endpoint returned an error status or could not be reached.
     #[error("{url}: {message}")]
     Http {

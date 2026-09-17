@@ -112,6 +112,11 @@ impl BackendKind {
             BackendKind::External => "external",
         }
     }
+
+    /// Whether this backend needs an embedder to run at all (`dense`, `hybrid`).
+    pub fn needs_embedder(self) -> bool {
+        matches!(self, BackendKind::Dense | BackendKind::Hybrid)
+    }
 }
 
 impl fmt::Display for BackendKind {

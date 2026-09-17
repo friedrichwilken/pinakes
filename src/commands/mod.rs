@@ -32,8 +32,9 @@ pub use diff::{DiffOptions, diff};
 pub use duplicates::{DuplicatesOptions, duplicates};
 pub use embed::{EmbedOptions, EmbedOutcome, embed};
 pub use eval::{
-    BackendEvalOptions, BackendEvalOutcome, DEFAULT_K, DEFAULT_MAX_RECALL_DROP, EvalOptions,
-    EvalOutcome, eval, eval_backend, eval_compare,
+    BackendEvalOptions, BackendEvalOutcome, DEFAULT_K, DEFAULT_MAX_RECALL_DROP, EvalFlags,
+    EvalOptions, EvalOutcome, EvalPlan, apply_eval_config_defaults, eval, eval_backend,
+    eval_compare, eval_embedder_from_env, eval_plan,
 };
 pub use grade::{GradeOptions, GradeOutcome, grade};
 pub use queries::{
