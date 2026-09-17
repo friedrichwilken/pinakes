@@ -93,7 +93,13 @@ pub fn eval(paths: &Paths, options: &EvalOptions) -> Result<EvalOutcome, Command
         (index, summary, None)
     } else {
         let before = eval::evaluate(&Index::from_pages(pages.clone())?, &queries, k)?;
-        let index = Index::from_pages(adjust_pages(pages, &paths.artifact, &priorities, options)?)?;
+        let index = Index::from_pages(adjust_pages(
+            pages,
+            &paths.artifact,
+            &priorities,
+            &options.with,
+            &options.without,
+        )?)?;
         let after = eval::evaluate(&index, &queries, k)?;
         let delta = eval::delta(&before, &after);
         (index, after, Some(delta))
@@ -120,15 +126,16 @@ fn adjust_pages(
     mut pages: Vec<Page>,
     artifact: &Path,
     priorities: &Priorities,
-    options: &EvalOptions,
+    with: &[String],
+    without: &[String],
 ) -> Result<Vec<Page>, CommandError> {
-    for id in &options.with {
+    for id in with {
         if pages.iter().any(|p| &p.id == id) {
             return Err(IndexError::AlreadyPresent(id.clone()).into());
         }
         pages.push(index::load_residue_page(artifact, id, priorities)?);
     }
-    for id in &options.without {
+    for id in without {
         let before = pages.len();
         pages.retain(|p| &p.id != id);
         if pages.len() == before {
@@ -257,16 +264,12 @@ pub fn eval_backend(
     let (summary, page_count, searchable_count, delta) = if adjusting {
         let pages = index::load_pages(&paths.artifact, &priorities)?;
         let before = eval::evaluate(&Index::from_pages(pages.clone())?, &queries, k)?;
-        let eval_options = EvalOptions {
-            with: options.with.clone(),
-            without: options.without.clone(),
-            ..EvalOptions::default()
-        };
         let index = Index::from_pages(adjust_pages(
             pages,
             &paths.artifact,
             &priorities,
-            &eval_options,
+            &options.with,
+            &options.without,
         )?)?;
         let after = eval::evaluate(&index, &queries, k)?.with_backend(options.backend.name());
         let delta = eval::delta(&before, &after);
