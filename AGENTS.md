@@ -82,23 +82,27 @@ depends on `commands` plus a handful of library types needed only for printing (
 Check any module's own imports with:
 
 ```sh
-grep -rho 'crate::[a-z_]*' src/<module>.rs src/<module>/*.rs 2>/dev/null | sort -u
+grep -rho 'crate::[a-z_]*' src/<module>.rs src/<module>/ 2>/dev/null | sort -u
 ```
 
 (read past any `#[cfg(test)]` block by eye; a test-only import does not count against the rule.)
 
-- **Adding a resolver:** a new `config::Resolver` variant, one file under `src/resolve/`
-  implementing `Resolver`, one arm in `resolver_for`. Name every mechanism it reports as a
-  `Mechanism { key, text }`; `select` turns that into a stored `Rule`, not you.
+- **Adding a resolver:** a new `config::Resolver` variant with its arms in
+  `config::Resolver::kind()` and `Source::validate()` (both match exhaustively), one file under
+  `src/resolve/` implementing `Resolver`, one arm in `resolver_for`. The four navigation
+  resolvers share their scanning code in `resolve/navigation.rs`. Name every mechanism a
+  resolver reports as a `Mechanism { key, text }`; `select` turns that into a stored `Rule`.
 - **Adding a backend:** one file under `src/backend/`, a `BackendKind` variant plus its
-  `name()`/`FromStr` arms, one arm in `backend::build`, and `needs_embedder()` if it embeds.
+  `name()`/`FromStr` arms, one arm in `backend::build`, `needs_embedder()` if it embeds, and
+  the list of valid names in `BackendError::UnknownBackend`'s message.
 - **Adding a command:** library side, `src/commands/<name>.rs` plus a named re-export in
-  `commands/mod.rs`; binary side, `src/cli/<name>.rs` plus a `Command` variant and a dispatch
-  arm in `main.rs`'s `run`. Write the SPEC section first.
+  `commands/mod.rs`; binary side, `src/cli/<name>.rs` plus its `mod` line in
+  `src/cli/mod.rs`, a `Command` variant and a dispatch arm in `main.rs`'s `run`. Write the
+  SPEC section first.
 
-A new subcommand is registered in `src/main.rs` (the `Command` enum and the `run` dispatch) and
-`src/cli/<name>.rs` (its arguments and printing) only; its logic lives in
-`src/commands/<name>.rs`, following this same pattern.
+A new subcommand is registered in `src/main.rs` (the `Command` enum and the `run` dispatch),
+`src/cli/mod.rs` (the `mod` line) and `src/cli/<name>.rs` (its arguments and printing) only; its
+logic lives in `src/commands/<name>.rs`, following this same pattern.
 
 ## Where the contract lives
 
@@ -122,7 +126,9 @@ CI runs the same plus `cargo doc --no-deps` with `RUSTDOCFLAGS=-D warnings`, a b
 Four suites pin behaviour rather than assert it:
 
 - `tests/golden.rs` compares `eval` on `tests/fixtures/golden` with `expected.json`. Refresh
-  with `UPDATE_GOLDEN=1 cargo test --test golden`.
+  with `UPDATE_GOLDEN=1 cargo test --test golden`. The other golden suites
+  (`tests/golden_mdbook.rs`, `tests/backend_tantivy_golden.rs`,
+  `tests/backend_dense_hybrid_golden.rs`) follow the same rule.
 - `tests/snapshots/` holds rendered reports. Refresh with `UPDATE_SNAPSHOTS=1 cargo test`.
 - `tests/pipeline_pin.rs` pins the bytes of `manifest.json`, `residue.jsonl`,
   `duplicates.jsonl`, `report.md` and `residue list` written by a fresh resolve and a
