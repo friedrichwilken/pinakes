@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use crate::backend::{self, Backend, BackendConfig, BackendError, BackendKind};
 use crate::config::Config;
-use crate::embed::Embedder;
+use crate::embed::{EmbedError, Embedder, HttpEmbedder};
 use crate::error::CommandError;
 use crate::eval::{self, Delta, EvalSummary, Gate};
 use crate::index::{self, Index, IndexError, Page, Priorities};
@@ -87,17 +88,23 @@ pub fn eval(paths: &Paths, options: &EvalOptions) -> Result<EvalOutcome, Command
     let queries = eval::load_queries(&queries_path)?;
     let pages = index::load_pages(&paths.artifact, &priorities)?;
 
-    let (index, summary, delta) = if options.with.is_empty() && options.without.is_empty() {
-        let index = Index::from_pages(pages)?;
-        let summary = eval::evaluate(&index, &queries, k)?;
-        (index, summary, None)
-    } else {
-        let before = eval::evaluate(&Index::from_pages(pages.clone())?, &queries, k)?;
-        let index = Index::from_pages(adjust_pages(pages, &paths.artifact, &priorities, options)?)?;
-        let after = eval::evaluate(&index, &queries, k)?;
-        let delta = eval::delta(&before, &after);
-        (index, after, Some(delta))
-    };
+    let (summary, page_count, searchable_count, delta) =
+        if options.with.is_empty() && options.without.is_empty() {
+            let index = Index::from_pages(pages)?;
+            let summary = eval::evaluate(&index, &queries, k)?;
+            (summary, index.page_count(), index.searchable_count(), None)
+        } else {
+            let (summary, page_count, searchable_count, delta) = evaluate_adjusted(
+                pages,
+                &paths.artifact,
+                &priorities,
+                &queries,
+                k,
+                &options.with,
+                &options.without,
+            )?;
+            (summary, page_count, searchable_count, Some(delta))
+        };
     let gate = match &options.gate {
         Some(path) => Some(eval::gate(&summary, &EvalSummary::load(path)?, max_drop)),
         None => None,
@@ -107,12 +114,31 @@ pub fn eval(paths: &Paths, options: &EvalOptions) -> Result<EvalOutcome, Command
     }
     Ok(EvalOutcome {
         summary,
-        page_count: index.page_count(),
-        searchable_count: index.searchable_count(),
+        page_count,
+        searchable_count,
         k,
         gate,
         delta,
     })
+}
+
+/// Adjust `pages` by `with`/`without`, index it, and return the before/after summaries' delta
+/// alongside the after index's counts — the `--with`/`--without` computation shared by [`eval`]
+/// and [`eval_backend`]'s `bm25` adjusting branch.
+fn evaluate_adjusted(
+    pages: Vec<Page>,
+    artifact: &Path,
+    priorities: &Priorities,
+    queries: &[eval::Query],
+    k: usize,
+    with: &[String],
+    without: &[String],
+) -> Result<(EvalSummary, usize, usize, Delta), CommandError> {
+    let before = eval::evaluate(&Index::from_pages(pages.clone())?, queries, k)?;
+    let index = Index::from_pages(adjust_pages(pages, artifact, priorities, with, without)?)?;
+    let after = eval::evaluate(&index, queries, k)?;
+    let delta = eval::delta(&before, &after);
+    Ok((after, index.page_count(), index.searchable_count(), delta))
 }
 
 /// Apply `--with` (add residue pages) and `--without` (remove pages) to the page list.
@@ -120,15 +146,16 @@ fn adjust_pages(
     mut pages: Vec<Page>,
     artifact: &Path,
     priorities: &Priorities,
-    options: &EvalOptions,
+    with: &[String],
+    without: &[String],
 ) -> Result<Vec<Page>, CommandError> {
-    for id in &options.with {
+    for id in with {
         if pages.iter().any(|p| &p.id == id) {
             return Err(IndexError::AlreadyPresent(id.clone()).into());
         }
         pages.push(index::load_residue_page(artifact, id, priorities)?);
     }
-    for id in &options.without {
+    for id in without {
         let before = pages.len();
         pages.retain(|p| &p.id != id);
         if pages.len() == before {
@@ -256,24 +283,19 @@ pub fn eval_backend(
 
     let (summary, page_count, searchable_count, delta) = if adjusting {
         let pages = index::load_pages(&paths.artifact, &priorities)?;
-        let before = eval::evaluate(&Index::from_pages(pages.clone())?, &queries, k)?;
-        let eval_options = EvalOptions {
-            with: options.with.clone(),
-            without: options.without.clone(),
-            ..EvalOptions::default()
-        };
-        let index = Index::from_pages(adjust_pages(
+        let (summary, page_count, searchable_count, delta) = evaluate_adjusted(
             pages,
             &paths.artifact,
             &priorities,
-            &eval_options,
-        )?)?;
-        let after = eval::evaluate(&index, &queries, k)?.with_backend(options.backend.name());
-        let delta = eval::delta(&before, &after);
+            &queries,
+            k,
+            &options.with,
+            &options.without,
+        )?;
         (
-            after,
-            index.page_count(),
-            index.searchable_count(),
+            summary.with_backend(options.backend.name()),
+            page_count,
+            searchable_count,
             Some(delta),
         )
     } else {
@@ -321,6 +343,184 @@ pub fn eval_compare(
             Ok((kind, eval_backend(paths, &options)?))
         })
         .collect()
+}
+
+// -------------------------------------------------------------------------------------------
+// Decision layer: which of eval / eval_backend / eval_compare a set of flags selects.
+// -------------------------------------------------------------------------------------------
+
+/// Eval flags as given on the command line, before `pinakes.yaml`'s `eval:` defaults are applied
+/// and before `--backend`/`--compare` names are parsed. One field per CLI flag.
+#[derive(Debug, Clone, Default)]
+pub struct EvalFlags {
+    /// `--queries`.
+    pub queries: Option<PathBuf>,
+    /// `--k`.
+    pub k: Option<usize>,
+    /// `--json`.
+    pub json: Option<PathBuf>,
+    /// `--gate`.
+    pub gate: Option<PathBuf>,
+    /// `--with`.
+    pub with: Vec<String>,
+    /// `--without`.
+    pub without: Vec<String>,
+    /// `--backend`.
+    pub backend: Option<String>,
+    /// `--backend-url`.
+    pub backend_url: Option<String>,
+    /// `--embeddings`.
+    pub embeddings: Option<PathBuf>,
+    /// `--allow-stale`.
+    pub allow_stale: bool,
+    /// `--compare`.
+    pub compare: Vec<String>,
+}
+
+/// Fill `pinakes.yaml`'s `eval:` defaults (`backend`, `backend_url`, `embeddings`, `compare`;
+/// SPEC §16.1) into whichever flags were left unset. A flag always wins; a configured `compare`
+/// applies only to a bare `eval`, so `--backend NAME` still measures that one backend.
+pub fn apply_eval_config_defaults(
+    paths: &Paths,
+    flags: &mut EvalFlags,
+) -> Result<(), CommandError> {
+    if !paths.config.is_file() {
+        return Ok(());
+    }
+    let Some(eval_config) = Config::load(&paths.config)?.eval else {
+        return Ok(());
+    };
+    if flags.compare.is_empty() && flags.backend.is_none() {
+        flags.compare = eval_config.compare;
+    }
+    if flags.backend.is_none() {
+        flags.backend = eval_config.backend;
+    }
+    if flags.backend_url.is_none() {
+        flags.backend_url = eval_config.backend_url;
+    }
+    if flags.embeddings.is_none() {
+        let dir = paths.config.parent().unwrap_or(Path::new("."));
+        flags.embeddings = eval_config.embeddings.map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                dir.join(path)
+            }
+        });
+    }
+    Ok(())
+}
+
+/// Which of the three eval paths a (config-defaulted) set of flags selects.
+pub enum EvalPlan {
+    /// The legacy path, through [`eval()`].
+    Plain(EvalOptions),
+    /// A single named backend, through [`eval_backend()`].
+    Backend(BackendEvalOptions),
+    /// Every named backend over the same query set, through [`eval_compare()`]; `json` is the
+    /// combined result's destination (each individual backend call always gets `json: None`).
+    Compare {
+        /// The backends to compare.
+        backends: Vec<BackendKind>,
+        /// Options common to every backend in the comparison.
+        common: BackendEvalOptions,
+        /// Where to write the combined JSON, if anywhere.
+        json: Option<PathBuf>,
+    },
+}
+
+impl EvalPlan {
+    /// Whether an embedder must be built before running this plan (`dense`/`hybrid`).
+    pub fn needs_embedder(&self) -> bool {
+        match self {
+            EvalPlan::Plain(_) => false,
+            EvalPlan::Backend(options) => options.backend.needs_embedder(),
+            EvalPlan::Compare { backends, .. } => {
+                backends.iter().copied().any(BackendKind::needs_embedder)
+            }
+        }
+    }
+
+    /// Attach an embedder to the plan (`Backend`/`Compare` only; a no-op on `Plain`).
+    #[must_use]
+    pub fn with_embedder(mut self, embedder: Rc<dyn Embedder>) -> EvalPlan {
+        match &mut self {
+            EvalPlan::Plain(_) => {}
+            EvalPlan::Backend(options) => options.embedder = Some(embedder),
+            EvalPlan::Compare { common, .. } => common.embedder = Some(embedder),
+        }
+        self
+    }
+}
+
+/// `run_eval`'s dispatch, minus execution: `--compare` wins; else any backend-only flag
+/// (`--backend`/`--backend-url`/`--embeddings`/`--allow-stale`) selects that one backend; else
+/// the legacy plain path. Parses backend names, so this can fail.
+pub fn eval_plan(flags: EvalFlags) -> Result<EvalPlan, CommandError> {
+    if !flags.compare.is_empty() {
+        let backends: Vec<BackendKind> = flags
+            .compare
+            .iter()
+            .map(|name| name.trim().parse())
+            .collect::<Result<_, _>>()?;
+        let common = BackendEvalOptions {
+            queries: flags.queries,
+            k: flags.k,
+            json: None,
+            gate: flags.gate,
+            with: flags.with,
+            without: flags.without,
+            backend: BackendKind::default(),
+            backend_url: flags.backend_url,
+            embeddings: flags.embeddings,
+            allow_stale: flags.allow_stale,
+            embedder: None,
+        };
+        return Ok(EvalPlan::Compare {
+            backends,
+            common,
+            json: flags.json,
+        });
+    }
+    if flags.backend.is_none()
+        && flags.backend_url.is_none()
+        && flags.embeddings.is_none()
+        && !flags.allow_stale
+    {
+        return Ok(EvalPlan::Plain(EvalOptions {
+            queries: flags.queries,
+            k: flags.k,
+            json: flags.json,
+            gate: flags.gate,
+            with: flags.with,
+            without: flags.without,
+        }));
+    }
+    let backend: BackendKind = flags.backend.as_deref().unwrap_or("bm25").parse()?;
+    Ok(EvalPlan::Backend(BackendEvalOptions {
+        queries: flags.queries,
+        k: flags.k,
+        json: flags.json,
+        gate: flags.gate,
+        with: flags.with,
+        without: flags.without,
+        backend,
+        backend_url: flags.backend_url,
+        embeddings: flags.embeddings,
+        allow_stale: flags.allow_stale,
+        embedder: None,
+    }))
+}
+
+/// An embedder for `PINAKES_EMBED_URL`/`PINAKES_EMBED_KEY`, for backends that embed queries
+/// (`dense`, `hybrid`). The model itself comes from `embeddings.json`, not from here.
+pub fn eval_embedder_from_env() -> Result<Rc<dyn Embedder>, EmbedError> {
+    let base = std::env::var("PINAKES_EMBED_URL").map_err(|_| EmbedError::MissingEmbedUrl)?;
+    let key = std::env::var("PINAKES_EMBED_KEY")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    Ok(Rc::new(HttpEmbedder::new(base, key)))
 }
 
 #[cfg(test)]
@@ -522,5 +722,231 @@ mod tests {
         let outcome = eval_backend(&paths, &options).unwrap();
         assert_eq!(outcome.summary.backend, "dense");
         assert_eq!(outcome.page_count, 1);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // apply_eval_config_defaults
+    // -----------------------------------------------------------------------------------------
+
+    #[test]
+    fn apply_eval_config_defaults_is_a_noop_without_a_config_file() {
+        let (_dir, paths) = eval_workspace();
+        assert!(!paths.config.is_file());
+        let mut flags = EvalFlags::default();
+        apply_eval_config_defaults(&paths, &mut flags).unwrap();
+        assert!(flags.backend.is_none() && flags.compare.is_empty());
+    }
+
+    #[test]
+    fn apply_eval_config_defaults_fills_unset_flags_and_resolves_relative_embeddings() {
+        let (dir, paths) = eval_workspace();
+        fs::write(
+            &paths.config,
+            "version: 1\nsources:\n  - name: handbook\n    repo: https://github.com/o/handbook.git\n    \
+             ref: main\n    resolver:\n      type: glob\n      include: ['**/*.md']\n\
+             eval:\n  queries: queries.jsonl\n  backend: dense\n  backend_url: https://example.test\n  \
+             embeddings: custom/embeddings.bin\n",
+        )
+        .unwrap();
+        let mut flags = EvalFlags::default();
+        apply_eval_config_defaults(&paths, &mut flags).unwrap();
+        assert_eq!(flags.backend.as_deref(), Some("dense"));
+        assert_eq!(flags.backend_url.as_deref(), Some("https://example.test"));
+        assert_eq!(
+            flags.embeddings,
+            Some(dir.path().join("custom/embeddings.bin"))
+        );
+    }
+
+    #[test]
+    fn apply_eval_config_defaults_keeps_an_already_set_flag() {
+        let (_dir, paths) = eval_workspace();
+        fs::write(
+            &paths.config,
+            "version: 1\nsources:\n  - name: handbook\n    repo: https://github.com/o/handbook.git\n    \
+             ref: main\n    resolver:\n      type: glob\n      include: ['**/*.md']\n\
+             eval:\n  queries: queries.jsonl\n  backend: bm25-tantivy\n",
+        )
+        .unwrap();
+        let mut flags = EvalFlags {
+            backend: Some("dense".to_string()),
+            ..EvalFlags::default()
+        };
+        apply_eval_config_defaults(&paths, &mut flags).unwrap();
+        assert_eq!(flags.backend.as_deref(), Some("dense"), "the flag wins");
+    }
+
+    #[test]
+    fn apply_eval_config_defaults_fills_compare_only_for_a_bare_eval() {
+        let (_dir, paths) = eval_workspace();
+        fs::write(
+            &paths.config,
+            "version: 1\nsources:\n  - name: handbook\n    repo: https://github.com/o/handbook.git\n    \
+             ref: main\n    resolver:\n      type: glob\n      include: ['**/*.md']\n\
+             eval:\n  queries: queries.jsonl\n  compare: [bm25, dense]\n",
+        )
+        .unwrap();
+
+        let mut bare = EvalFlags::default();
+        apply_eval_config_defaults(&paths, &mut bare).unwrap();
+        assert_eq!(bare.compare, vec!["bm25".to_string(), "dense".to_string()]);
+
+        let mut with_backend_flag = EvalFlags {
+            backend: Some("bm25".to_string()),
+            ..EvalFlags::default()
+        };
+        apply_eval_config_defaults(&paths, &mut with_backend_flag).unwrap();
+        assert!(
+            with_backend_flag.compare.is_empty(),
+            "a configured compare is ignored once --backend is given"
+        );
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // eval_plan
+    // -----------------------------------------------------------------------------------------
+
+    #[test]
+    fn eval_plan_is_plain_with_no_backend_selecting_flag() {
+        assert!(matches!(
+            eval_plan(EvalFlags::default()).unwrap(),
+            EvalPlan::Plain(_)
+        ));
+    }
+
+    #[test]
+    fn eval_plan_selects_the_named_backend() {
+        let flags = EvalFlags {
+            backend: Some("bm25-tantivy".to_string()),
+            ..EvalFlags::default()
+        };
+        match eval_plan(flags).unwrap() {
+            EvalPlan::Backend(options) => assert_eq!(options.backend, BackendKind::Bm25Tantivy),
+            _ => panic!("expected Backend, got a different plan"),
+        }
+    }
+
+    #[test]
+    fn eval_plan_allow_stale_alone_still_selects_bm25_through_the_backend_path() {
+        let flags = EvalFlags {
+            allow_stale: true,
+            ..EvalFlags::default()
+        };
+        match eval_plan(flags).unwrap() {
+            EvalPlan::Backend(options) => {
+                assert_eq!(options.backend, BackendKind::Bm25);
+                assert!(options.allow_stale);
+            }
+            _ => panic!("--allow-stale alone must still route through eval_backend"),
+        }
+    }
+
+    #[test]
+    fn eval_plan_compare_wins_over_a_backend_flag() {
+        let flags = EvalFlags {
+            compare: vec!["bm25".to_string(), "dense".to_string()],
+            backend: Some("bm25-tantivy".to_string()),
+            ..EvalFlags::default()
+        };
+        match eval_plan(flags).unwrap() {
+            EvalPlan::Compare { backends, .. } => {
+                assert_eq!(backends, vec![BackendKind::Bm25, BackendKind::Dense]);
+            }
+            _ => panic!("--compare must win over --backend"),
+        }
+    }
+
+    #[test]
+    fn eval_plan_rejects_an_unknown_backend_name() {
+        // `EvalPlan` holds an `Rc<dyn Embedder>` (via `BackendEvalOptions`), which is not
+        // `Debug`, so match manually instead of `unwrap_err()`.
+        let flags = EvalFlags {
+            backend: Some("nope".to_string()),
+            ..EvalFlags::default()
+        };
+        match eval_plan(flags) {
+            Err(CommandError::Backend(BackendError::UnknownBackend(_))) => {}
+            _ => panic!("expected an unknown-backend error"),
+        }
+        let flags = EvalFlags {
+            compare: vec!["nope".to_string()],
+            ..EvalFlags::default()
+        };
+        match eval_plan(flags) {
+            Err(CommandError::Backend(BackendError::UnknownBackend(_))) => {}
+            _ => panic!("expected an unknown-backend error"),
+        }
+    }
+
+    #[test]
+    fn eval_plan_needs_embedder_only_for_dense_or_hybrid() {
+        assert!(!eval_plan(EvalFlags::default()).unwrap().needs_embedder());
+        let bm25 = EvalFlags {
+            backend: Some("bm25".to_string()),
+            ..EvalFlags::default()
+        };
+        assert!(!eval_plan(bm25).unwrap().needs_embedder());
+        let dense = EvalFlags {
+            backend: Some("dense".to_string()),
+            ..EvalFlags::default()
+        };
+        assert!(eval_plan(dense).unwrap().needs_embedder());
+        let compare_with_hybrid = EvalFlags {
+            compare: vec!["bm25".to_string(), "hybrid".to_string()],
+            ..EvalFlags::default()
+        };
+        assert!(eval_plan(compare_with_hybrid).unwrap().needs_embedder());
+        let compare_without = EvalFlags {
+            compare: vec!["bm25".to_string(), "bm25-tantivy".to_string()],
+            ..EvalFlags::default()
+        };
+        assert!(!eval_plan(compare_without).unwrap().needs_embedder());
+    }
+
+    #[test]
+    fn eval_plan_with_embedder_attaches_to_backend_and_compare_but_not_plain() {
+        let plain = eval_plan(EvalFlags::default())
+            .unwrap()
+            .with_embedder(fake_embedder());
+        assert!(matches!(plain, EvalPlan::Plain(_)));
+
+        let dense = EvalFlags {
+            backend: Some("dense".to_string()),
+            ..EvalFlags::default()
+        };
+        match eval_plan(dense).unwrap().with_embedder(fake_embedder()) {
+            EvalPlan::Backend(options) => assert!(options.embedder.is_some()),
+            _ => panic!("expected Backend"),
+        }
+
+        let compare = EvalFlags {
+            compare: vec!["dense".to_string()],
+            ..EvalFlags::default()
+        };
+        match eval_plan(compare).unwrap().with_embedder(fake_embedder()) {
+            EvalPlan::Compare { common, .. } => assert!(common.embedder.is_some()),
+            _ => panic!("expected Compare"),
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // eval_embedder_from_env
+    // -----------------------------------------------------------------------------------------
+
+    #[test]
+    fn eval_embedder_from_env_reports_the_exact_original_wording_when_unset() {
+        // SAFETY: test-local env manipulation; no other test in this process sets this key (see
+        // embed.rs's `missing_env_is_an_error_not_a_silent_skip`, which follows the same rule).
+        unsafe {
+            std::env::remove_var("PINAKES_EMBED_URL");
+        }
+        // `Rc<dyn Embedder>` is not `Debug`, so match manually instead of `unwrap_err()`.
+        let Err(err) = eval_embedder_from_env() else {
+            panic!("expected an error")
+        };
+        assert_eq!(
+            err.to_string(),
+            "PINAKES_EMBED_URL is not set (needed for --backend dense/hybrid)"
+        );
     }
 }
