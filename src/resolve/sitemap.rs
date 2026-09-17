@@ -2,18 +2,64 @@
 //! repository paths via `url_prefix` → `path_prefix`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::OnceLock;
 
 use globset::GlobSet;
 use regex::Regex;
 
 use super::navigation::{self, LinkTarget};
-use super::{Candidate, ResolveError, read_file};
+use super::{Candidate, Discovery, Plan, ResolveError, Resolver, read_file};
 use crate::config::Source;
+use crate::residue::Rule;
 use crate::sources::Checkout;
 
 /// Default navigation file when `path` is not given.
 const DEFAULT_PATH: &str = "sitemap.xml";
+
+/// The `sitemap` resolver's own mechanism: `sitemap.xml`, or a plain URL list file, mapped to
+/// repository paths via `url_prefix` → `path_prefix`.
+pub(super) struct Sitemap<'a> {
+    pub(super) path: Option<&'a str>,
+    pub(super) url_prefix: &'a str,
+    pub(super) path_prefix: &'a str,
+    pub(super) scope: &'a [String],
+    pub(super) include: &'a [String],
+    pub(super) exclude: &'a [String],
+}
+
+impl Resolver for Sitemap<'_> {
+    fn exclude(&self) -> &[String] {
+        self.exclude
+    }
+
+    fn extra_include(&self) -> &[String] {
+        self.include
+    }
+
+    fn discover(
+        &self,
+        source: &Source,
+        checkout: &Checkout,
+        files: &[String],
+        _config_dir: &Path,
+    ) -> Result<Discovery, ResolveError> {
+        let (found, nav_scope, nav_path) = plan(
+            source,
+            checkout,
+            files,
+            self.path,
+            self.scope,
+            self.url_prefix,
+            self.path_prefix,
+        )?;
+        Discovery::navigation(found, nav_scope, nav_path, self.exclude)
+    }
+
+    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Rule {
+        Rule::sitemap_unlisted(plan.nav_path.as_deref().unwrap_or_default())
+    }
+}
 
 /// Build the candidate map, residue scope and navigation file path for a `sitemap` source.
 pub(super) fn plan(

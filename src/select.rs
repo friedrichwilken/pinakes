@@ -3,20 +3,19 @@
 //! becomes residue (SPEC §2.4).
 //!
 //! Precedence for a file: `policy.deny` > `resolver.exclude` > decisions > resolver selection.
+//! `resolver.exclude` and the rule behind a not-selected candidate come from the resolver kind's
+//! own mechanism (`crate::resolve`'s crate-private `Resolver` trait), not from a `match` here.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use globset::GlobSet;
 
-use crate::config::{RepoSlug, Resolver, Source, compile_globs};
+use crate::config::{RepoSlug, Source};
 use crate::decisions::{Decision, Verdict};
 use crate::manifest::{PageEntry, SelectedBy, page_id};
 use crate::residue::{EXCERPT_TOKENS, Reason, ResidueEntry, Rule, excerpt};
-use crate::resolve::{
-    Candidate, Plan, ResolveError, effective_extensions, matches_extension, plan, resolver_exclude,
-    resolver_kind_of,
-};
+use crate::resolve::{Candidate, Plan, ResolveError, plan};
 use crate::sources::{Checkout, list_files};
 use crate::text::{sha256_hex, strip_frontmatter, title_of};
 
@@ -119,7 +118,7 @@ pub fn resolve_source(
     };
     fill_scope_candidates(&mut plan, &files, source, ctx);
 
-    let resolver_kind = resolver_kind_of(&source.resolver);
+    let resolver_kind = plan.resolver.selected_by();
     let reason = if ctx.is_new_source {
         Reason::NewSource
     } else {
@@ -149,7 +148,11 @@ pub fn resolve_source(
 /// linked it, at the fetched commit; the external resolver has no navigation file, so it falls
 /// back to the (nonexistent) target path itself, with a rule of its own
 /// ([`Rule::external_dangling_link`]) instead of [`Rule::nav_dangling_link`].
-fn unresolved_entries(source: &Source, checkout: &Checkout, plan: &mut Plan) -> Vec<ResidueEntry> {
+fn unresolved_entries(
+    source: &Source,
+    checkout: &Checkout,
+    plan: &mut Plan<'_>,
+) -> Vec<ResidueEntry> {
     let unresolved_url = plan
         .nav_path
         .as_deref()
@@ -188,7 +191,7 @@ fn unresolved_entries(source: &Source, checkout: &Checkout, plan: &mut Plan) -> 
 /// record) that no resolver mechanism already produced a candidate for, so the precedence pass
 /// sees it and can report it as residue.
 fn fill_scope_candidates(
-    plan: &mut Plan,
+    plan: &mut Plan<'_>,
     files: &[String],
     source: &Source,
     ctx: &ResolveContext<'_>,
@@ -223,51 +226,16 @@ struct Selection<'a> {
     source: &'a Source,
     checkout: &'a Checkout,
     ctx: &'a ResolveContext<'a>,
-    plan: &'a Plan,
+    plan: &'a Plan<'a>,
     resolver_kind: SelectedBy,
     reason: Reason,
 }
 
 impl Selection<'_> {
-    /// The rule (SPEC §2.4) for a candidate the resolver's own mechanism did not select: which
-    /// one depends on the resolver kind and, for `glob` and `external`, on why exactly.
+    /// The rule (SPEC §2.4) for a candidate the resolver's own mechanism did not select: the
+    /// resolver kind's own [`crate::resolve::Resolver::not_selected`].
     fn not_selected_rule(&self, path: &str, candidate: &Candidate) -> Rule {
-        match &self.source.resolver {
-            Resolver::Glob {
-                include,
-                extensions,
-                ..
-            } => {
-                let include_set =
-                    compile_globs("include", include).unwrap_or_else(|_| GlobSet::empty());
-                let configured =
-                    effective_extensions(extensions.as_deref(), self.source.render.is_some());
-                if include_set.is_match(path) && !matches_extension(path, &configured) {
-                    Rule::glob_extension(&configured)
-                } else {
-                    Rule::glob_outside_include()
-                }
-            }
-            Resolver::External { .. } => candidate.rule.clone().unwrap_or_else(|| {
-                if self.plan.mentioned.contains(path) {
-                    Rule::external_not_selected()
-                } else {
-                    Rule::external_unmatched()
-                }
-            }),
-            Resolver::Vitepress { .. } => {
-                Rule::sidebar_unlinked(self.plan.nav_path.as_deref().unwrap_or_default())
-            }
-            Resolver::Docusaurus { .. } => {
-                Rule::docusaurus_unlinked(self.plan.nav_path.as_deref().unwrap_or_default())
-            }
-            Resolver::Mdbook { .. } => {
-                Rule::mdbook_unlinked(self.plan.nav_path.as_deref().unwrap_or_default())
-            }
-            Resolver::Sitemap { .. } => {
-                Rule::sitemap_unlisted(self.plan.nav_path.as_deref().unwrap_or_default())
-            }
-        }
+        self.plan.resolver.not_selected(path, candidate, self.plan)
     }
 
     /// The upstream URL of `path` pinned to `checkout.commit` (SPEC §2.4): `{base_url}/{path}`
@@ -315,17 +283,14 @@ impl Selection<'_> {
                     &first_matching_pattern(self.ctx.deny_patterns, path).unwrap_or_default(),
                 ),
             )),
-            Outcome::Excluded => result.residue.push(
-                self.excluded(
-                    path,
-                    &sha256,
-                    &text,
-                    Rule::resolver_exclude(
-                        &first_matching_pattern(resolver_exclude(&self.source.resolver), path)
-                            .unwrap_or_default(),
-                    ),
+            Outcome::Excluded => result.residue.push(self.excluded(
+                path,
+                &sha256,
+                &text,
+                Rule::resolver_exclude(
+                    &first_matching_pattern(self.plan.resolver.exclude(), path).unwrap_or_default(),
                 ),
-            ),
+            )),
             Outcome::Selected(selected_by) => {
                 result.pages.insert(
                     path.to_string(),
@@ -441,7 +406,7 @@ fn context_of(context: &str, section: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
+    use crate::config::{Config, Resolver, compile_globs};
     use crate::text::absolutise;
     use std::fs;
 
