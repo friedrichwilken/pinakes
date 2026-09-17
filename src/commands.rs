@@ -1705,6 +1705,8 @@ mod tests {
         let mut fetcher = fetcher();
         let fresh = resolve(&paths, &opts(), &fetcher).unwrap();
         assert_registry_matches_the_written_files(&paths, &fresh);
+        // The fixture's 4 files: docs/a.md and docs/b.md are selected; docs/_sidebar.md is
+        // residue (resolver:exclude) and docs/adr/1.md is residue (policy:deny).
         assert_eq!(fresh.registry.len(), 4);
         let excluded = fresh.registry.get("handbook::docs/adr/1.md").unwrap();
         assert!(excluded.is_excluded());
