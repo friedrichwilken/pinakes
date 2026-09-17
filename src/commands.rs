@@ -10,7 +10,7 @@ use crate::artifact::{self, MANIFEST_FILE, Problem};
 use crate::backend::{self, Backend, BackendConfig, BackendError, BackendKind};
 use crate::classify;
 use crate::config::{ArchivedPolicy, Config, RepoSlug};
-use crate::decisions::{self, Decision, Expired, Verdict};
+use crate::decisions::{self, Decision, Verdict};
 use crate::diff::{self, Diff};
 use crate::duplicates::{self, DuplicatePair};
 use crate::embed::{self, Embedder};
@@ -19,365 +19,20 @@ use crate::grade::{self, GradedRow};
 use crate::index::{self, Index, IndexError, Page, Priorities};
 use crate::jsonl;
 use crate::llm::{ChatTransport, LlmConfig};
-use crate::manifest::{
-    Manifest, ManifestSource, PageEntry, SelectedBy, now_rfc3339, split_page_id,
-};
-use crate::page::{PageRecord, PageRegistry, PageStatus};
+use crate::manifest::{Manifest, now_rfc3339, split_page_id};
+use crate::page::{PageRegistry, PageStatus};
+use crate::pipeline::io_err;
 use crate::queries::{self, CheckReport, GradedQuery, NewQuery};
-use crate::render;
 use crate::report::{self, ReportInput};
-use crate::residue::{self, ListFilter, Reason, ResidueEntry};
-use crate::resolve::{self, ResolveContext};
-use crate::sources::{Checkout, Fetcher, fetch_checkout};
-use crate::text::{sha256_hex, strip_frontmatter, title_of};
+use crate::residue::{self, ListFilter, ResidueEntry};
+use crate::sources::{Fetcher, fetch_checkout};
+use crate::text::strip_frontmatter;
 use crate::trail::{self, TrailEntry};
 use crate::usage::{self, Usage};
 
 pub use crate::error::CommandError;
+pub use crate::pipeline::{ResolveOptions, ResolveOutcome, resolve};
 pub use crate::workspace::Paths;
-
-/// Options for `resolve`.
-#[derive(Debug, Clone)]
-pub struct ResolveOptions {
-    /// Reproduce this manifest instead of resolving the config.
-    pub from_manifest: Option<PathBuf>,
-    /// Timestamp to record; defaults to now (ignored with `from_manifest`).
-    pub generated_at: Option<String>,
-}
-
-/// What `resolve` produced, for the human summary.
-#[derive(Debug)]
-pub struct ResolveOutcome {
-    /// The manifest that was written.
-    pub manifest: Manifest,
-    /// The residue entries that were written.
-    pub residue: Vec<ResidueEntry>,
-    /// Decisions whose page hash no longer matches.
-    pub expired: Vec<Expired>,
-    /// Non-fatal observations (archived sources, dropped sources).
-    pub warnings: Vec<String>,
-    /// The duplicate pairs written to `duplicates.jsonl` (SPEC §11).
-    pub duplicates: Vec<DuplicatePair>,
-    /// Every page of the run, selected or residue, as one registry. It equals
-    /// [`PageRegistry::load`] over the manifest and residue files that were written.
-    pub registry: PageRegistry,
-}
-
-fn io_err(path: &Path) -> impl FnOnce(std::io::Error) -> CommandError + '_ {
-    move |source| CommandError::Io {
-        path: path.to_path_buf(),
-        source,
-    }
-}
-
-fn checkout_dir(work: &Path, name: &str) -> PathBuf {
-    work.join(name)
-}
-
-/// Run `resolve`: fetch every source, select pages, write the artifact, manifest and residue.
-pub fn resolve(
-    paths: &Paths,
-    options: &ResolveOptions,
-    fetcher: &dyn Fetcher,
-) -> Result<ResolveOutcome, CommandError> {
-    let work = tempfile::tempdir().map_err(io_err(Path::new("temp dir")))?;
-    let outcome = match &options.from_manifest {
-        Some(manifest_path) => reproduce(paths, manifest_path, fetcher, work.path())?,
-        None => resolve_fresh(paths, options, fetcher, work.path())?,
-    };
-    Ok(outcome)
-}
-
-fn resolve_fresh(
-    paths: &Paths,
-    options: &ResolveOptions,
-    fetcher: &dyn Fetcher,
-    work: &Path,
-) -> Result<ResolveOutcome, CommandError> {
-    let config = Config::load(&paths.config)?;
-    let deny = config.deny_set()?;
-    let all_decisions = decisions::read_jsonl(&paths.decisions)?;
-    let effective = decisions::effective(&all_decisions);
-    let previous = if paths.manifest.is_file() {
-        Some(Manifest::load(&paths.manifest)?)
-    } else {
-        None
-    };
-    let config_dir = paths.config_dir();
-
-    let mut manifest = Manifest::new(options.generated_at.clone().unwrap_or_else(now_rfc3339));
-    let mut all_residue = Vec::new();
-    let mut warnings = Vec::new();
-    let mut checkouts = BTreeMap::new();
-
-    for source in &config.sources {
-        let slug = source.slug();
-        let archived = fetcher.archived(&slug);
-        let dropped = archived == Some(true) && config.policy.archived == ArchivedPolicy::Drop;
-        if archived == Some(true) {
-            if dropped {
-                warnings.push(format!("{}: repository is archived; dropped", source.name));
-            } else {
-                warnings.push(format!("{}: repository is archived", source.name));
-            }
-        }
-        let dest = checkout_dir(work, &source.name);
-        let checkout = fetch_checkout(fetcher, &slug, &source.git_ref, &dest).map_err(|e| {
-            CommandError::Source {
-                name: source.name.clone(),
-                source: e,
-            }
-        })?;
-        let ctx = ResolveContext {
-            deny: &deny,
-            deny_patterns: &config.policy.deny,
-            decisions: &effective,
-            config_dir: &config_dir,
-            is_new_source: previous
-                .as_ref()
-                .is_some_and(|p| !p.sources.contains_key(&source.name)),
-        };
-        let resolved = resolve::resolve_source(source, &checkout, &ctx)?;
-        if dropped {
-            // The whole source is left out of the corpus; its would-be pages are still
-            // accounted for, as residue with `source:archived` (SPEC §2.1, §2.4).
-            all_residue.extend(resolve::archived_residue(source, &checkout, resolved));
-            continue;
-        }
-        let residue_paths = resolved
-            .residue
-            .iter()
-            .filter(|r| r.reason != Reason::UnresolvedLink)
-            .map(|r| r.path.clone())
-            .collect();
-        let (pages, unrendered, render) = match &source.render {
-            Some(render) => {
-                let output = render::render_source(
-                    &source.name,
-                    render,
-                    &checkout,
-                    &resolved.pages,
-                    &config_dir,
-                )?;
-                (output.pages, output.unrendered, Some(output.recorded))
-            }
-            None => (resolved.pages, Vec::new(), None),
-        };
-        manifest.sources.insert(
-            source.name.clone(),
-            ManifestSource {
-                repo: slug.to_string(),
-                repo_url: source.repo.clone(),
-                git_ref: source.git_ref.clone(),
-                commit: checkout.commit.clone(),
-                archived,
-                resolver: source.resolver.kind().to_string(),
-                pages,
-                residue: residue_paths,
-                unresolved: resolved.unresolved,
-                unrendered,
-                render,
-            },
-        );
-        all_residue.extend(resolved.residue);
-        checkouts.insert(source.name.clone(), checkout);
-    }
-
-    let mut registry = PageRegistry::from_resolve(&manifest, &all_residue);
-    let expired = decisions::expired(&effective, |id| registry.get(id).map(|r| r.sha256.clone()));
-    let duplicates = write_outputs(paths, &manifest, &mut registry, &checkouts)?;
-    Ok(ResolveOutcome {
-        manifest,
-        residue: all_residue,
-        expired,
-        warnings,
-        duplicates,
-        registry,
-    })
-}
-
-fn reproduce(
-    paths: &Paths,
-    manifest_path: &Path,
-    fetcher: &dyn Fetcher,
-    work: &Path,
-) -> Result<ResolveOutcome, CommandError> {
-    let manifest = Manifest::load(manifest_path)?;
-    let mut checkouts = BTreeMap::new();
-    let mut all_residue = Vec::new();
-    for (name, source) in &manifest.sources {
-        let slug = RepoSlug::from_slug(&source.repo).ok_or_else(|| CommandError::BadSlug {
-            name: name.clone(),
-            repo: source.repo.clone(),
-        })?;
-        let dest = checkout_dir(work, name);
-        let checkout = fetch_checkout(fetcher, &slug, &source.commit, &dest).map_err(|e| {
-            CommandError::Source {
-                name: name.clone(),
-                source: e,
-            }
-        })?;
-        if checkout.commit != source.commit {
-            return Err(CommandError::CommitMismatch {
-                name: name.clone(),
-                expected: source.commit.clone(),
-                actual: checkout.commit,
-            });
-        }
-        if let Some(render) = &source.render {
-            let selected = selected_for_render(source);
-            render::render_source(name, render, &checkout, &selected, &paths.config_dir())?;
-        }
-        all_residue.extend(recorded_residue(name, source, &checkout)?);
-        checkouts.insert(name.clone(), checkout);
-    }
-    let mut registry = PageRegistry::from_resolve(&manifest, &all_residue);
-    let duplicates = write_outputs(paths, &manifest, &mut registry, &checkouts)?;
-    Ok(ResolveOutcome {
-        manifest,
-        residue: all_residue,
-        expired: Vec::new(),
-        warnings: Vec::new(),
-        duplicates,
-        registry,
-    })
-}
-
-/// Rebuild the pre-render selection [`render::render_source`] needs from a recorded source's
-/// post-render pages and its `unrendered` list: one synthetic entry per distinct selected path
-/// (`rendered_from`, plus every `unrendered` path), so `resolve --from-manifest` can re-run a
-/// render step without the original config's resolver at hand. Only `selected_by` survives into
-/// a rendered page's manifest entry, so the other fields are left blank.
-fn selected_for_render(source: &ManifestSource) -> BTreeMap<String, PageEntry> {
-    let mut selected = BTreeMap::new();
-    let blank = |selected_by| PageEntry {
-        sha256: String::new(),
-        title: String::new(),
-        doc_type: String::new(),
-        section: String::new(),
-        selected_by,
-        rendered_from: None,
-    };
-    for entry in source.pages.values() {
-        if let Some(source_path) = &entry.rendered_from {
-            selected
-                .entry(source_path.clone())
-                .or_insert_with(|| blank(entry.selected_by));
-        }
-    }
-    for path in &source.unrendered {
-        selected
-            .entry(path.clone())
-            .or_insert_with(|| blank(SelectedBy::Include));
-    }
-    selected
-}
-
-/// Rebuild residue entries for a recorded source from the files in its checkout.
-fn recorded_residue(
-    name: &str,
-    source: &ManifestSource,
-    checkout: &Checkout,
-) -> Result<Vec<ResidueEntry>, CommandError> {
-    let mut entries = Vec::new();
-    for path in &source.residue {
-        let full = checkout.root.join(path);
-        let bytes = std::fs::read(&full).map_err(io_err(&full))?;
-        let text = String::from_utf8_lossy(&bytes);
-        entries.push(ResidueEntry {
-            id: crate::manifest::page_id(name, path),
-            source: name.to_string(),
-            path: path.clone(),
-            reason: Reason::NotSelected,
-            sha256: sha256_hex(&bytes),
-            title: title_of("", &text),
-            excerpt: residue::excerpt(strip_frontmatter(&text), residue::EXCERPT_TOKENS),
-            context: String::new(),
-            url: source.page_url(path).unwrap_or_default(),
-            rule: Some(residue::Rule::reproduced()),
-        });
-    }
-    for path in &source.unresolved {
-        entries.push(ResidueEntry {
-            id: crate::manifest::page_id(name, path),
-            source: name.to_string(),
-            path: path.clone(),
-            reason: Reason::UnresolvedLink,
-            sha256: String::new(),
-            title: String::new(),
-            excerpt: String::new(),
-            context: String::new(),
-            url: source.page_url(path).unwrap_or_default(),
-            rule: Some(residue::Rule::reproduced()),
-        });
-    }
-    Ok(entries)
-}
-
-fn write_outputs(
-    paths: &Paths,
-    manifest: &Manifest,
-    registry: &mut PageRegistry,
-    checkouts: &BTreeMap<String, Checkout>,
-) -> Result<Vec<DuplicatePair>, CommandError> {
-    artifact::materialise(&paths.artifact, manifest, checkouts)?;
-    manifest.save(&paths.manifest)?;
-    residue::write_jsonl(&paths.residue, &registry.residue_entries())?;
-    let pairs = compute_duplicates(
-        paths,
-        Some(manifest),
-        registry,
-        duplicates::DEFAULT_THRESHOLD,
-    )?;
-    duplicates::write_jsonl(&paths.duplicates, &pairs)?;
-    Ok(pairs)
-}
-
-/// A page's raw bytes, read from `<artifact>/<source>/<path>`; `None` for a malformed id or a
-/// missing or unreadable file.
-fn artifact_page_bytes(artifact: &Path, id: &str) -> Option<Vec<u8>> {
-    let (source, path) = split_page_id(id)?;
-    std::fs::read(artifact.join(source).join(path)).ok()
-}
-
-/// Find duplicate pairs in the artifact at `paths.artifact` (SPEC §11). `manifest`, when given,
-/// supplies exact `sha256`, `selected_by` and page urls for the winner rule and the reported
-/// pairs, through `registry`'s corpus records. A loaded page the registry does not already have
-/// a corpus record for (a manifest-less artifact, or a page the manifest does not know about) is
-/// added to `registry` as an artifact-only record, with its sha256 read from the file and its
-/// url from the manifest when one is given; the winner rule then falls back to source priority
-/// alone for it, since it has no `selected_by`.
-fn compute_duplicates(
-    paths: &Paths,
-    manifest: Option<&Manifest>,
-    registry: &mut PageRegistry,
-    threshold: f64,
-) -> Result<Vec<DuplicatePair>, CommandError> {
-    let priorities = if paths.config.is_file() {
-        Priorities::from_config(&Config::load(&paths.config)?)
-    } else {
-        Priorities::default()
-    };
-    let pages = index::load_pages(&paths.artifact, &priorities)?;
-    for page in &pages {
-        if registry.corpus_page(&page.id).is_some() {
-            continue;
-        }
-        let Some(bytes) = artifact_page_bytes(&paths.artifact, &page.id) else {
-            continue;
-        };
-        let url = manifest
-            .and_then(|m| m.page_url(&page.id))
-            .unwrap_or_default();
-        let _ = registry.insert_artifact_only(PageRecord::artifact_only(
-            &page.source,
-            &page.path,
-            sha256_hex(&bytes),
-            url,
-        ));
-    }
-    Ok(duplicates::find_duplicates(&pages, registry, threshold))
-}
 
 /// Options for `duplicates`.
 #[derive(Debug, Clone)]
@@ -411,7 +66,12 @@ pub fn duplicates(
     };
     // No residue: a malformed `residue.jsonl` must not be able to break `duplicates`.
     let mut registry = PageRegistry::load(manifest.as_ref(), &[]);
-    let pairs = compute_duplicates(paths, manifest.as_ref(), &mut registry, options.threshold)?;
+    let pairs = crate::pipeline::outputs::compute_duplicates(
+        paths,
+        manifest.as_ref(),
+        &mut registry,
+        options.threshold,
+    )?;
     if let Some(path) = &options.json {
         duplicates::write_jsonl(path, &pairs)?;
     }
@@ -939,7 +599,7 @@ pub fn classify(
         if !is_selected {
             continue;
         }
-        let Some(bytes) = artifact_page_bytes(&paths.artifact, id) else {
+        let Some(bytes) = crate::pipeline::outputs::artifact_page_bytes(&paths.artifact, id) else {
             continue;
         };
         let text = String::from_utf8_lossy(&bytes);
@@ -1368,52 +1028,13 @@ mod tests {
     use super::*;
     use crate::grade::GradeError;
     use crate::llm::ChatError;
+    use crate::manifest::SelectedBy;
+    use crate::pipeline::testing::{CONFIG, SHA, fetcher, opts, workspace};
+    use crate::residue::Reason;
     use crate::sources::testing::{FakeFetcher, build_tarball};
+    use crate::text::sha256_hex;
     use crate::usage::UsageError;
     use std::fs;
-
-    const SHA: &str = "4427d7ba863973c2cea9da74ed8675c5c74aee77";
-
-    fn workspace(config: &str) -> (tempfile::TempDir, Paths) {
-        let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("pinakes.yaml");
-        fs::write(&config_path, config).unwrap();
-        let paths = Paths::for_config(&config_path);
-        (dir, paths)
-    }
-
-    const CONFIG: &str = "version: 1\nsources:\n  - name: handbook\n    repo: https://github.com/o/handbook.git\n    \
-                          ref: main\n    resolver:\n      type: glob\n      include: ['docs/**/*.md']\n      \
-                          exclude: ['**/_sidebar.md']\npolicy:\n  deny: ['**/adr/**']\n  min_pages_per_source: 2\n";
-
-    fn fetcher() -> FakeFetcher {
-        let files: [(&str, &[u8]); 4] = [
-            ("docs/a.md", b"# A\n"),
-            ("docs/b.md", b"# B\n"),
-            ("docs/_sidebar.md", b"- a\n"),
-            ("docs/adr/1.md", b"# ADR\n"),
-        ];
-        let mut fetcher = FakeFetcher::default();
-        fetcher.add_tarball(
-            "o/handbook",
-            "main",
-            build_tarball("handbook-main", Some(SHA), &files),
-        );
-        fetcher.add_tarball(
-            "o/handbook",
-            SHA,
-            build_tarball(&format!("handbook-{SHA}"), Some(SHA), &files),
-        );
-        fetcher.set_archived("o/handbook", false);
-        fetcher
-    }
-
-    fn opts() -> ResolveOptions {
-        ResolveOptions {
-            from_manifest: None,
-            generated_at: Some("2026-09-16T12:00:00Z".into()),
-        }
-    }
 
     #[test]
     fn resolve_then_verify_then_decide() {
@@ -1527,106 +1148,6 @@ mod tests {
         ));
     }
 
-    /// The registry `resolve` returns is the one a later command gets by loading the files
-    /// `resolve` wrote.
-    fn assert_registry_matches_the_written_files(paths: &Paths, outcome: &ResolveOutcome) {
-        let manifest = Manifest::load(&paths.manifest).unwrap();
-        let residue = residue::read_jsonl(&paths.residue).unwrap();
-        assert_eq!(
-            outcome.registry,
-            PageRegistry::load(Some(&manifest), &residue)
-        );
-        assert_eq!(
-            outcome.registry.selected().count(),
-            outcome.manifest.pages().count()
-        );
-        assert_eq!(outcome.registry.residue().count(), outcome.residue.len());
-    }
-
-    #[test]
-    fn resolve_returns_the_registry_of_the_files_it_wrote() {
-        // A fresh resolve.
-        let (_dir, paths) = workspace(CONFIG);
-        let mut fetcher = fetcher();
-        let fresh = resolve(&paths, &opts(), &fetcher).unwrap();
-        assert_registry_matches_the_written_files(&paths, &fresh);
-        // The fixture's 4 files: docs/a.md and docs/b.md are selected; docs/_sidebar.md is
-        // residue (resolver:exclude) and docs/adr/1.md is residue (policy:deny).
-        assert_eq!(fresh.registry.len(), 4);
-        let excluded = fresh.registry.get("handbook::docs/adr/1.md").unwrap();
-        assert!(excluded.is_excluded());
-        assert_eq!(excluded.commit, SHA);
-
-        // `--from-manifest` over the manifest just written.
-        let reproduced = resolve(
-            &paths,
-            &ResolveOptions {
-                from_manifest: Some(paths.manifest.clone()),
-                generated_at: None,
-            },
-            &fetcher,
-        )
-        .unwrap();
-        assert_registry_matches_the_written_files(&paths, &reproduced);
-        assert_eq!(reproduced.registry.len(), 4);
-
-        // A dropped archived source: residue only, from a source the manifest does not list.
-        fetcher.set_archived("o/handbook", true);
-        fs::write(&paths.config, format!("{CONFIG}  archived: drop\n")).unwrap();
-        let dropped = resolve(&paths, &opts(), &fetcher).unwrap();
-        assert_registry_matches_the_written_files(&paths, &dropped);
-        assert_eq!(dropped.registry.selected().count(), 0);
-        let page = dropped.registry.get("handbook::docs/a.md").unwrap();
-        assert_eq!((page.repo.as_str(), page.commit.as_str()), ("", ""));
-        assert!(page.url.ends_with("/docs/a.md"), "{}", page.url);
-    }
-
-    #[test]
-    fn archived_sources_warn_or_drop() {
-        let (_dir, paths) = workspace(CONFIG);
-        let mut fetcher = fetcher();
-        fetcher.set_archived("o/handbook", true);
-        let outcome = resolve(&paths, &opts(), &fetcher).unwrap();
-        assert_eq!(outcome.warnings, ["handbook: repository is archived"]);
-        assert_eq!(outcome.manifest.sources["handbook"].archived, Some(true));
-
-        fs::write(&paths.config, format!("{CONFIG}  archived: drop\n")).unwrap();
-        let outcome = resolve(&paths, &opts(), &fetcher).unwrap();
-        assert!(outcome.manifest.sources.is_empty());
-        assert_eq!(
-            outcome.warnings,
-            ["handbook: repository is archived; dropped"]
-        );
-        // The source's would-be pages are still accounted for, as residue with `source:archived`
-        // (SPEC §2.1, §2.4); its own residue (excluded/denied files) keeps its own rule.
-        let by_path: std::collections::BTreeMap<&str, &str> = outcome
-            .residue
-            .iter()
-            .map(|r| (r.path.as_str(), r.rule.as_ref().unwrap().key.as_str()))
-            .collect();
-        assert_eq!(
-            by_path,
-            [
-                ("docs/_sidebar.md", "resolver:exclude"),
-                ("docs/a.md", "source:archived"),
-                ("docs/adr/1.md", "policy:deny"),
-                ("docs/b.md", "source:archived"),
-            ]
-            .into_iter()
-            .collect(),
-            "{:#?}",
-            outcome.residue
-        );
-        assert!(outcome.residue.iter().all(|r| r.reason == Reason::Excluded));
-    }
-
-    #[test]
-    fn missing_tarball_is_a_source_error() {
-        let (_dir, paths) = workspace(CONFIG);
-        let err = resolve(&paths, &opts(), &FakeFetcher::default()).unwrap_err();
-        assert!(matches!(err, CommandError::Source { .. }), "{err}");
-    }
-
     const CRD_CONFIG: &str = "version: 1\nsources:\n  - name: crds\n    repo: https://github.com/o/crds.git\n    \
                                ref: main\n    resolver:\n      type: glob\n      \
                                include: ['config/crd/bases/*.yaml']\n    render:\n      type: openapi\n";
@@ -1687,31 +1208,6 @@ type: object\n              properties:\n                size:\n                
         let meta = fs::read_to_string(paths.artifact.join("crds/meta.json")).unwrap();
         assert!(meta.contains("\"unrendered\": [\n    \"config/crd/bases/not-a-crd.yaml\"\n  ]"));
         assert!(verify(&paths, true).unwrap().ok());
-    }
-
-    #[test]
-    fn new_sources_report_new_source_residue() {
-        let config = CONFIG.replace(
-            "include: ['docs/**/*.md']",
-            "include: ['docs/a.md']\n      residue_scope: ['docs/*.md']",
-        );
-        let (_dir, paths) = workspace(&config);
-        let fetcher = fetcher();
-        let outcome = resolve(&paths, &opts(), &fetcher).unwrap();
-        assert_eq!(
-            outcome.residue.iter().map(|r| r.reason).collect::<Vec<_>>(),
-            [Reason::NotSelected, Reason::Excluded, Reason::Excluded],
-            "docs/b.md is not selected; docs/_sidebar.md matches resolver.exclude and \
-             docs/adr/1.md matches policy.deny, both now residue in their own right (SPEC §2.4)"
-        );
-        // Rename the source: it is now new relative to the committed manifest.
-        fs::write(
-            &paths.config,
-            config.replace("name: handbook", "name: handbook2"),
-        )
-        .unwrap();
-        let outcome = resolve(&paths, &opts(), &fetcher).unwrap();
-        assert_eq!(outcome.residue[0].reason, Reason::NewSource);
     }
 
     /// A workspace with a synthetic artifact, a query file and no config.
@@ -1924,17 +1420,6 @@ type: object\n              properties:\n                size:\n                
             queries_check(&paths, None).unwrap_err(),
             CommandError::NoQueries
         ));
-    }
-
-    #[test]
-    fn resolve_also_writes_duplicates_jsonl() {
-        let (_dir, paths) = workspace(CONFIG);
-        let outcome = resolve(&paths, &opts(), &fetcher()).unwrap();
-        assert!(paths.duplicates.is_file());
-        assert_eq!(
-            outcome.duplicates,
-            duplicates::read_jsonl(&paths.duplicates).unwrap()
-        );
     }
 
     #[test]

@@ -15,7 +15,11 @@
 //! trail into pages-never-used and gap statistics. [`corpus`] loads an artifact directory into
 //! pages (source priorities, the mirror rule); [`index`] builds on it and re-exports its items.
 //! [`page`] is the one description of a page, selected or residue, built from [`manifest`] and
-//! [`residue`] types once per run.
+//! [`residue`] types once per run. [`workspace`] holds [`workspace::Paths`], the file locations
+//! shared by every command; [`error`] holds [`error::CommandError`], the error type every
+//! command returns; [`pipeline`] is the compile pipeline (SPEC stage a) that `commands::resolve`
+//! runs. All three are re-exported from [`commands`] so existing `pinakes::commands::...` paths
+//! keep working.
 //!
 //! Four leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
 //! (content hashing, front matter, content cleaning, titles, path helpers), [`tokenizer`] (the
@@ -42,6 +46,7 @@ pub mod layout;
 pub mod llm;
 pub mod manifest;
 pub mod page;
+pub mod pipeline;
 pub mod queries;
 pub mod render;
 pub mod report;
