@@ -27,8 +27,9 @@ use crate::queries::{self, CheckReport, GradedQuery, NewQuery, QueriesError};
 use crate::render::{self, RenderError};
 use crate::report::{self, ReportInput};
 use crate::residue::{self, ListFilter, Reason, ResidueEntry, ResidueError};
-use crate::resolve::{self, ResolveContext, ResolveError, sha256_hex, strip_frontmatter, title_of};
+use crate::resolve::{self, ResolveContext, ResolveError};
 use crate::sources::{Checkout, Fetcher, SourceError, fetch_checkout};
+use crate::text::{sha256_hex, strip_frontmatter, title_of};
 use crate::trail::{self, TrailEntry, TrailError};
 use crate::usage::{self, Usage, UsageError};
 

@@ -36,10 +36,10 @@ use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 use tantivy::{DocAddress, DocSet, IndexWriter, Searcher, TERMINATED, Term};
 use thiserror::Error;
 
-use crate::artifact::{META_FILE, RESIDUE_DIR};
 use crate::config::Config;
+use crate::layout::{META_FILE, RESIDUE_DIR};
 use crate::manifest::page_id;
-use crate::resolve::{strip_frontmatter, title_of};
+use crate::text::{strip_frontmatter, title_of};
 
 /// Stopwords dropped by [`tokenize`], sorted.
 pub const STOPWORDS: [&str; 35] = [

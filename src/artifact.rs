@@ -20,15 +20,10 @@ use thiserror::Error;
 
 use crate::config::RepoSlug;
 use crate::manifest::{Manifest, ManifestError, ManifestSource, page_id, to_sorted_json};
-use crate::resolve::sha256_hex;
 use crate::sources::Checkout;
+use crate::text::sha256_hex;
 
-/// Name of the residue directory at the artifact root.
-pub const RESIDUE_DIR: &str = "_residue";
-/// Name of the per-source metadata file.
-pub const META_FILE: &str = "meta.json";
-/// Name of the manifest at the artifact root.
-pub const MANIFEST_FILE: &str = "manifest.json";
+pub use crate::layout::{MANIFEST_FILE, META_FILE, RESIDUE_DIR};
 
 /// Errors raised while writing or checking an artifact.
 #[derive(Debug, Error)]

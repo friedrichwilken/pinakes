@@ -12,6 +12,10 @@
 //! [`trail`] reads `trail.jsonl`, the consumer-written record of what was actually served;
 //! [`grade`] uses the judge (via [`llm`]) to grade what it retrieved, and [`usage`] turns a
 //! trail into pages-never-used and gap statistics.
+//!
+//! Two leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
+//! (content hashing, front matter, titles, path helpers) and [`layout`] (the artifact's file and
+//! directory names).
 
 pub mod artifact;
 pub mod backend;
@@ -25,6 +29,7 @@ pub mod embed;
 pub mod eval;
 pub mod grade;
 pub mod index;
+pub mod layout;
 pub mod llm;
 pub mod manifest;
 pub mod queries;
@@ -33,5 +38,6 @@ pub mod report;
 pub mod residue;
 pub mod resolve;
 pub mod sources;
+pub mod text;
 pub mod trail;
 pub mod usage;
