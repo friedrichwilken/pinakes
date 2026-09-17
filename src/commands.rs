@@ -6,150 +6,34 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use thiserror::Error;
-
-use crate::artifact::{self, ArtifactError, MANIFEST_FILE, Problem};
+use crate::artifact::{self, MANIFEST_FILE, Problem};
 use crate::backend::{self, Backend, BackendConfig, BackendError, BackendKind};
-use crate::classify::{self, ClassifyError};
-use crate::config::{ArchivedPolicy, Config, ConfigError, RepoSlug};
-use crate::corpus::CorpusError;
-use crate::decisions::{self, Decision, DecisionError, Expired, Verdict};
+use crate::classify;
+use crate::config::{ArchivedPolicy, Config, RepoSlug};
+use crate::decisions::{self, Decision, Expired, Verdict};
 use crate::diff::{self, Diff};
-use crate::duplicates::{self, DuplicatePair, DuplicatesError};
-use crate::embed::{self, EmbedError, Embedder};
-use crate::eval::{self, Delta, EvalError, EvalSummary, Gate};
-use crate::grade::{self, GradeError, GradedRow};
+use crate::duplicates::{self, DuplicatePair};
+use crate::embed::{self, Embedder};
+use crate::eval::{self, Delta, EvalSummary, Gate};
+use crate::grade::{self, GradedRow};
 use crate::index::{self, Index, IndexError, Page, Priorities};
 use crate::jsonl;
-use crate::llm::{ChatError, ChatTransport, LlmConfig};
+use crate::llm::{ChatTransport, LlmConfig};
 use crate::manifest::{
-    Manifest, ManifestError, ManifestSource, PageEntry, SelectedBy, now_rfc3339, split_page_id,
+    Manifest, ManifestSource, PageEntry, SelectedBy, now_rfc3339, split_page_id,
 };
 use crate::page::{PageRecord, PageRegistry, PageStatus};
-use crate::queries::{self, CheckReport, GradedQuery, NewQuery, QueriesError};
-use crate::render::{self, RenderError};
+use crate::queries::{self, CheckReport, GradedQuery, NewQuery};
+use crate::render;
 use crate::report::{self, ReportInput};
-use crate::residue::{self, ListFilter, Reason, ResidueEntry, ResidueError};
-use crate::resolve::{self, ResolveContext, ResolveError};
-use crate::sources::{Checkout, Fetcher, SourceError, fetch_checkout};
+use crate::residue::{self, ListFilter, Reason, ResidueEntry};
+use crate::resolve::{self, ResolveContext};
+use crate::sources::{Checkout, Fetcher, fetch_checkout};
 use crate::text::{sha256_hex, strip_frontmatter, title_of};
-use crate::trail::{self, TrailEntry, TrailError};
-use crate::usage::{self, Usage, UsageError};
+use crate::trail::{self, TrailEntry};
+use crate::usage::{self, Usage};
 
-/// Errors raised by any command.
-#[derive(Debug, Error)]
-pub enum CommandError {
-    /// Bad or unreadable config.
-    #[error(transparent)]
-    Config(#[from] ConfigError),
-    /// Bad or unreadable manifest.
-    #[error(transparent)]
-    Manifest(#[from] ManifestError),
-    /// Bad or unreadable residue file.
-    #[error(transparent)]
-    Residue(#[from] ResidueError),
-    /// Bad or unreadable decisions file.
-    #[error(transparent)]
-    Decision(#[from] DecisionError),
-    /// Download or extraction failed.
-    #[error("source {name}: {source}")]
-    Source {
-        /// Source name.
-        name: String,
-        /// Underlying error.
-        #[source]
-        source: SourceError,
-    },
-    /// A resolver failed.
-    #[error(transparent)]
-    Resolve(#[from] ResolveError),
-    /// A render step failed.
-    #[error(transparent)]
-    Render(#[from] RenderError),
-    /// Writing the artifact failed.
-    #[error(transparent)]
-    Artifact(#[from] ArtifactError),
-    /// A filesystem operation failed.
-    #[error("{path}: {source}")]
-    Io {
-        /// The path involved.
-        path: PathBuf,
-        /// Underlying I/O error.
-        #[source]
-        source: std::io::Error,
-    },
-    /// A manifest records a slug that is not `owner/repo`.
-    #[error("source {name}: invalid repo slug {repo:?} in manifest")]
-    BadSlug {
-        /// Source name.
-        name: String,
-        /// The recorded slug.
-        repo: String,
-    },
-    /// The tarball fetched for a recorded commit reports a different commit.
-    #[error("source {name}: fetched {actual} but the manifest records {expected}")]
-    CommitMismatch {
-        /// Source name.
-        name: String,
-        /// Commit recorded in the manifest.
-        expected: String,
-        /// Commit the tarball reported.
-        actual: String,
-    },
-    /// `decide` was given an id that is neither residue nor a page.
-    #[error("unknown id {0}: not in residue.jsonl or manifest.json")]
-    UnknownId(String),
-    /// A JSON value could not be produced.
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-    /// Bad or unreadable eval result.
-    #[error(transparent)]
-    Eval(#[from] EvalError),
-    /// The artifact could not be indexed.
-    #[error(transparent)]
-    Index(#[from] IndexError),
-    /// `eval` has no query file: none given and no `eval.queries` in the config.
-    #[error("no query file: pass --queries or set eval.queries in the config")]
-    NoQueries,
-    /// `queries add` or `queries check` failed.
-    #[error(transparent)]
-    Queries(#[from] QueriesError),
-    /// Bad or unreadable `duplicates.jsonl`.
-    #[error(transparent)]
-    Duplicates(#[from] DuplicatesError),
-    /// A retriever backend (SPEC §16) failed to build or search.
-    #[error(transparent)]
-    Backend(#[from] BackendError),
-    /// Embedding, or reading/writing the embeddings file pair, failed.
-    #[error(transparent)]
-    Embed(#[from] EmbedError),
-    /// `eval --compare` was given no backend names.
-    #[error("--compare needs at least one backend name")]
-    EmptyCompare,
-    /// `classify` failed, including talking to the model.
-    #[error(transparent)]
-    Classify(#[from] ClassifyError),
-    /// Building the model configuration failed (e.g. `PINAKES_LLM_URL` is not set).
-    #[error(transparent)]
-    Llm(#[from] ChatError),
-    /// Bad or unreadable `trail.jsonl`.
-    #[error(transparent)]
-    Trail(#[from] TrailError),
-    /// `grade` failed, including talking to the model or the backend.
-    #[error(transparent)]
-    Grade(#[from] GradeError),
-    /// Bad or unreadable usage report, or an invalid `--since`.
-    #[error(transparent)]
-    Usage(#[from] UsageError),
-}
-
-/// A page-loading failure is reported as the [`IndexError`] it has always been.
-impl From<CorpusError> for CommandError {
-    fn from(err: CorpusError) -> Self {
-        CommandError::Index(IndexError::from(err))
-    }
-}
-
+pub use crate::error::CommandError;
 pub use crate::workspace::Paths;
 
 /// Options for `resolve`.
@@ -1482,7 +1366,10 @@ pub fn eval_compare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grade::GradeError;
+    use crate::llm::ChatError;
     use crate::sources::testing::{FakeFetcher, build_tarball};
+    use crate::usage::UsageError;
     use std::fs;
 
     const SHA: &str = "4427d7ba863973c2cea9da74ed8675c5c74aee77";

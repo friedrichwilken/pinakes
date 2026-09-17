@@ -33,6 +33,7 @@ pub mod decisions;
 pub mod diff;
 pub mod duplicates;
 pub mod embed;
+pub mod error;
 pub mod eval;
 pub mod grade;
 pub mod index;
