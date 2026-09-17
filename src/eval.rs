@@ -20,6 +20,7 @@ use thiserror::Error;
 
 use crate::index::{Index, IndexError};
 use crate::jsonl::{self, JsonlError};
+use crate::num::float;
 
 /// Errors raised while reading queries or evaluation results.
 #[derive(Debug, Error)]
@@ -141,11 +142,6 @@ impl Metrics {
             n,
         }
     }
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn float(n: usize) -> f64 {
-    n as f64
 }
 
 /// Metrics for one split (tuning or held-out), overall and per query kind.

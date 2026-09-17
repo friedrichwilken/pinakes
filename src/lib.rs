@@ -21,11 +21,11 @@
 //! runs. All three are re-exported from [`commands`] so existing `pinakes::commands::...` paths
 //! keep working.
 //!
-//! Four leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
+//! Five leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
 //! (content hashing, front matter, content cleaning, titles, path helpers), [`tokenizer`] (the
 //! tokeniser shared by indexing and querying), [`layout`] (the artifact's file and directory
-//! names) and [`jsonl`] (reading, writing and appending JSON Lines files with line-numbered
-//! errors).
+//! names), [`jsonl`] (reading, writing and appending JSON Lines files with line-numbered
+//! errors) and [`num`] (the one `usize -> f64` cast used by ratios and averages).
 
 pub mod artifact;
 pub mod backend;
@@ -45,6 +45,7 @@ pub mod jsonl;
 pub mod layout;
 pub mod llm;
 pub mod manifest;
+pub mod num;
 pub mod page;
 pub mod pipeline;
 pub mod queries;
