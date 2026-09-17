@@ -10,7 +10,6 @@
 //! or above a threshold.
 
 use std::collections::BTreeMap;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -18,6 +17,7 @@ use thiserror::Error;
 
 use crate::eval::{self, Query};
 use crate::grade::GradedRow;
+use crate::jsonl::{self, JsonlError, KeyOrder};
 use crate::manifest::{self, Manifest};
 use crate::text::sha256_hex;
 
@@ -111,18 +111,14 @@ pub fn add(path: &Path, manifest: &Manifest, new: &NewQuery) -> Result<Query, Qu
 }
 
 fn append(path: &Path, query: &Query) -> Result<(), QueriesError> {
-    let io = |source| QueriesError::Io {
-        path: path.to_path_buf(),
-        source,
-    };
-    let mut line = serde_json::to_string(query)?;
-    line.push('\n');
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(io)?;
-    file.write_all(line.as_bytes()).map_err(io)
+    jsonl::append(path, &[query], KeyOrder::Declared).map_err(jsonl_error)
+}
+
+fn jsonl_error(err: JsonlError) -> QueriesError {
+    match err {
+        JsonlError::Io { path, source } => QueriesError::Io { path, source },
+        JsonlError::Json { source, .. } => QueriesError::Json(source),
+    }
 }
 
 /// The outcome of `queries check` (SPEC §14.3); exit 4 when [`CheckReport::ok`] is false.
@@ -302,21 +298,7 @@ pub fn import_graded(
 
 /// Append every row to `path`, creating the file when needed.
 pub fn append_graded(path: &Path, rows: &[GradedQuery]) -> Result<(), QueriesError> {
-    let io = |source| QueriesError::Io {
-        path: path.to_path_buf(),
-        source,
-    };
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(io)?;
-    for row in rows {
-        let mut line = serde_json::to_string(row)?;
-        line.push('\n');
-        file.write_all(line.as_bytes()).map_err(io)?;
-    }
-    Ok(())
+    jsonl::append(path, rows, KeyOrder::Declared).map_err(jsonl_error)
 }
 
 #[cfg(test)]

@@ -14,10 +14,11 @@
 //! trail into pages-never-used and gap statistics. [`corpus`] loads an artifact directory into
 //! pages (source priorities, the mirror rule); [`index`] builds on it and re-exports its items.
 //!
-//! Three leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
+//! Four leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
 //! (content hashing, front matter, content cleaning, titles, path helpers), [`tokenizer`] (the
-//! tokeniser shared by indexing and querying) and [`layout`] (the artifact's file and directory
-//! names).
+//! tokeniser shared by indexing and querying), [`layout`] (the artifact's file and directory
+//! names) and [`jsonl`] (reading, writing and appending JSON Lines files with line-numbered
+//! errors).
 
 pub mod artifact;
 pub mod backend;
@@ -32,6 +33,7 @@ pub mod embed;
 pub mod eval;
 pub mod grade;
 pub mod index;
+pub mod jsonl;
 pub mod layout;
 pub mod llm;
 pub mod manifest;

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::decisions::Decision;
+use crate::jsonl::{self, JsonlError, KeyOrder};
 
 /// Roughly how many whitespace-separated tokens an excerpt keeps.
 pub const EXCERPT_TOKENS: usize = 600;
@@ -291,50 +292,34 @@ pub fn excerpt(text: &str, max_tokens: usize) -> String {
 /// by `(source, path)` (SPEC §2.4) so the file is byte-for-byte stable across runs regardless of
 /// the order they were found in.
 pub fn to_jsonl(entries: &[ResidueEntry]) -> Result<String, serde_json::Error> {
+    jsonl::to_string(&sorted(entries), KeyOrder::Sorted)
+}
+
+fn sorted(entries: &[ResidueEntry]) -> Vec<&ResidueEntry> {
     let mut sorted: Vec<&ResidueEntry> = entries.iter().collect();
     sorted.sort_by(|a, b| {
         (a.source.as_str(), a.path.as_str()).cmp(&(b.source.as_str(), b.path.as_str()))
     });
-    let mut out = String::new();
-    for entry in sorted {
-        out.push_str(&serde_json::to_string(&serde_json::to_value(entry)?)?);
-        out.push('\n');
+    sorted
+}
+
+impl From<JsonlError> for ResidueError {
+    fn from(err: JsonlError) -> Self {
+        match err {
+            JsonlError::Io { path, source } => ResidueError::Io { path, source },
+            JsonlError::Json { path, line, source } => ResidueError::Json { path, line, source },
+        }
     }
-    Ok(out)
 }
 
 /// Write entries to `path` as JSONL.
 pub fn write_jsonl(path: &Path, entries: &[ResidueEntry]) -> Result<(), ResidueError> {
-    let text = to_jsonl(entries).map_err(|source| ResidueError::Json {
-        path: path.to_path_buf(),
-        line: 0,
-        source,
-    })?;
-    std::fs::write(path, text).map_err(|source| ResidueError::Io {
-        path: path.to_path_buf(),
-        source,
-    })
+    Ok(jsonl::write(path, &sorted(entries), KeyOrder::Sorted)?)
 }
 
 /// Read entries from `path`; blank lines are skipped.
 pub fn read_jsonl(path: &Path) -> Result<Vec<ResidueEntry>, ResidueError> {
-    let text = std::fs::read_to_string(path).map_err(|source| ResidueError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let mut entries = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let entry = serde_json::from_str(line).map_err(|source| ResidueError::Json {
-            path: path.to_path_buf(),
-            line: index + 1,
-            source,
-        })?;
-        entries.push(entry);
-    }
-    Ok(entries)
+    Ok(jsonl::read(path)?)
 }
 
 /// Filter for `residue list`.

@@ -14,6 +14,7 @@ use thiserror::Error;
 
 use crate::config::{ConfigError, RepoSlug, Resolver, Source, compile_globs, compile_regex};
 use crate::decisions::{Decision, Verdict};
+use crate::jsonl;
 use crate::manifest::{PageEntry, SelectedBy, page_id};
 use crate::residue::{EXCERPT_TOKENS, Reason, ResidueEntry, Rule, excerpt};
 use crate::sources::{Checkout, SourceError, list_files};
@@ -135,14 +136,10 @@ impl Candidate {
 /// Parse resolver stdout: one JSON object per non-blank line.
 pub fn parse_candidates(text: &str) -> Result<Vec<Candidate>, (usize, String)> {
     let mut out = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let candidate: Candidate =
-            serde_json::from_str(line).map_err(|e| (index + 1, e.to_string()))?;
+    for parsed in jsonl::parse_lines::<Candidate>(text) {
+        let (line, candidate) = parsed.map_err(|err| (err.line, err.source.to_string()))?;
         if candidate.path.trim().is_empty() {
-            return Err((index + 1, "path must not be empty".to_string()));
+            return Err((line, "path must not be empty".to_string()));
         }
         out.push(candidate);
     }
