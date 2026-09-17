@@ -842,11 +842,12 @@ pub fn report(
             diff(old, &new, &diff_options, fetcher)
         })
         .transpose()?;
+    let registry = PageRegistry::load(Some(&new), &residue);
     Ok(report::render(ReportInput {
         old: old.as_ref(),
         new: &new,
         diff: computed_diff.as_ref(),
-        residue: &residue,
+        registry: &registry,
         decisions: &decisions,
         eval_before: eval_before.as_ref(),
         eval_after: eval_after.as_ref(),
