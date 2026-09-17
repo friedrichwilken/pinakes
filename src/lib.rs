@@ -1,31 +1,45 @@
 //! `pinakes` turns a declared set of documentation sources into a reproducible,
 //! measured corpus for a retrieval system (see `SPEC.md` at the repository root).
 //!
-//! The library is organised by file contract: [`config`] reads `pinakes.yaml`, [`sources`]
-//! downloads checkouts, [`resolve`] discovers candidate pages and [`select`] applies the
-//! selection policy to them, [`artifact`] and [`manifest`] materialise
-//! the result, [`residue`] and [`decisions`] track what was left out and why, [`diff`] and
-//! [`report`] describe changes, [`duplicates`] finds near-duplicate and mirror pages, [`index`] /
-//! [`eval`] measure retrieval quality, [`queries`] grows and validates the judge
-//! (`queries.jsonl`), and [`backend`] / [`embed`] give `eval` a choice of retriever shapes
-//! (SPEC §16) beyond the built-in BM25 index. [`llm`] is the shared OpenAI-compatible chat
-//! client; [`classify`] uses it to judge undecided residue and near-duplicate candidates.
-//! [`trail`] reads `trail.jsonl`, the consumer-written record of what was actually served;
-//! [`grade`] uses the judge (via [`llm`]) to grade what it retrieved, and [`usage`] turns a
-//! trail into pages-never-used and gap statistics. [`corpus`] loads an artifact directory into
-//! pages (source priorities, the mirror rule); [`index`] builds on it and re-exports its items.
-//! [`page`] is the one description of a page, selected or residue, built from [`manifest`] and
-//! [`residue`] types once per run. [`workspace`] holds [`workspace::Paths`], the file locations
-//! shared by every command; [`error`] holds [`error::CommandError`], the error type every
-//! command returns; [`pipeline`] is the compile pipeline (SPEC stage a) that `commands::resolve`
-//! runs. All three are re-exported from [`commands`] so existing `pinakes::commands::...` paths
-//! keep working.
-//!
-//! Five leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
+//! Eight modules depend on nothing else in the crate and may be used from anywhere: [`text`]
 //! (content hashing, front matter, content cleaning, titles, path helpers), [`tokenizer`] (the
 //! tokeniser shared by indexing and querying), [`layout`] (the artifact's file and directory
 //! names), [`jsonl`] (reading, writing and appending JSON Lines files with line-numbered
-//! errors) and [`num`] (the one `usize -> f64` cast used by ratios and averages).
+//! errors), [`num`] (the one `usize -> f64` cast used by ratios and averages), [`workspace`]
+//! (holds [`workspace::Paths`], the file locations shared by every command), [`config`] (reads
+//! `pinakes.yaml`) and [`llm`], the shared OpenAI-compatible chat client.
+//!
+//! [`sources`] downloads checkouts and [`manifest`] is `manifest.json`'s schema, both on top of
+//! [`config`]; [`decisions`] is `decisions.jsonl`; [`residue`] is `residue.jsonl`, on top of
+//! [`decisions`]; [`trail`] reads `trail.jsonl`, the consumer-written record of what was
+//! actually served. [`page`] is the one description of a page, selected or residue, built from
+//! a [`manifest`] and a slice of [`residue`] entries once per run (a deliberate exception to
+//! the no-dependency rule above: describing a page means reading both shapes).
+//!
+//! [`resolve`] discovers candidate pages (one file per built-in mechanism under `resolve/`:
+//! glob, external, vitepress, docusaurus, mdbook, sitemap) and [`select`] applies the selection
+//! policy to them — precedence, `policy.deny`, `resolver.exclude` and decisions — to decide what
+//! becomes a page and what becomes residue; [`pipeline`] is the compile pipeline (SPEC stage a)
+//! that runs the two together, renders where configured and writes the artifact, manifest,
+//! residue and duplicates files.
+//!
+//! [`corpus`] loads an artifact directory into pages (source priorities, the mirror rule);
+//! [`index`] builds the built-in BM25 index on top of it and re-exports its items, so
+//! `pinakes::index::...` paths did not move; [`backend`] / [`embed`] give [`eval`] a choice of
+//! retriever shapes (SPEC §16) beyond that built-in index.
+//!
+//! [`duplicates`] finds near-duplicate and mirror pages; [`classify`] uses [`llm`] to judge
+//! undecided residue and near-duplicate candidates; [`grade`] uses the judge to grade what a
+//! trail retrieved; [`usage`] turns a trail into pages-never-used and gap statistics; [`queries`]
+//! grows and validates the judge (`queries.jsonl`); [`diff`] and [`report`] describe changes;
+//! [`artifact`] materialises a compiled corpus; [`render`] is the SPEC §10.1 render hook.
+//!
+//! [`error`] holds [`error::CommandError`], the error type every command returns. [`commands`]
+//! is one file per subcommand, each owning its options and outcome, re-exported by name from
+//! [`commands`] itself, along with [`workspace::Paths`], [`error::CommandError`] and
+//! [`pipeline`]'s entry point, so every `pinakes::commands::...` path stays as it was before the
+//! split. The `pinakes` binary's own `src/cli/` (one file per subcommand: arguments, dispatch
+//! and printing) is not part of this library.
 
 pub mod artifact;
 pub mod backend;
