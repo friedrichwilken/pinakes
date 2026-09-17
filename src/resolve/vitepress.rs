@@ -7,9 +7,8 @@ use std::path::Path;
 use globset::GlobSet;
 
 use super::navigation::{self, JsValue, LinkTarget, NavEntry};
-use super::{Candidate, Discovery, Plan, ResolveError, Resolver, read_file};
+use super::{Candidate, Discovery, Mechanism, Plan, ResolveError, Resolver, read_file};
 use crate::config::{Source, compile_globs};
-use crate::residue::Rule;
 use crate::sources::Checkout;
 
 /// Default glob for the `VitePress` config file when `path` is not given.
@@ -43,8 +42,16 @@ impl Resolver for Vitepress<'_> {
         Discovery::navigation(found, nav_scope, nav_path, self.exclude)
     }
 
-    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Rule {
-        Rule::sidebar_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Mechanism {
+        sidebar_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+    }
+}
+
+/// A `vitepress` sidebar links other pages but not this one.
+fn sidebar_unlinked(nav_file: &str) -> Mechanism {
+    Mechanism {
+        key: "sidebar:unlinked".to_string(),
+        text: format!("not linked from `{nav_file}`"),
     }
 }
 
@@ -302,5 +309,15 @@ export default {
         assert_eq!(content_dir("docs/.vitepress/config.ts"), "docs");
         assert_eq!(content_dir(".vitepress/config.ts"), "");
         assert_eq!(content_dir("docs/user/_sidebar.ts"), "docs/user");
+    }
+
+    #[test]
+    fn sidebar_unlinked_names_the_nav_file() {
+        let mechanism = sidebar_unlinked("docs/.vitepress/config.ts");
+        assert_eq!(mechanism.key, "sidebar:unlinked");
+        assert_eq!(
+            mechanism.text,
+            "not linked from `docs/.vitepress/config.ts`"
+        );
     }
 }

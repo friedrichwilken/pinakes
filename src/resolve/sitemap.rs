@@ -9,9 +9,8 @@ use globset::GlobSet;
 use regex::Regex;
 
 use super::navigation::{self, LinkTarget};
-use super::{Candidate, Discovery, Plan, ResolveError, Resolver, read_file};
+use super::{Candidate, Discovery, Mechanism, Plan, ResolveError, Resolver, read_file};
 use crate::config::Source;
-use crate::residue::Rule;
 use crate::sources::Checkout;
 
 /// Default navigation file when `path` is not given.
@@ -56,8 +55,16 @@ impl Resolver for Sitemap<'_> {
         Discovery::navigation(found, nav_scope, nav_path, self.exclude)
     }
 
-    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Rule {
-        Rule::sitemap_unlisted(plan.nav_path.as_deref().unwrap_or_default())
+    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Mechanism {
+        sitemap_unlisted(plan.nav_path.as_deref().unwrap_or_default())
+    }
+}
+
+/// A sitemap lists other pages but not this one.
+fn sitemap_unlisted(nav_file: &str) -> Mechanism {
+    Mechanism {
+        key: "sitemap:unlisted".to_string(),
+        text: format!("not listed in `{nav_file}`"),
     }
 }
 
@@ -317,5 +324,12 @@ https://example.com/docs/missing.html
         )
         .unwrap_err();
         assert!(matches!(err, ResolveError::Navigation { .. }), "{err}");
+    }
+
+    #[test]
+    fn sitemap_unlisted_names_the_nav_file() {
+        let mechanism = sitemap_unlisted("sitemap.xml");
+        assert_eq!(mechanism.key, "sitemap:unlisted");
+        assert_eq!(mechanism.text, "not listed in `sitemap.xml`");
     }
 }

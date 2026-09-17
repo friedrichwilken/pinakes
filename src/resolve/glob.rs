@@ -5,10 +5,9 @@ use std::path::Path;
 
 use globset::GlobSet;
 
-use super::{Candidate, Discovery, Plan, ResolveError, Resolver};
+use super::{Candidate, Discovery, Mechanism, Plan, ResolveError, Resolver};
 use crate::config::{Source, compile_globs};
 use crate::manifest::SelectedBy;
-use crate::residue::Rule;
 use crate::sources::Checkout;
 
 /// The `glob` resolver's own mechanism: select `include`, filtered by the effective
@@ -57,14 +56,36 @@ impl Resolver for Glob<'_> {
         })
     }
 
-    fn not_selected(&self, path: &str, _candidate: &Candidate, _plan: &Plan<'_>) -> Rule {
+    fn not_selected(&self, path: &str, _candidate: &Candidate, _plan: &Plan<'_>) -> Mechanism {
         let include_set =
             compile_globs("include", self.include).unwrap_or_else(|_| GlobSet::empty());
         if include_set.is_match(path) && !matches_extension(path, &self.extensions) {
-            Rule::glob_extension(&self.extensions)
+            glob_extension(&self.extensions)
         } else {
-            Rule::glob_outside_include()
+            glob_outside_include()
         }
+    }
+}
+
+/// A `glob` resolver's `include` (or `residue_scope`) matched, but the file's extension is not
+/// one of the configured ones (SPEC §2.1).
+fn glob_extension(extensions: &[String]) -> Mechanism {
+    let list = if extensions.is_empty() {
+        "none configured".to_string()
+    } else {
+        extensions.join(", ")
+    };
+    Mechanism {
+        key: "glob:extension".to_string(),
+        text: format!("not one of the configured extensions ({list})"),
+    }
+}
+
+/// A `glob` resolver's `residue_scope` matched, but `include` did not.
+fn glob_outside_include() -> Mechanism {
+    Mechanism {
+        key: "glob:outside-include".to_string(),
+        text: "outside the configured include patterns".to_string(),
     }
 }
 
@@ -116,5 +137,20 @@ mod tests {
         assert!(!matches_extension("a/b.txt", &["md".to_string()]));
         assert!(matches_extension("a/b.txt", &[]));
         assert!(!matches_extension("a/b", &["md".to_string()]));
+    }
+
+    #[test]
+    fn glob_extension_lists_the_configured_extensions_or_says_none_configured() {
+        let mechanism = glob_extension(&["md".to_string()]);
+        assert_eq!(mechanism.key, "glob:extension");
+        assert_eq!(mechanism.text, "not one of the configured extensions (md)");
+        assert!(glob_extension(&[]).text.contains("none configured"));
+    }
+
+    #[test]
+    fn glob_outside_include_names_the_reason() {
+        let mechanism = glob_outside_include();
+        assert_eq!(mechanism.key, "glob:outside-include");
+        assert_eq!(mechanism.text, "outside the configured include patterns");
     }
 }
