@@ -15,6 +15,7 @@ use thiserror::Error;
 use crate::index::{clean_content, index_text, tokenize};
 use crate::layout::RESIDUE_DIR;
 use crate::manifest::{Manifest, page_id};
+use crate::num::float;
 use crate::sources::to_slash_path;
 use crate::trail::TrailEntry;
 
@@ -237,10 +238,8 @@ impl ResidueIndex {
         let avgdl = if docs.is_empty() {
             0.0
         } else {
-            #[allow(clippy::cast_precision_loss)]
-            let total: f64 = docs.iter().map(|d| d.len as f64).sum();
-            #[allow(clippy::cast_precision_loss)]
-            let n = docs.len() as f64;
+            let total: f64 = docs.iter().map(|d| float(d.len)).sum();
+            let n = float(docs.len());
             total / n
         };
         ResidueIndex {
@@ -259,14 +258,12 @@ impl ResidueIndex {
         if tokens.is_empty() {
             return None;
         }
-        #[allow(clippy::cast_precision_loss)]
-        let n = self.docs.len() as f64;
+        let n = float(self.docs.len());
         let avgdl = self.avgdl.max(1.0);
         let mut best: Option<GapCandidate> = None;
         for doc in &self.docs {
             let mut score = 0.0;
-            #[allow(clippy::cast_precision_loss)]
-            let len = doc.len as f64;
+            let len = float(doc.len);
             for token in &tokens {
                 let Some(&tf) = doc.term_freq.get(token) else {
                     continue;
@@ -275,8 +272,7 @@ impl ResidueIndex {
                 if df == 0 {
                     continue;
                 }
-                #[allow(clippy::cast_precision_loss)]
-                let df = df as f64;
+                let df = float(df);
                 let tf = f64::from(tf);
                 let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
                 let denom = tf + K1 * (1.0 - B + B * len / avgdl);

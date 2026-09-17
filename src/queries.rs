@@ -19,6 +19,7 @@ use crate::eval::{self, Query};
 use crate::grade::GradedRow;
 use crate::jsonl::{self, JsonlError, KeyOrder};
 use crate::manifest::{self, Manifest};
+use crate::num::float;
 use crate::text::sha256_hex;
 
 pub use crate::config::DEFAULT_HOLDOUT_MIN;
@@ -143,12 +144,11 @@ impl CheckReport {
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
 fn share(count: usize, total: usize) -> f64 {
     if total == 0 {
         0.0
     } else {
-        count as f64 / total as f64
+        float(count) / float(total)
     }
 }
 

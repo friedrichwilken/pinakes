@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::{Backend, BackendConfig, BackendError, Bm25Backend, DenseBackend};
 use crate::index::Hit;
-use crate::index::bm25::float;
+use crate::num::float;
 
 /// `k` in the reciprocal rank fusion formula (SPEC §16.3).
 pub const RRF_K: f64 = 60.0;
