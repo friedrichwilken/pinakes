@@ -95,3 +95,53 @@ fn compare_prints_one_table_per_backend_and_one_combined_json() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).contains("unknown backend"));
 }
+
+/// `--compare a,b --gate BASELINE`: a failing gate on either backend exits 2, same as the
+/// tagged single-backend path (`eval_cli.rs::eval_backend_bm25_gate_passes_and_fails`).
+#[test]
+fn compare_gate_failure_exits_2() {
+    let dir = workspace();
+    let root = dir.path();
+
+    let out = pinakes(
+        root,
+        &[
+            "eval",
+            "--queries",
+            "queries.jsonl",
+            "--backend",
+            "bm25",
+            "--json",
+            "baseline.json",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    fs::write(
+        root.join("queries.jsonl"),
+        "{\"id\": \"q\", \"kind\": \"howto\", \"query\": \"nothing here\", \
+         \"expected\": [\"handbook/docs/user\"]}\n",
+    )
+    .unwrap();
+    let out = pinakes(
+        root,
+        &[
+            "eval",
+            "--queries",
+            "queries.jsonl",
+            "--compare",
+            "bm25,bm25-tantivy",
+            "--gate",
+            "baseline.json",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("gate [bm25]:"), "{stderr}");
+    assert!(stderr.contains("gate [bm25-tantivy]:"), "{stderr}");
+    assert!(stderr.contains("FAILED"), "{stderr}");
+}
