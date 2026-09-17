@@ -107,69 +107,6 @@ impl Rule {
         }
     }
 
-    /// A `vitepress` sidebar links other pages but not this one.
-    pub fn sidebar_unlinked(nav_file: &str) -> Rule {
-        Rule::new("sidebar:unlinked", format!("not linked from `{nav_file}`"))
-    }
-
-    /// A `docusaurus` sidebar links other pages but not this one.
-    pub fn docusaurus_unlinked(nav_file: &str) -> Rule {
-        Rule::new(
-            "docusaurus:unlinked",
-            format!("not linked from `{nav_file}`"),
-        )
-    }
-
-    /// An `mdbook` `SUMMARY.md` links other pages but not this one.
-    pub fn mdbook_unlinked(nav_file: &str) -> Rule {
-        Rule::new("mdbook:unlinked", format!("not linked from `{nav_file}`"))
-    }
-
-    /// A sitemap lists other pages but not this one.
-    pub fn sitemap_unlisted(nav_file: &str) -> Rule {
-        Rule::new("sitemap:unlisted", format!("not listed in `{nav_file}`"))
-    }
-
-    /// A `glob` resolver's `include` (or `residue_scope`) matched, but the file's extension is
-    /// not one of the configured ones (SPEC §2.1).
-    pub fn glob_extension(extensions: &[String]) -> Rule {
-        let list = if extensions.is_empty() {
-            "none configured".to_string()
-        } else {
-            extensions.join(", ")
-        };
-        Rule::new(
-            "glob:extension",
-            format!("not one of the configured extensions ({list})"),
-        )
-    }
-
-    /// A `glob` resolver's `residue_scope` matched, but `include` did not.
-    pub fn glob_outside_include() -> Rule {
-        Rule::new(
-            "glob:outside-include",
-            "outside the configured include patterns".to_string(),
-        )
-    }
-
-    /// The external resolver command (SPEC §3) reported this candidate with `selected: false`,
-    /// and did not supply its own `rule`.
-    pub fn external_not_selected() -> Rule {
-        Rule::new(
-            "external:not-selected",
-            "the resolver command reported it unselected".to_string(),
-        )
-    }
-
-    /// A file inside the external resolver's `residue_scope` (SPEC §3) that its command's
-    /// output never mentioned at all, selected or not.
-    pub fn external_unmatched() -> Rule {
-        Rule::new(
-            "external:unmatched",
-            "outside the paths the resolver command's output covers".to_string(),
-        )
-    }
-
     /// A navigation file links a page that does not exist in the checkout (residue reason
     /// [`Reason::UnresolvedLink`]).
     pub fn nav_dangling_link(nav_file: &str) -> Rule {
@@ -550,20 +487,6 @@ mod tests {
     fn every_rule_constructor_names_a_stable_key_and_sentence() {
         let cases: Vec<(Rule, &str)> = vec![
             (
-                Rule::sidebar_unlinked("docs/.vitepress/config.ts"),
-                "sidebar:unlinked",
-            ),
-            (
-                Rule::docusaurus_unlinked("sidebars.js"),
-                "docusaurus:unlinked",
-            ),
-            (Rule::mdbook_unlinked("src/SUMMARY.md"), "mdbook:unlinked"),
-            (Rule::sitemap_unlisted("sitemap.xml"), "sitemap:unlisted"),
-            (Rule::glob_extension(&["md".to_string()]), "glob:extension"),
-            (Rule::glob_outside_include(), "glob:outside-include"),
-            (Rule::external_not_selected(), "external:not-selected"),
-            (Rule::external_unmatched(), "external:unmatched"),
-            (
                 Rule::nav_dangling_link("src/SUMMARY.md"),
                 "nav:dangling-link",
             ),
@@ -594,6 +517,5 @@ mod tests {
                 .text
                 .contains("no reason given")
         );
-        assert!(Rule::glob_extension(&[]).text.contains("none configured"));
     }
 }

@@ -617,7 +617,10 @@ mod tests {
         let rule = match reason {
             Reason::UnresolvedLink => crate::residue::Rule::nav_dangling_link("docs/_sidebar.md"),
             Reason::Excluded => crate::residue::Rule::policy_deny("**/CHANGELOG.md"),
-            Reason::NotSelected | Reason::NewSource => crate::residue::Rule::glob_outside_include(),
+            Reason::NotSelected | Reason::NewSource => crate::residue::Rule {
+                key: "glob:outside-include".to_string(),
+                text: "outside the configured include patterns".to_string(),
+            },
         };
         ResidueEntry {
             id: id.to_string(),

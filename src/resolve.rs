@@ -17,7 +17,6 @@ use thiserror::Error;
 
 use crate::config::{self, ConfigError, Source, compile_globs};
 use crate::manifest::SelectedBy;
-use crate::residue::Rule;
 use crate::sources::{Checkout, SourceError};
 pub use crate::text::{first_h1, frontmatter_title, sha256_hex, strip_frontmatter, title_of};
 
@@ -94,6 +93,25 @@ pub enum ResolveError {
     },
 }
 
+/// The mechanism behind a residue entry (SPEC §2.4): a short, stable key plus a one-sentence
+/// explanation for a human. This is `resolve`'s own name for the shape; `select` (which depends
+/// on both `resolve` and the residue module) turns it into the residue module's `Rule` at the
+/// point it builds the residue entry, since `resolve` itself does not depend on it.
+///
+/// `serde(rename = "Rule")` and `serde(expecting = "struct Rule")` together keep this struct's
+/// deserialisation error text (e.g. "expected struct Rule") identical to what it was when the
+/// external resolver's self-reported `rule` field (SPEC §3) deserialised directly into the
+/// residue module's `Rule`; `rename` alone is not enough, since serde's derived `expecting()`
+/// text for a JSON "invalid type" error is built from the Rust struct name, not the serde name.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename = "Rule", expecting = "struct Rule")]
+pub struct Mechanism {
+    /// A short, stable identifier, e.g. `"policy:deny"`.
+    pub key: String,
+    /// One sentence explaining the decision.
+    pub text: String,
+}
+
 /// One candidate page as emitted by a resolver (the SPEC §3 line).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Candidate {
@@ -116,10 +134,10 @@ pub struct Candidate {
     pub context: String,
     /// The mechanism the external resolver command itself wants recorded for an unselected
     /// candidate (SPEC §3), e.g. `{"key": "toc:outside-match", "text": "…"}`; when absent,
-    /// pinakes assigns [`crate::residue::Rule::external_not_selected`] or
-    /// [`crate::residue::Rule::external_unmatched`] instead. Ignored for a selected candidate.
+    /// pinakes assigns a default "not selected" or "unmatched" mechanism instead (see the
+    /// `external` resolver's `not_selected`). Ignored for a selected candidate.
     #[serde(default)]
-    pub rule: Option<Rule>,
+    pub rule: Option<Mechanism>,
 }
 
 fn default_true() -> bool {
@@ -168,7 +186,8 @@ pub(crate) struct Plan<'a> {
     /// mentioned at all.
     pub(crate) mentioned: BTreeSet<String>,
     /// The resolver mechanism itself, for `select` to ask for its `selected_by`, its `exclude`
-    /// patterns and, for a candidate it did not select, the [`Rule`] behind that (SPEC §2.4).
+    /// patterns and, for a candidate it did not select, the [`Mechanism`] behind that (SPEC
+    /// §2.4).
     pub(crate) resolver: Box<dyn Resolver + 'a>,
 }
 
@@ -227,8 +246,8 @@ pub(crate) trait Resolver {
         files: &[String],
         config_dir: &Path,
     ) -> Result<Discovery, ResolveError>;
-    /// The rule (SPEC §2.4) for a candidate this resolver's own mechanism did not select.
-    fn not_selected(&self, path: &str, candidate: &Candidate, plan: &Plan<'_>) -> Rule;
+    /// The mechanism (SPEC §2.4) for a candidate this resolver's own mechanism did not select.
+    fn not_selected(&self, path: &str, candidate: &Candidate, plan: &Plan<'_>) -> Mechanism;
 }
 
 /// Build the [`Resolver`] implementation for `source`'s resolver kind: the only `match` on
@@ -366,4 +385,40 @@ pub(crate) fn plan<'a>(
         mentioned,
         resolver,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // These two strings are what `origin/main` (before `Mechanism` existed, when
+    // `Candidate.rule` deserialised straight into the residue module's `Rule`) produces for the
+    // same malformed `rule` field on an external resolver's self-reported candidate line (SPEC
+    // §3); pinned here so `Mechanism`'s serde attributes keep deserialising a malformed `rule`
+    // byte-identical.
+    #[test]
+    fn malformed_candidate_rule_error_text_is_unchanged_by_the_rename() {
+        let not_an_object = r#"{"path":"a.md","rule":"nope"}"#;
+        let err = serde_json::from_str::<Candidate>(not_an_object).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "invalid type: string \"nope\", expected struct Rule at line 1 column 28"
+        );
+
+        let missing_text = r#"{"path":"a.md","rule":{"key":"x"}}"#;
+        let err = serde_json::from_str::<Candidate>(missing_text).unwrap_err();
+        assert_eq!(err.to_string(), "missing field `text` at line 1 column 33");
+
+        // An external resolver's self-reported rule (SPEC §3) is used verbatim, with an unknown
+        // extra field silently ignored, as it always has been (no `deny_unknown_fields`).
+        let extra_field = r#"{"path":"a.md","rule":{"key":"x","text":"y","extra":1}}"#;
+        let candidate = serde_json::from_str::<Candidate>(extra_field).unwrap();
+        assert_eq!(
+            candidate.rule,
+            Some(Mechanism {
+                key: "x".to_string(),
+                text: "y".to_string(),
+            })
+        );
+    }
 }
