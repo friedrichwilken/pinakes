@@ -1,0 +1,232 @@
+{
+  "generated_at": "2026-09-16T12:00:00Z",
+  "sources": {
+    "a": {
+      "archived": false,
+      "commit": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "pages": {
+        "docs/intro.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "93d97be1beb105c3f802162ab093ff506e54fad52b3017834e6df5aa98696f20",
+          "title": "Introduction"
+        },
+        "docs/license.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "8a874b2af7fcc0955a486158b0e6d0a62453e612dc92f0555bddab4ab2686374",
+          "title": "License terms"
+        },
+        "docs/notifications.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "c9f328be122eff0ee455ab4f6d34d7244dc959a9d8a49e75a4c1eeebbcd6ed32",
+          "title": "Email notifications"
+        },
+        "docs/setup.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "e2c6c530011fb719c6d07759baa66629e19abe80a68f17a191df6dd2de36cbe1",
+          "title": "Setup guide"
+        },
+        "notes/keep.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "decision",
+          "sha256": "e82ce68b018e30beb616dc831db62f9fce72fd1b66454ec4c13b000afb4cd17e",
+          "title": "Keep"
+        }
+      },
+      "ref": "main",
+      "repo": "acme/a",
+      "repo_url": "https://github.com/acme/a.git",
+      "residue": [
+        "README.md",
+        "notes/draft.md",
+        "notes/stale.md",
+        "docs/CHANGELOG.md",
+        "docs/_sidebar.md"
+      ],
+      "resolver": "glob",
+      "unrendered": [],
+      "unresolved": []
+    },
+    "a-b": {
+      "archived": false,
+      "commit": "abababababababababababababababababababab",
+      "pages": {
+        "docs/license.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "8a874b2af7fcc0955a486158b0e6d0a62453e612dc92f0555bddab4ab2686374",
+          "title": "License terms"
+        },
+        "docs/notifications.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "c94033c6c29cdb3248b2fec2acbf7422f1f74f3e7e119803a0a05f6979c6528a",
+          "title": "Sending email"
+        },
+        "docs/zebra.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "57540ee386b78623e7a9c94992ff854c9761a385e1df6ad2d05885d66fdb272e",
+          "title": "Zebra"
+        }
+      },
+      "ref": "main",
+      "repo": "acme/a-b",
+      "repo_url": "https://github.com/acme/a-b.git",
+      "residue": [
+        "extra.md"
+      ],
+      "resolver": "glob",
+      "unrendered": [],
+      "unresolved": []
+    },
+    "book": {
+      "archived": false,
+      "commit": "b00cb00cb00cb00cb00cb00cb00cb00cb00cb00c",
+      "pages": {
+        "src/guide/setup.md": {
+          "doc_type": "tutorial",
+          "section": "Guides",
+          "selected_by": "resolver",
+          "sha256": "35f83509ee5432a2a7738e6619400dd1622f3973ac6a45a5ca0584c524e07728",
+          "title": "Setup guide"
+        },
+        "src/intro.md": {
+          "doc_type": "concept",
+          "section": "",
+          "selected_by": "resolver",
+          "sha256": "43c0d19fa1d12bfc61ff6a442fd2f68831691ffc8a251701c07c8945875580f1",
+          "title": "Introduction"
+        }
+      },
+      "ref": "main",
+      "repo": "acme/book",
+      "repo_url": "https://github.com/acme/book.git",
+      "residue": [
+        "src/SUMMARY.md",
+        "src/orphan.md"
+      ],
+      "resolver": "mdbook",
+      "unrendered": [],
+      "unresolved": [
+        "src/guide/missing.md"
+      ]
+    },
+    "crds": {
+      "archived": false,
+      "commit": "c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5",
+      "pages": {
+        "reference/messaging.example.com/subscription-v1.md": {
+          "doc_type": "reference",
+          "rendered_from": "config/crd/bases/subscriptions.yaml",
+          "section": "messaging.example.com",
+          "selected_by": "include",
+          "sha256": "2eae38ac5ce2d702bdb634043afdd4127288da92a8fe4d3208cd41578168b97f",
+          "title": "Subscription (messaging.example.com/v1)"
+        },
+        "reference/messaging.example.com/subscription-v1alpha1.md": {
+          "doc_type": "reference",
+          "rendered_from": "config/crd/bases/subscriptions.yaml",
+          "section": "messaging.example.com",
+          "selected_by": "include",
+          "sha256": "6eb37360bee9b1a26fcc12334c98824a681db98cfb715cf62105802865e8855a",
+          "title": "Subscription (messaging.example.com/v1alpha1)"
+        }
+      },
+      "ref": "main",
+      "render": {
+        "type": "openapi"
+      },
+      "repo": "acme/crds",
+      "repo_url": "https://github.com/acme/crds.git",
+      "residue": [],
+      "resolver": "glob",
+      "unrendered": [
+        "config/crd/bases/not-a-crd.yaml"
+      ],
+      "unresolved": []
+    },
+    "ext": {
+      "archived": null,
+      "commit": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+      "pages": {
+        "docs/a.md": {
+          "doc_type": "concept",
+          "section": "Top",
+          "selected_by": "resolver",
+          "sha256": "544b3ef4430c82a2b30f194f8321dd5003e69886d951b85152d84966e10e47b1",
+          "title": "Nav A"
+        },
+        "docs/questions.md": {
+          "doc_type": "",
+          "section": "Top",
+          "selected_by": "resolver",
+          "sha256": "4e3c42d2f64f1a4a363b78451b4806b0ee5f33691d8ca3a98ce42625a66f0c7f",
+          "title": "Questions"
+        },
+        "extra/faq.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "4e3c42d2f64f1a4a363b78451b4806b0ee5f33691d8ca3a98ce42625a66f0c7f",
+          "title": "Questions"
+        }
+      },
+      "ref": "v1.0.0",
+      "repo": "acme/ext",
+      "repo_url": "https://github.com/acme/ext.git",
+      "residue": [
+        "docs/b.md",
+        "docs/c.md",
+        "docs/d.md",
+        "docs/internal.md"
+      ],
+      "resolver": "external",
+      "unrendered": [],
+      "unresolved": [
+        "docs/ghost.md"
+      ]
+    },
+    "fresh": {
+      "archived": false,
+      "commit": "f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5",
+      "pages": {
+        "docs/new.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "f94e155ed5aed65aa5bac9889f2056e3a81608b78f6ff69cb6ae787cc55cdb7c",
+          "title": "New page"
+        },
+        "docs/zebra.md": {
+          "doc_type": "",
+          "section": "",
+          "selected_by": "include",
+          "sha256": "57540ee386b78623e7a9c94992ff854c9761a385e1df6ad2d05885d66fdb272e",
+          "title": "Zebra"
+        }
+      },
+      "ref": "main",
+      "repo": "acme/fresh",
+      "repo_url": "https://github.com/acme/fresh.git",
+      "residue": [
+        "README.md"
+      ],
+      "resolver": "glob",
+      "unrendered": [],
+      "unresolved": []
+    }
+  },
+  "version": 1
+}
