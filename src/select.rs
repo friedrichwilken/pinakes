@@ -3,6 +3,8 @@
 //! becomes residue (SPEC §2.4).
 //!
 //! Precedence for a file: `policy.deny` > `resolver.exclude` > decisions > resolver selection.
+//! `resolver.exclude` and the rule behind a not-selected candidate come from the resolver kind's
+//! own mechanism (`crate::resolve`'s crate-private `Resolver` trait), not from a `match` here.
 
 use std::collections::BTreeMap;
 use std::path::Path;
