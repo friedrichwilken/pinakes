@@ -52,3 +52,4 @@ pub mod text;
 pub mod tokenizer;
 pub mod trail;
 pub mod usage;
+pub mod workspace;
