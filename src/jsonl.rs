@@ -63,7 +63,7 @@ pub struct LineError {
 
 impl LineError {
     /// Attach the file the text came from.
-    pub fn at(self, path: &Path) -> JsonlError {
+    pub(crate) fn at(self, path: &Path) -> JsonlError {
         JsonlError::Json {
             path: path.to_path_buf(),
             line: self.line,
