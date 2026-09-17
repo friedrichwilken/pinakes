@@ -2,16 +2,51 @@
 //! `link` and nested `items`, in a full `.vitepress/config.*` or a standalone sidebar file.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use globset::GlobSet;
 
 use super::navigation::{self, JsValue, LinkTarget, NavEntry};
-use super::{Candidate, ResolveError, read_file};
+use super::{Candidate, Discovery, Plan, ResolveError, Resolver, read_file};
 use crate::config::{Source, compile_globs};
+use crate::residue::Rule;
 use crate::sources::Checkout;
 
 /// Default glob for the `VitePress` config file when `path` is not given.
 const DEFAULT_CONFIG_GLOB: &str = "docs/.vitepress/config.*";
+
+/// The `vitepress` resolver's own mechanism: a tolerant scan of a `VitePress` sidebar.
+pub(super) struct Vitepress<'a> {
+    pub(super) path: Option<&'a str>,
+    pub(super) scope: &'a [String],
+    pub(super) include: &'a [String],
+    pub(super) exclude: &'a [String],
+}
+
+impl Resolver for Vitepress<'_> {
+    fn exclude(&self) -> &[String] {
+        self.exclude
+    }
+
+    fn extra_include(&self) -> &[String] {
+        self.include
+    }
+
+    fn discover(
+        &self,
+        source: &Source,
+        checkout: &Checkout,
+        files: &[String],
+        _config_dir: &Path,
+    ) -> Result<Discovery, ResolveError> {
+        let (found, nav_scope, nav_path) = plan(source, checkout, files, self.path, self.scope)?;
+        Discovery::navigation(found, nav_scope, nav_path, self.exclude)
+    }
+
+    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Rule {
+        Rule::sidebar_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+    }
+}
 
 /// Build the candidate map, residue scope and navigation file path for a `vitepress` source.
 pub(super) fn plan(

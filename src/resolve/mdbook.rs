@@ -2,18 +2,53 @@
 //! (`# Part`) become the section; chapters without a link (drafts) are skipped.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::OnceLock;
 
 use globset::GlobSet;
 use regex::Regex;
 
 use super::navigation::{self, LinkTarget};
-use super::{Candidate, ResolveError, read_file};
+use super::{Candidate, Discovery, Plan, ResolveError, Resolver, read_file};
 use crate::config::Source;
+use crate::residue::Rule;
 use crate::sources::Checkout;
 
 /// Default navigation file when `path` is not given.
 const DEFAULT_PATH: &str = "src/SUMMARY.md";
+
+/// The `mdbook` resolver's own mechanism: the nested link list in `src/SUMMARY.md`.
+pub(super) struct Mdbook<'a> {
+    pub(super) path: Option<&'a str>,
+    pub(super) scope: &'a [String],
+    pub(super) include: &'a [String],
+    pub(super) exclude: &'a [String],
+}
+
+impl Resolver for Mdbook<'_> {
+    fn exclude(&self) -> &[String] {
+        self.exclude
+    }
+
+    fn extra_include(&self) -> &[String] {
+        self.include
+    }
+
+    fn discover(
+        &self,
+        source: &Source,
+        checkout: &Checkout,
+        files: &[String],
+        _config_dir: &Path,
+    ) -> Result<Discovery, ResolveError> {
+        let (found, nav_scope, nav_path) = plan(source, checkout, files, self.path, self.scope)?;
+        Discovery::navigation(found, nav_scope, nav_path, self.exclude)
+    }
+
+    fn not_selected(&self, _path: &str, _candidate: &Candidate, plan: &Plan<'_>) -> Rule {
+        Rule::mdbook_unlinked(plan.nav_path.as_deref().unwrap_or_default())
+    }
+}
 
 /// Build the candidate map, residue scope and navigation file path for an `mdbook` source.
 pub(super) fn plan(
