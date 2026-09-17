@@ -13,6 +13,7 @@ use tantivy::{DocAddress, DocSet, IndexWriter, Searcher, TERMINATED, Term};
 use super::IndexError;
 use super::sections::{index_text, split_sections};
 use crate::corpus::{Page, Priorities, load_pages, mark_mirrors};
+use crate::num::float;
 use crate::tokenizer::{PinakesTokenizer, TOKENIZER_NAME, title_key, tokenize};
 
 /// Weight of the page title in a unit.
@@ -155,11 +156,6 @@ impl Stats {
         let sum: f64 = self.df.values().map(|&df| raw_idf(self.units, df)).sum();
         sum / float(self.df.len())
     }
-}
-
-#[allow(clippy::cast_precision_loss)]
-pub(crate) fn float(n: usize) -> f64 {
-    n as f64
 }
 
 fn raw_idf(units: usize, df: usize) -> f64 {

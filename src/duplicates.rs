@@ -23,6 +23,7 @@ use thiserror::Error;
 use crate::index::{self, Page};
 use crate::jsonl::{self, JsonlError, KeyOrder};
 use crate::manifest::SelectedBy;
+use crate::num::float;
 use crate::page::PageRegistry;
 
 /// Tokens per shingle (SPEC §11).
@@ -235,10 +236,7 @@ fn jaccard(a: &HashSet<u64>, b: &HashSet<u64>) -> f64 {
     if union == 0 {
         0.0
     } else {
-        #[allow(clippy::cast_precision_loss)] // shingle counts never approach 2^53
-        {
-            intersection as f64 / union as f64
-        }
+        float(intersection) / float(union)
     }
 }
 
