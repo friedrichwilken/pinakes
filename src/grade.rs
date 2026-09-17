@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::index::{Hit, Index, IndexError};
+use crate::jsonl::{self, KeyOrder};
 use crate::llm::{self, ChatError, ChatTransport, LlmConfig};
 use crate::residue;
 use crate::trail::TrailEntry;
@@ -60,12 +61,7 @@ pub struct GradedRow {
 
 /// Serialise rows as JSONL with sorted keys, one object per line.
 pub fn to_jsonl(rows: &[GradedRow]) -> Result<String, serde_json::Error> {
-    let mut out = String::new();
-    for row in rows {
-        out.push_str(&serde_json::to_string(&serde_json::to_value(row)?)?);
-        out.push('\n');
-    }
-    Ok(out)
+    jsonl::to_string(rows, KeyOrder::Sorted)
 }
 
 /// Distinct `query` values from a trail, in first-occurrence order.

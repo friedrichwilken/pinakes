@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::jsonl;
 use crate::manifest::split_page_id;
 
 /// Errors raised while reading `trail.jsonl`.
@@ -133,15 +134,11 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<TrailEntry>, TrailError> {
         source,
     })?;
     let mut entries = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let line_no = index + 1;
-        let entry: TrailEntry = serde_json::from_str(line).map_err(|source| TrailError::Json {
+    for parsed in jsonl::parse_lines::<TrailEntry>(&text) {
+        let (line_no, entry) = parsed.map_err(|err| TrailError::Json {
             path: path.to_path_buf(),
-            line: line_no,
-            source,
+            line: err.line,
+            source: err.source,
         })?;
         check_ids(path, line_no, "retrieved", &entry.retrieved)?;
         check_ids(path, line_no, "cited", &entry.cited)?;

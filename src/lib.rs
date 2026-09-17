@@ -13,9 +13,10 @@
 //! [`grade`] uses the judge (via [`llm`]) to grade what it retrieved, and [`usage`] turns a
 //! trail into pages-never-used and gap statistics.
 //!
-//! Two leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
-//! (content hashing, front matter, titles, path helpers) and [`layout`] (the artifact's file and
-//! directory names).
+//! Three leaf modules depend on nothing else in the crate and may be used from anywhere: [`text`]
+//! (content hashing, front matter, titles, path helpers), [`layout`] (the artifact's file and
+//! directory names) and [`jsonl`] (reading, writing and appending JSON Lines files with
+//! line-numbered errors).
 
 pub mod artifact;
 pub mod backend;
@@ -29,6 +30,7 @@ pub mod embed;
 pub mod eval;
 pub mod grade;
 pub mod index;
+pub mod jsonl;
 pub mod layout;
 pub mod llm;
 pub mod manifest;

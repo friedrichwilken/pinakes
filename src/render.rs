@@ -21,6 +21,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use crate::config::Render;
+use crate::jsonl;
 use crate::manifest::PageEntry;
 use crate::sources::Checkout;
 use crate::text::{absolutise, sha256_hex};
@@ -273,20 +274,16 @@ fn run_external(
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut generated = Vec::new();
-    for (index, line) in stdout.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let parsed: GeneratedLine =
-            serde_json::from_str(line).map_err(|e| RenderError::Output {
-                name: name.to_string(),
-                line: index + 1,
-                message: e.to_string(),
-            })?;
+    for parsed in jsonl::parse_lines::<GeneratedLine>(&stdout) {
+        let (line, parsed) = parsed.map_err(|err| RenderError::Output {
+            name: name.to_string(),
+            line: err.line,
+            message: err.source.to_string(),
+        })?;
         if parsed.path.trim().is_empty() || parsed.source_path.trim().is_empty() {
             return Err(RenderError::Output {
                 name: name.to_string(),
-                line: index + 1,
+                line,
                 message: "path and source_path must not be empty".to_string(),
             });
         }
