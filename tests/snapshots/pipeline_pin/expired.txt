@@ -1,0 +1,3 @@
+a::notes/stale.md current=Some("0469d059cedaaf1e80326de08927a280dd2afe7eec5be267f79b503a301989f1")
+a::notes/vanished.md current=None
+ext::docs/ghost.md current=Some("")
