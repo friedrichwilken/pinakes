@@ -10,12 +10,12 @@ use thiserror::Error;
 
 use crate::artifact::{self, ArtifactError, MANIFEST_FILE, Problem};
 use crate::backend::{self, Backend, BackendConfig, BackendError, BackendKind};
-use crate::classify::{self, ClassifyError, DuplicateLookup, PageFacts};
+use crate::classify::{self, ClassifyError};
 use crate::config::{ArchivedPolicy, Config, ConfigError, RepoSlug};
 use crate::corpus::CorpusError;
 use crate::decisions::{self, Decision, DecisionError, Expired, Verdict};
 use crate::diff::{self, Diff};
-use crate::duplicates::{self, DuplicateContext, DuplicatePair, DuplicatesError};
+use crate::duplicates::{self, DuplicatePair, DuplicatesError};
 use crate::embed::{self, EmbedError, Embedder};
 use crate::eval::{self, Delta, EvalError, EvalSummary, Gate};
 use crate::grade::{self, GradeError, GradedRow};
@@ -25,7 +25,7 @@ use crate::llm::{ChatError, ChatTransport, LlmConfig};
 use crate::manifest::{
     Manifest, ManifestError, ManifestSource, PageEntry, SelectedBy, now_rfc3339, split_page_id,
 };
-use crate::page::PageRegistry;
+use crate::page::{PageRecord, PageRegistry, PageStatus};
 use crate::queries::{self, CheckReport, GradedQuery, NewQuery, QueriesError};
 use crate::render::{self, RenderError};
 use crate::report::{self, ReportInput};
@@ -341,9 +341,9 @@ fn resolve_fresh(
         checkouts.insert(source.name.clone(), checkout);
     }
 
-    let registry = PageRegistry::from_resolve(&manifest, &all_residue);
+    let mut registry = PageRegistry::from_resolve(&manifest, &all_residue);
     let expired = decisions::expired(&effective, |id| registry.get(id).map(|r| r.sha256.clone()));
-    let duplicates = write_outputs(paths, &manifest, &registry, &checkouts)?;
+    let duplicates = write_outputs(paths, &manifest, &mut registry, &checkouts)?;
     Ok(ResolveOutcome {
         manifest,
         residue: all_residue,
@@ -389,8 +389,8 @@ fn reproduce(
         all_residue.extend(recorded_residue(name, source, &checkout)?);
         checkouts.insert(name.clone(), checkout);
     }
-    let registry = PageRegistry::from_resolve(&manifest, &all_residue);
-    let duplicates = write_outputs(paths, &manifest, &registry, &checkouts)?;
+    let mut registry = PageRegistry::from_resolve(&manifest, &all_residue);
+    let duplicates = write_outputs(paths, &manifest, &mut registry, &checkouts)?;
     Ok(ResolveOutcome {
         manifest,
         residue: all_residue,
@@ -475,36 +475,40 @@ fn recorded_residue(
 fn write_outputs(
     paths: &Paths,
     manifest: &Manifest,
-    registry: &PageRegistry,
+    registry: &mut PageRegistry,
     checkouts: &BTreeMap<String, Checkout>,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     artifact::materialise(&paths.artifact, manifest, checkouts)?;
     manifest.save(&paths.manifest)?;
     residue::write_jsonl(&paths.residue, &registry.residue_entries())?;
-    let pairs = compute_duplicates(paths, Some(manifest), duplicates::DEFAULT_THRESHOLD)?;
+    let pairs = compute_duplicates(
+        paths,
+        Some(manifest),
+        registry,
+        duplicates::DEFAULT_THRESHOLD,
+    )?;
     duplicates::write_jsonl(&paths.duplicates, &pairs)?;
     Ok(pairs)
 }
 
-/// The sha256 of a page's original bytes: from the manifest when it has an entry for `id`,
-/// otherwise read straight from the artifact (a manifest-less artifact, or a page the manifest
-/// does not know about).
-fn sha256_of_page(paths: &Paths, manifest: Option<&Manifest>, id: &str) -> Option<String> {
-    if let Some(entry) = manifest.and_then(|m| m.page(id)) {
-        return Some(entry.sha256.clone());
-    }
+/// A page's raw bytes, read from `<artifact>/<source>/<path>`; `None` for a malformed id or a
+/// missing or unreadable file.
+fn artifact_page_bytes(artifact: &Path, id: &str) -> Option<Vec<u8>> {
     let (source, path) = split_page_id(id)?;
-    let bytes = std::fs::read(paths.artifact.join(source).join(path)).ok()?;
-    Some(sha256_hex(&bytes))
+    std::fs::read(artifact.join(source).join(path)).ok()
 }
 
 /// Find duplicate pairs in the artifact at `paths.artifact` (SPEC §11). `manifest`, when given,
 /// supplies exact `sha256`, `selected_by` and page urls for the winner rule and the reported
-/// pairs; without one (a manifest-less artifact) exact duplicates still work from the file
-/// bytes, and the winner rule falls back to source priority alone.
+/// pairs, through `registry`'s corpus records. A loaded page the registry does not already have
+/// a corpus record for (a manifest-less artifact, or a page the manifest does not know about) is
+/// added to `registry` as an artifact-only record, with its sha256 read from the file and its
+/// url from the manifest when one is given; the winner rule then falls back to source priority
+/// alone for it, since it has no `selected_by`.
 fn compute_duplicates(
     paths: &Paths,
     manifest: Option<&Manifest>,
+    registry: &mut PageRegistry,
     threshold: f64,
 ) -> Result<Vec<DuplicatePair>, CommandError> {
     let priorities = if paths.config.is_file() {
@@ -513,20 +517,24 @@ fn compute_duplicates(
         Priorities::default()
     };
     let pages = index::load_pages(&paths.artifact, &priorities)?;
-    let sha256 = |id: &str| sha256_of_page(paths, manifest, id);
-    let selected_by = |id: &str| manifest.and_then(|m| m.page(id)).map(|p| p.selected_by);
-    let context = DuplicateContext {
-        sha256: &sha256,
-        selected_by: &selected_by,
-    };
-    let mut pairs = duplicates::find_duplicates(&pages, &context, threshold);
-    if let Some(manifest) = manifest {
-        for pair in &mut pairs {
-            pair.canonical_url = manifest.page_url(&pair.canonical).unwrap_or_default();
-            pair.duplicate_url = manifest.page_url(&pair.duplicate).unwrap_or_default();
+    for page in &pages {
+        if registry.corpus_page(&page.id).is_some() {
+            continue;
         }
+        let Some(bytes) = artifact_page_bytes(&paths.artifact, &page.id) else {
+            continue;
+        };
+        let url = manifest
+            .and_then(|m| m.page_url(&page.id))
+            .unwrap_or_default();
+        let _ = registry.insert_artifact_only(PageRecord::artifact_only(
+            &page.source,
+            &page.path,
+            sha256_hex(&bytes),
+            url,
+        ));
     }
-    Ok(pairs)
+    Ok(duplicates::find_duplicates(&pages, registry, threshold))
 }
 
 /// Options for `duplicates`.
@@ -559,7 +567,9 @@ pub fn duplicates(
     } else {
         None
     };
-    let pairs = compute_duplicates(paths, manifest.as_ref(), options.threshold)?;
+    // No residue: a malformed `residue.jsonl` must not be able to break `duplicates`.
+    let mut registry = PageRegistry::load(manifest.as_ref(), &[]);
+    let pairs = compute_duplicates(paths, manifest.as_ref(), &mut registry, options.threshold)?;
     if let Some(path) = &options.json {
         duplicates::write_jsonl(path, &pairs)?;
     }
@@ -832,11 +842,12 @@ pub fn report(
             diff(old, &new, &diff_options, fetcher)
         })
         .transpose()?;
+    let registry = PageRegistry::load(Some(&new), &residue);
     Ok(report::render(ReportInput {
         old: old.as_ref(),
         new: &new,
         diff: computed_diff.as_ref(),
-        residue: &residue,
+        registry: &registry,
         decisions: &decisions,
         eval_before: eval_before.as_ref(),
         eval_after: eval_after.as_ref(),
@@ -1055,21 +1066,6 @@ pub struct ClassifyOutcome {
     pub written: bool,
 }
 
-/// The title, an excerpt and the `sha256` of a manifest page read from the artifact, for a
-/// near-duplicate candidate that is not in `residue.jsonl`.
-fn read_manifest_page(artifact: &Path, manifest: Option<&Manifest>, id: &str) -> Option<PageFacts> {
-    let entry = manifest?.page(id)?;
-    let (source, path) = split_page_id(id)?;
-    let bytes = std::fs::read(artifact.join(source).join(path)).ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-    let excerpt = residue::excerpt(strip_frontmatter(&text), residue::EXCERPT_TOKENS);
-    Some(PageFacts {
-        title: entry.title.clone(),
-        excerpt,
-        sha256: entry.sha256.clone(),
-    })
-}
-
 /// Run `classify`: send undecided residue and near-duplicate candidates to the model in
 /// batches and write (or, with `--dry-run`, print) the resulting decisions (SPEC §14.2).
 pub fn classify(
@@ -1090,9 +1086,25 @@ pub fn classify(
     } else {
         None
     };
-    let page_lookup = |id: &str| read_manifest_page(&paths.artifact, manifest.as_ref(), id);
-    let lookup = DuplicateLookup { page: &page_lookup };
-    let candidates = classify::candidates(&residue, &duplicate_pairs, &effective, &lookup);
+    let mut registry = PageRegistry::load(manifest.as_ref(), &residue);
+    // A near-duplicate candidate not already covered by residue needs an excerpt from the
+    // artifact, read here (once, eagerly) so `classify::candidates` stays pure.
+    for pair in &duplicate_pairs {
+        let id = &pair.duplicate;
+        let is_selected = registry
+            .corpus_page(id)
+            .is_some_and(|record| matches!(record.status, PageStatus::Selected { .. }));
+        if !is_selected {
+            continue;
+        }
+        let Some(bytes) = artifact_page_bytes(&paths.artifact, id) else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        let excerpt = residue::excerpt(strip_frontmatter(&text), residue::EXCERPT_TOKENS);
+        let _ = registry.set_excerpt(id, excerpt);
+    }
+    let candidates = classify::candidates(&registry, &duplicate_pairs, &effective);
     let batch = options.batch.unwrap_or(classify::DEFAULT_BATCH);
     let at = now_rfc3339();
     let outcome = classify::run(transport, &config, &candidates, batch, &at)?;
@@ -1693,6 +1705,8 @@ mod tests {
         let mut fetcher = fetcher();
         let fresh = resolve(&paths, &opts(), &fetcher).unwrap();
         assert_registry_matches_the_written_files(&paths, &fresh);
+        // The fixture's 4 files: docs/a.md and docs/b.md are selected; docs/_sidebar.md is
+        // residue (resolver:exclude) and docs/adr/1.md is residue (policy:deny).
         assert_eq!(fresh.registry.len(), 4);
         let excluded = fresh.registry.get("handbook::docs/adr/1.md").unwrap();
         assert!(excluded.is_excluded());
