@@ -15,6 +15,8 @@ use thiserror::Error;
 
 /// The only configuration version understood by this iteration.
 pub const CONFIG_VERSION: u32 = 1;
+/// Default minimum share of queries that must be held out (`eval.holdout_min`).
+pub const DEFAULT_HOLDOUT_MIN: f64 = 0.2;
 
 /// Errors raised while reading or validating `pinakes.yaml`.
 #[derive(Debug, Error)]
@@ -366,7 +368,7 @@ fn default_k() -> usize {
 }
 
 fn default_holdout_min() -> f64 {
-    crate::queries::DEFAULT_HOLDOUT_MIN
+    DEFAULT_HOLDOUT_MIN
 }
 
 /// `owner/repo` of a GitHub repository, derived from a source URL.
@@ -721,7 +723,7 @@ eval:
         assert_eq!(eval.k, 10);
         assert!((eval.max_recall_drop - 0.05).abs() < f64::EPSILON);
         assert!(
-            (eval.holdout_min - crate::queries::DEFAULT_HOLDOUT_MIN).abs() < f64::EPSILON,
+            (eval.holdout_min - DEFAULT_HOLDOUT_MIN).abs() < f64::EPSILON,
             "holdout_min defaults when the config omits it"
         );
     }
