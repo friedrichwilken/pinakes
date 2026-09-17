@@ -16,12 +16,17 @@
 //! - `ext`: an `external` resolver that selects an existing file and a missing one, reports a
 //!   `rule` of its own on one candidate, leaves one file unmentioned, and has `include` and
 //!   `exclude` globs of its own;
-//! - `crds`: a source rendered by the built-in `openapi` renderer, with an unrendered file;
 //! - `gone`: a repository reported as archived, under `policy.archived: drop`;
 //! - `fresh`: a source the previous manifest does not know, so its residue is `new_source`; it
 //!   also holds an exact duplicate of a page in `a-b`, which ties on priority and `selected_by`,
 //!   so that the winner rule is pinned down to its last criterion, the id (`ext` pins the
-//!   second one, `selected_by`, with a page it selects twice).
+//!   second one, `selected_by`, with a page it selects twice);
+//! - `crds`: a source rendered by the built-in `openapi` renderer, with an unrendered file; the
+//!   previous manifest does not know it either, so the report lists its rendered pages, with
+//!   their urls, as added.
+//!
+//! Last, one residue entry of the pinned workspace gets an empty `url`, as old `residue.jsonl`
+//! files have them, and the report is pinned once more: the entry must stay without a link.
 //!
 //! Everything is offline and deterministic: a [`FakeFetcher`] serves in-memory tarballs, the
 //! external resolver is a `sh` script written into the temp dir, and `generated_at` is fixed.
@@ -255,14 +260,6 @@ const SOURCES: &str = "\
 \x20     residue_mention: '(?i)storage'
 \x20     include: ['extra/*.md']
 \x20     exclude: ['docs/internal.md']
-\x20 - name: crds
-\x20   repo: https://github.com/acme/crds.git
-\x20   ref: main
-\x20   resolver:
-\x20     type: glob
-\x20     include: ['config/crd/bases/*.yaml']
-\x20   render:
-\x20     type: openapi
 \x20 - name: book
 \x20   repo: https://github.com/acme/book.git
 \x20   ref: main
@@ -271,7 +268,16 @@ const SOURCES: &str = "\
 \x20     type: mdbook
 ";
 
-const FRESH_SOURCE: &str = "\
+/// The sources only the second, pinned resolve has: the report lists their pages as added.
+const FRESH_SOURCES: &str = "\
+\x20 - name: crds
+\x20   repo: https://github.com/acme/crds.git
+\x20   ref: main
+\x20   resolver:
+\x20     type: glob
+\x20     include: ['config/crd/bases/*.yaml']
+\x20   render:
+\x20     type: openapi
 \x20 - name: fresh
 \x20   repo: https://github.com/acme/fresh.git
 \x20   ref: main
@@ -288,7 +294,7 @@ policy:
 ";
 
 fn config(with_fresh: bool) -> String {
-    let fresh = if with_fresh { FRESH_SOURCE } else { "" };
+    let fresh = if with_fresh { FRESH_SOURCES } else { "" };
     format!("version: 1\nsources:\n{SOURCES}{fresh}{POLICY}")
 }
 
@@ -397,7 +403,15 @@ impl Pins {
             fs::write(&path, actual).unwrap();
             return;
         }
-        let expected = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let expected = match fs::read_to_string(&path) {
+            Ok(expected) => expected,
+            Err(e) => {
+                self.failures.push(format!(
+                    "{name}: tests/snapshots/pipeline_pin/{name}: {e}\n"
+                ));
+                return;
+            }
+        };
         if expected == actual {
             return;
         }
@@ -493,7 +507,7 @@ fn pipeline_outputs_are_pinned_byte_for_byte() {
         generated_at: Some(GENERATED_AT.into()),
     };
 
-    // First resolve: an earlier state of the workspace (no `fresh` source, `a` at its older
+    // First resolve: an earlier state of the workspace (no `fresh` or `crds` source, `a` at its older
     // commit). It only exists to leave a previous manifest behind.
     fs::write(&config_path, config(false)).unwrap();
     resolve(&paths, &fresh_options, &fetcher(SHA_A_OLD)).unwrap();
@@ -548,6 +562,18 @@ fn pipeline_outputs_are_pinned_byte_for_byte() {
         &second_paths,
         &old_manifest,
         &fetcher,
+    );
+
+    // Last, so that no other pin sees it: a residue entry without a url, as old `residue.jsonl`
+    // files have them. Its source is in the manifest, but the report must not make up a link.
+    let residue = fs::read_to_string(&paths.residue).unwrap();
+    let with_url = format!("\"url\":\"https://github.com/acme/a/blob/{SHA_A}/README.md\"}}");
+    assert_eq!(residue.matches(&with_url).count(), 1);
+    assert!(outcome.manifest.sources.contains_key("a"));
+    fs::write(&paths.residue, residue.replace(&with_url, "\"url\":\"\"}")).unwrap();
+    pins.check(
+        "report_empty_url.md",
+        &report(&paths, &ReportOptions::default(), &fetcher).unwrap(),
     );
 
     pins.finish();

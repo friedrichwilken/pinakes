@@ -6,7 +6,7 @@
 - Pages: 17
 - Residue: 18 entries, 17 undecided
 - Decisions: 5
-- Changes since 2026-09-16T12:00:00Z: 4 added, 1 removed, 1 changed
+- Changes: no previous manifest to compare with
 
 ## Eval before/after
 
@@ -14,20 +14,60 @@ _No evaluation results supplied._
 
 ## Added pages
 
-- [Subscription (messaging.example.com/v1)](https://github.com/acme/crds/blob/c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5/reference/messaging.example.com/subscription-v1.md)
-- [Subscription (messaging.example.com/v1alpha1)](https://github.com/acme/crds/blob/c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5/reference/messaging.example.com/subscription-v1alpha1.md)
-- [New page](https://github.com/acme/fresh/blob/f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5/docs/new.md)
-- [Zebra](https://github.com/acme/fresh/blob/f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5/docs/zebra.md)
+_none_
 
 ## Removed pages
 
-- [Old page](https://github.com/acme/a/blob/a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0/docs/old.md) (gone upstream)
+_none_
 
 ## Changed pages
 
-- [Introduction](https://github.com/acme/a/blob/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1/docs/intro.md) (+2/-1) ([compare](https://github.com/acme/a/compare/a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0...a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1))
+_none_
 
 ## New residue
+
+### The table of contents lists the page outside the product branch.
+
+- [B](https://github.com/acme/ext/blob/e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1/docs/b.md)
+  - context: Top
+  > # B Left out by the resolver; mentions storage.
+
+### linked from `src/SUMMARY.md` but the file does not exist
+
+- [Missing chapter](https://github.com/acme/book/blob/b00cb00cb00cb00cb00cb00cb00cb00cb00cb00c/src/SUMMARY.md)
+  - context: Guides
+
+### not linked from `src/SUMMARY.md`
+
+- [Summary](https://github.com/acme/book/blob/b00cb00cb00cb00cb00cb00cb00cb00cb00cb00c/src/SUMMARY.md)
+  > # Summary [Introduction](intro.md) # Guides - [Setup guide](guide/setup.md) - [Missing chapter](guide/missing.md) - [Draft chapter]()
+- [Orphan](https://github.com/acme/book/blob/b00cb00cb00cb00cb00cb00cb00cb00cb00cb00c/src/orphan.md)
+  > No chapter links this page.
+
+### outside the configured include patterns
+
+- `a::README.md`
+  > # Repository A In scope, not selected.
+- [Stale](https://github.com/acme/a/blob/a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1/notes/stale.md)
+  > # Stale This note changed after somebody decided about it.
+- [Extra](https://github.com/acme/a-b/blob/abababababababababababababababababababab/extra.md)
+  > # Extra In scope, not selected.
+
+### outside the paths the resolver command's output covers
+
+- [D](https://github.com/acme/ext/blob/e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1/docs/d.md)
+  > # D Never mentioned by the resolver; mentions storage.
+
+### the resolver command reported a page that does not exist in the checkout
+
+- [Ghost](https://github.com/acme/ext/blob/e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1/docs/ghost.md)
+  - context: Top
+
+### the resolver command reported it unselected
+
+- [Nav C](https://github.com/acme/ext/blob/e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1/docs/c.md)
+  - context: Top > Left out
+  > # C Also left out; mentions storage too.
 
 ### the source appeared after the previous manifest, so nothing in it has been reviewed yet
 

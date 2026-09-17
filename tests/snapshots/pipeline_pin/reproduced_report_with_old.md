@@ -6,7 +6,7 @@
 - Pages: 17
 - Residue: 15 entries, 14 undecided
 - Decisions: 5
-- Changes since 2026-09-16T12:00:00Z: 2 added, 1 removed, 1 changed
+- Changes since 2026-09-16T12:00:00Z: 4 added, 1 removed, 1 changed
 
 ## Eval before/after
 
@@ -14,6 +14,8 @@ _No evaluation results supplied._
 
 ## Added pages
 
+- [Subscription (messaging.example.com/v1)](https://github.com/acme/crds/blob/c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5/reference/messaging.example.com/subscription-v1.md)
+- [Subscription (messaging.example.com/v1alpha1)](https://github.com/acme/crds/blob/c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5/reference/messaging.example.com/subscription-v1alpha1.md)
 - [New page](https://github.com/acme/fresh/blob/f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5/docs/new.md)
 - [Zebra](https://github.com/acme/fresh/blob/f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5f4e5/docs/zebra.md)
 
