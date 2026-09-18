@@ -20,10 +20,12 @@ a retrieval system, and keeps it that way over time.
 A retrieval system is only as good as what it was given to retrieve. That corpus usually starts
 as a hand-picked file list that nobody revisits, with no record of what was left out or why, no
 way to tell whether a change to it helped or hurt, and no way to reproduce last week's version
-when this week's breaks something. `pinakes` makes the corpus a reviewable artifact instead: a
-config you write, a manifest you commit, and every input and output a plain file that belongs in
-git. No database, no daemon, no hidden state — and it is retriever-agnostic, so it fits in front
-of whatever index or agent you already have.
+when this week's breaks something.
+
+`pinakes` makes the corpus a reviewable artifact instead: a config you write, a manifest you
+commit, and every input and output a plain file that belongs in git. No database, no daemon, no
+hidden state — and it is retriever-agnostic, so it fits in front of whatever index or agent you
+already have.
 
 ## Quick start
 
