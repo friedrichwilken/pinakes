@@ -27,6 +27,6 @@ mkdir -p .claude/skills
 cp -r /path/to/pinakes/skills/curate .claude/skills/curate
 ```
 
-Either way, the consuming project also needs the `pinakes` binary on `PATH` (see the main
-[`README.md`](../README.md#releases) for how to install a release, or `cargo install --path .`
+Either way, the consuming project also needs the `pinakes` binary on `PATH` (see
+[Releases](../docs/manual/releases.md) for how to install one, or `cargo install --path .`
 against a checkout) since the skill drives a curation session entirely through the CLI.

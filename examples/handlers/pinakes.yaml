@@ -1,4 +1,4 @@
-# The walkthrough behind docs/handlers.md: one repository declared three times, once per
+# The walkthrough behind docs/manual/handlers.md: one repository declared three times, once per
 # extension point, so each source shows one handler on its own. Run from this directory:
 # `pinakes resolve`, then read artifact/.
 version: 1

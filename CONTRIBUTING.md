@@ -43,8 +43,8 @@ the `e2e` job.
 ## Open a pull request
 
 1. Branch from `main`.
-2. If the change alters documented behaviour, update `SPEC.md` first, then the code, then
-   `README.md`.
+2. If the change alters documented behaviour, update `SPEC.md` first, then the code, then the
+   docs (`README.md`, `docs/manual/`, `docs/tutorials/`).
 3. Run the three gates above; CI runs them again plus an MSRV build, the example and
    `cargo audit`.
 4. Commit in logical steps with an imperative subject and a body that says what and why.
