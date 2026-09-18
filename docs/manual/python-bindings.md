@@ -8,13 +8,16 @@ curator measured is exactly what this import searches, not a reimplementation of
 is published to PyPI, so install the wheel for your platform directly from the release assets:
 
 ```sh
-pip install pinakes-0.1.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+pip install pinakes-1.0.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 ```
+
+(check a release's assets for the current version and your platform's filename).
 
 ```python
 from pinakes import Index
 
 index = Index.build("artifact")
+print(index.page_count, "pages,", index.searchable_count, "searchable")
 hits = index.search("how do I install the service", k=3)
 page = index.read(hits[0].page_id)
 print(page.title, page.url)

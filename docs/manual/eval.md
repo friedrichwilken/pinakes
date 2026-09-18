@@ -140,6 +140,29 @@ prints the same table for the corpus with that page in, then a delta: each metri
 after, and the queries whose reciprocal rank changed. That delta is the unit of a curation
 decision: a residue page is worth admitting when it moves a query, and not otherwise.
 
+## How the default (`bm25`) index scores a page
+
+Pages are cleaned of frontmatter, HTML comments, link and image targets and HTML tags, split
+into the intro plus one unit per H2 (H2 sections over 1200 tokens split at H3), scored by title
+(×3), heading (×2) and body, ranked by their best unit and de-duplicated by tokenised title. The
+tokeniser lowercases, keeps `[a-z0-9]+` runs and drops a small stopword list; no stemming.
+
+**Scoring.** The score is Okapi BM25 with `k1` 1.5, `b` 0.75 and negative IDFs floored at a
+quarter of the average IDF, computed with exact unit lengths, and field boosts act as
+term-frequency multipliers. This is the common `rank_bm25` BM25Okapi formula, so results are
+comparable with that library; the `bm25-tantivy` backend's own scorer (`k1` 1.2, Lucene IDF,
+quantised lengths) ranks differently — see [Retrieval backends](backends.md).
+
+**Mirror rule.** When two sources carry a page with the same title key (navigation title or H1),
+only the page from the source with the higher `priority` is indexed; the other is still a page,
+just not searchable. Priorities come from `pinakes.yaml` alone (`priority`, default 1). A source
+the config does not list, and every source when `eval` runs without a config, gets that same
+default, and equal priorities never collapse a page, so a manifest-less artifact with only
+`meta.json` files is measured with no mirrors at all. Same-title results are still de-duplicated
+at search time, whatever the priorities. This is a different mechanism from
+[near-duplicate detection](duplicates.md): the mirror rule only affects which page is
+searchable, never the manifest or the artifact.
+
 ## Where the numbers go
 
 - `pinakes eval --json eval.json` writes the result; `pinakes eval --gate eval.json` on a later

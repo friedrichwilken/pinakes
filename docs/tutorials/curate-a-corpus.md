@@ -139,7 +139,33 @@ ask:
 ```
 
 Or grow it with `pinakes queries add` instead of writing JSON by hand — see
-[Evaluation](../manual/eval.md#the-judge-queriesjsonl). Then measure:
+[Evaluation](../manual/eval.md#the-judge-queriesjsonl). Point `pinakes.yaml` at it, so a bare
+`pinakes eval` knows where to look:
+
+```yaml
+version: 1
+sources:
+  - name: nomicon
+    repo: https://github.com/rust-lang/nomicon.git
+    ref: master
+    priority: 10
+    resolver:
+      type: glob
+      include: ["src/**/*.md"]
+      exclude: ["**/SUMMARY.md"]
+  - name: api-guidelines
+    repo: https://github.com/rust-lang/api-guidelines.git
+    ref: master
+    priority: 5
+    resolver:
+      type: external
+      command: ["python3", "resolvers/frontmatter_title.py"]
+      args: ["src"]
+eval:
+  queries: queries.jsonl                                # <- without this, `eval` needs `--queries` every time
+```
+
+Then measure:
 
 ```sh
 pinakes eval

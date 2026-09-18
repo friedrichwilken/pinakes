@@ -26,9 +26,10 @@ pinakes duplicates
 
 Decides which page of a pair is `canonical`, in order: the higher source `priority`; else a page
 `selected_by` the resolver beats one `selected_by` a decision, which beats a bare glob include;
-else the source with the newer commit (its date fetched from the GitHub API when reachable, else
-unknown). When every criterion ties, `suggested` is `"review"` instead of `"exclude"` — there is
-no clear canonical page for a person, or `decide`, to prefer.
+else the page id that sorts first lexically, which always picks a winner but is not a real
+preference. When priority and `selected_by` both tied (the lexical case), `suggested` is
+`"review"` instead of `"exclude"` — there is no clear canonical page for a person, or `decide`,
+to prefer.
 
 ## Deciding on a duplicate
 

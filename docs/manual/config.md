@@ -34,7 +34,7 @@ policy:
 | `sources[].name` | Short identifier; part of every page id (`<name>::<path>`). |
 | `sources[].repo` | A GitHub HTTPS URL. Fetched as a codeload tarball at `ref`, no git needed. |
 | `sources[].ref` | Branch or tag to resolve. |
-| `sources[].priority` | Default `1`. Breaks ties when two sources carry a page with the same title (see [near-duplicate detection](duplicates.md) and [evaluation](eval.md#choosing-what-eval-measures)'s mirror rule). |
+| `sources[].priority` | Default `1`. Breaks ties when two sources carry a page with the same title (see [near-duplicate detection](duplicates.md) and eval's [mirror rule](eval.md#how-the-default-bm25-index-scores-a-page)). |
 | `sources[].resolver` | Which files are selected; see [Resolvers](resolvers.md). |
 | `sources[].render` | Optional; turns non-Markdown files into pages; see [Rendering](rendering.md). |
 | `policy.deny` | Glob list. A matching page is always excluded, ahead of everything else. |

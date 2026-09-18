@@ -19,7 +19,7 @@ to stdout. `GITHUB_TOKEN` is used when set, to raise the GitHub API rate limit.
 | `classify [--model NAME] [--batch 20] [--dry-run]` | residue, duplicates, decisions, manifest, artifact | `decisions.jsonl` (or JSONL on stdout with `--dry-run`) | 0 |
 | `grade --trail FILE [--backend bm25] [--k 20] [--model NAME] [--out OUT]` | trail, artifact | `graded.jsonl` on stdout or in `OUT` | 0 |
 | `queries import FILE --min-grade 2 [--holdout-share 0.2] [--seed N] [--queries FILE]` | `graded.jsonl`, manifest | appends to `queries.jsonl` | 0 |
-| `usage --trail FILE [--since 30d] [--json OUT]` | trail, manifest, artifact (for gap candidates) | report on stdout or in `OUT`, summary on stderr | 0 |
+| `usage --trail FILE [--since DURATION] [--json OUT]` | trail, manifest, artifact (for gap candidates) | report on stdout or in `OUT`, summary on stderr | 0 |
 
 ## `verify`
 

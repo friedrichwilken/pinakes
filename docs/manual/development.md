@@ -15,10 +15,22 @@ cargo test
 ```
 
 Library crate `pinakes` (modules per `SPEC.md` §9), binary `pinakes` (`src/main.rs`, clap
-only). Errors are `thiserror` types in the library and `anyhow` at the CLI edge. Report
-snapshots live in `tests/snapshots/`; `UPDATE_SNAPSHOTS=1 cargo test` refreshes them. The
-golden corpus check in `tests/golden.rs` runs with the rest of the suite;
-`UPDATE_GOLDEN=1 cargo test --test golden` re-pins its expected result.
+only). Errors are `thiserror` types in the library and `anyhow` at the CLI edge.
+
+Four suites pin behaviour rather than assert it, each with its own refresh flag:
+
+- `tests/golden.rs`, `tests/golden_mdbook.rs`, `tests/backend_tantivy_golden.rs` and
+  `tests/backend_dense_hybrid_golden.rs` compare `eval` on a fixture corpus with an
+  `expected*.json` file. Refresh with `UPDATE_GOLDEN=1 cargo test --test <name>`.
+- `tests/snapshots/` holds rendered reports. Refresh with `UPDATE_SNAPSHOTS=1 cargo test`.
+- `tests/pipeline_pin.rs` pins the bytes of `manifest.json`, `residue.jsonl`,
+  `duplicates.jsonl`, `report.md` and `residue list` written by a fresh resolve and a
+  `--from-manifest` one. Refresh with `UPDATE_SNAPSHOTS=1 cargo test --test pipeline_pin`.
+- `tests/eval_cli.rs` and `tests/eval_compare_cli.rs` pin the CLI's JSON and table output for
+  `eval` through the binary; update the hand-written assertions directly when a change is
+  intended, there is no refresh flag.
+
+Refresh only when the change is intended, and say why in the commit body.
 
 ## Unit tests versus e2e
 
@@ -42,6 +54,8 @@ cd examples
 `.github/workflows/ci.yml`, on pushes to `main` and pull requests: `lint` (`cargo fmt --check`,
 clippy with `-D warnings`, `cargo doc` with warnings denied); `test` on Ubuntu and macOS
 (`cargo test --all-targets` plus the doctests); `msrv` (a build on the `rust-version` from
-`Cargo.toml`); `e2e` (the example, as above); `audit` (`cargo audit`, also weekly on a
-schedule). Dependabot opens weekly, grouped update PRs for Cargo and the Actions. See
-[`CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`AGENTS.md`](../../AGENTS.md).
+`Cargo.toml`); `e2e` (the example, as above); `python` (builds the [wheel](python-bindings.md)
+with maturin and runs `python/tests`); `action` on Ubuntu and macOS (installs a real past
+release with `uses: ./` and checks the binary it puts on `PATH` runs); `audit` (`cargo audit`,
+also weekly on a schedule). Dependabot opens weekly, grouped update PRs for Cargo and the
+Actions. See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`AGENTS.md`](../../AGENTS.md).
