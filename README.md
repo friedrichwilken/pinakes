@@ -6,13 +6,13 @@
 [![licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
 -->
 
+`pinakes` turns a declared set of documentation sources into a reproducible, measured corpus for
+a retrieval system, and keeps it that way over time.
+
 > It matters not how many books you have, but how good they are. (Seneca, *Letters to Lucilius* 45)
 
 Named after the *Pinakes*, the catalogue Callimachus wrote for the Library of Alexandria: the
 first known record of what a library held, and the first curated corpus.
-
-`pinakes` turns a declared set of documentation sources into a reproducible, measured corpus for
-a retrieval system, and keeps it that way over time.
 
 ## Why
 
