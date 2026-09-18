@@ -10,7 +10,7 @@ artifact, and one of them changes which documents become pages at all:
   documentation when none of the built-in resolvers knows the repository's convention.
 
 This page shows each on a real document. Everything below was produced by `pinakes resolve`
-on [`examples/handlers/pinakes.yaml`](../examples/handlers/pinakes.yaml), which declares this
+on [`examples/handlers/pinakes.yaml`](../../examples/handlers/pinakes.yaml), which declares this
 repository three times, once per handler, pinned at commit
 [`182e0de`](https://github.com/friedrichwilken/pinakes/tree/182e0dee327e5cd00d7a4a21b07eb0313e6c1006).
 Run it yourself from that directory:
@@ -152,7 +152,7 @@ as one JSON line on stdout.
       command: ["python3", "./cargo_deps.py"]   # relative to pinakes.yaml
 ```
 
-The script is [`examples/handlers/cargo_deps.py`](../examples/handlers/cargo_deps.py), under a
+The script is [`examples/handlers/cargo_deps.py`](../../examples/handlers/cargo_deps.py), under a
 hundred lines of standard-library Python. Its whole contract is the loop at the bottom:
 
 ```python
@@ -221,7 +221,7 @@ checkout.
       command: ["python3", "./readme_toc.py"]
 ```
 
-[`examples/handlers/readme_toc.py`](../examples/handlers/readme_toc.py) treats the README as
+[`examples/handlers/readme_toc.py`](../../examples/handlers/readme_toc.py) treats the README as
 the table of contents: the README itself and every local Markdown file it links are selected,
 with the H2 the link sits under as the page's section; every other Markdown file is reported
 unselected, with a rule of the script's own.

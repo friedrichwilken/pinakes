@@ -1,9 +1,9 @@
 # Evaluation
 
-How `pinakes eval` measures a corpus, how to fix the evaluation method in `pinakes.yaml`, and
-what the numbers it prints mean. The README's [Measuring retrieval](../README.md#measuring-retrieval)
-and [Retrieval backends](../README.md#retrieval-backends) sections are the reference; this page
-is the walkthrough.
+How `pinakes eval` measures a corpus, how the judge in `queries.jsonl` is built and grown, and
+what the numbers it prints mean. For what each `--backend` value needs, see
+[Retrieval backends](backends.md); for `eval` as one step in a larger workflow, see the
+[tutorial](../tutorials/curate-a-corpus.md).
 
 ## How it is set up
 
@@ -32,15 +32,36 @@ One JSON object per line, one question each:
 | `holdout` | `true` keeps the row out of every gate. It is still measured, in its own split. |
 
 `pinakes queries add` appends a row after checking that every expected id exists in the
-committed manifest; `pinakes queries check` re-validates the file and fails when the held-out
-share drops below `eval.holdout_min` (default 0.2). Held-out rows are the guard against tuning
-the corpus to the questions you happen to have written down: a change that lifts the tuning
-split and leaves the held-out split flat has fitted the query set, not improved the corpus.
+committed manifest:
 
-## Choosing the evaluation method in `pinakes.yaml`
+```sh
+pinakes queries add --id howto-enable-caching \
+  --query "How do I enable caching?" \
+  --expected handbook::docs/user/tutorials/01-40-enable-caching.md \
+  --kind howto
+```
 
-The `eval` section fixes what a bare `pinakes eval` does. Every key has a command-line flag
-that overrides it for one run.
+`--expected` accepts a page id, an id prefix ending in `/` for "any page under", or the legacy
+`<source>/<path>` form, normalised to `<source>::<path>` before the row is written. An id that
+matches no page in the manifest is rejected and nothing is appended. Add `--holdout` to keep a
+row out of tuning decisions; it is still reported by `eval`, just never used to gate.
+
+`pinakes queries check` re-validates the whole file against the manifest and fails (exit 4) on
+an unknown expected id, a duplicate query id, or a held-out share below `eval.holdout_min`
+(default 0.2, set in the `eval:` section of `pinakes.yaml`):
+
+```sh
+pinakes queries check
+```
+
+Held-out rows are the guard against tuning the corpus to the questions you happen to have
+written down: a change that lifts the tuning split and leaves the held-out split flat has fitted
+the query set, not improved the corpus.
+
+## Choosing what `eval` measures
+
+The `eval` section of `pinakes.yaml` fixes what a bare `pinakes eval` does. Every key has a
+command-line flag that overrides it for one run.
 
 ```yaml
 eval:
@@ -48,30 +69,14 @@ eval:
   k: 10                           # result list length; recall@10 becomes recall@k below 10
   max_recall_drop: 0.05           # `eval --gate BASELINE` exits 2 beyond this drop in tuning recall@5
   holdout_min: 0.2                # `queries check` fails below this held-out share
-  backend: bm25                   # what a bare `eval` measures; see the table below
+  backend: bm25                   # what a bare `eval` measures; see backends.md
   # backend_url: http://localhost:8080   # for backend: external
   # embeddings: embeddings.bin    # for backend: dense | hybrid, relative to this file
   # compare: [bm25, bm25-tantivy, dense, hybrid]   # one table per backend, same query set
 ```
 
-| `backend` | What is measured | Needs |
-|---|---|---|
-| `bm25` (default) | The built-in index: pages split into intro plus one unit per H2, title ×3, heading ×2, body ×1, Okapi BM25 with `k1` 1.5 and `b` 0.75, the same formula as the `rank_bm25` Python library. | Nothing but the artifact. |
-| `bm25-tantivy` | The same units scored by tantivy's own BM25 (`k1` 1.2, Lucene IDF). | Nothing. |
-| `dense` | Cosine similarity over one embedding per unit, page score = best unit. | `pinakes embed` run once (writes `embeddings.bin` + `embeddings.json`), and `PINAKES_EMBED_URL`/`PINAKES_EMBED_KEY` at eval time to embed the query with the same model. |
-| `hybrid` | Reciprocal rank fusion (`k` = 60) of the top 50 `bm25` and `dense` rankings. | The same as `dense`. |
-| `external` | Whatever search a consumer already runs: `POST {backend_url}/search` with `{"query", "k", "module"}`, answered with `{"hits": [{"page_id", "score", "heading"}]}`. | The endpoint, reachable from where `eval` runs. |
-
-`compare` runs every named backend over the same query set and prints one table each; with
-`--json OUT` the file holds one result per backend, keyed by name. When both `compare` and
-`backend` are set, a bare `eval` compares; `pinakes eval --backend NAME` on the command line
-measures that one backend and ignores the configured list. `--with ID…` and `--without ID…`
-(measure the corpus with a residue page added or a page removed) only work with `bm25`, the one
-shape that indexes a page list directly rather than a prebuilt file or a remote store.
-
-The embeddings file records the manifest hash it was built from; when the artifact has moved on,
-`dense` and `hybrid` refuse to run unless `--allow-stale` is given, because a query embedded
-against pages that no longer exist would produce a number that means nothing.
+See [Retrieval backends](backends.md) for what each `backend` value measures and needs, what
+`compare` does, and how `--with`/`--without` fit in.
 
 ## The metrics
 
@@ -134,6 +139,29 @@ pinakes eval --with cookbook::docs/recipes/draft-plugin.md
 prints the same table for the corpus with that page in, then a delta: each metric before and
 after, and the queries whose reciprocal rank changed. That delta is the unit of a curation
 decision: a residue page is worth admitting when it moves a query, and not otherwise.
+
+## How the default (`bm25`) index scores a page
+
+Pages are cleaned of frontmatter, HTML comments, link and image targets and HTML tags, split
+into the intro plus one unit per H2 (H2 sections over 1200 tokens split at H3), scored by title
+(×3), heading (×2) and body, ranked by their best unit and de-duplicated by tokenised title. The
+tokeniser lowercases, keeps `[a-z0-9]+` runs and drops a small stopword list; no stemming.
+
+**Scoring.** The score is Okapi BM25 with `k1` 1.5, `b` 0.75 and negative IDFs floored at a
+quarter of the average IDF, computed with exact unit lengths, and field boosts act as
+term-frequency multipliers. This is the common `rank_bm25` BM25Okapi formula, so results are
+comparable with that library; the `bm25-tantivy` backend's own scorer (`k1` 1.2, Lucene IDF,
+quantised lengths) ranks differently — see [Retrieval backends](backends.md).
+
+**Mirror rule.** When two sources carry a page with the same title key (navigation title or H1),
+only the page from the source with the higher `priority` is indexed; the other is still a page,
+just not searchable. Priorities come from `pinakes.yaml` alone (`priority`, default 1). A source
+the config does not list, and every source when `eval` runs without a config, gets that same
+default, and equal priorities never collapse a page, so a manifest-less artifact with only
+`meta.json` files is measured with no mirrors at all. Same-title results are still de-duplicated
+at search time, whatever the priorities. This is a different mechanism from
+[near-duplicate detection](duplicates.md): the mirror rule only affects which page is
+searchable, never the manifest or the artifact.
 
 ## Where the numbers go
 

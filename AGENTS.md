@@ -111,6 +111,22 @@ commands, exit codes, scoring rules. When a change alters behaviour that the spe
 **change the spec first, in the same commit or the one before**, then the code. If the code
 and the spec disagree, the code is wrong. `README.md` explains; it never overrides the spec.
 
+## Docs
+
+Three kinds, never mixed: `README.md` answers "what is it, and is it usable in 60 seconds?" —
+one screen, code before prose, why before how, a copy-paste quick start with zero optional
+settings, then links out. `docs/tutorials/` answers "walk me through it" — one tutorial builds
+one artefact (currently: a corpus plus its weekly workflow), each step adds exactly one
+capability, every step shows the complete file so far, new or changed lines carry a trailing
+`# <-` comment saying what the line does. `docs/manual/` answers "what exactly does X do?" — one
+question per page, filename is the topic, the page opens with the answer before the detail.
+
+Facts that mirror a source of truth (a command's flags, a config key, an exit code) belong in
+exactly one manual page; link to it rather than repeating it elsewhere. A caveat that would make
+the quick start need an explanation means the quick start is wrong, not that the caveat needs a
+footnote. This is not yet test-enforced (no README length check, no docs-example linter) — treat
+that as a known gap, not as license to let a page drift from what the code does.
+
 ## Gates before every commit
 
 ```sh
