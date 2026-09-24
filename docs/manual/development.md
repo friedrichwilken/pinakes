@@ -59,5 +59,7 @@ clippy with `-D warnings`, `cargo doc` with warnings denied); `test` on Ubuntu a
 `Cargo.toml`); `e2e` (the example, as above); `python` (builds the [wheel](python-bindings.md)
 with maturin and runs `python/tests`); `action` on Ubuntu and macOS (installs a real past
 release with `uses: ./` and checks the binary it puts on `PATH` runs); `audit` (`cargo audit`,
-also weekly on a schedule). Dependabot opens weekly, grouped update PRs for Cargo and the
-Actions. See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`AGENTS.md`](../../AGENTS.md).
+also weekly on a schedule; an advisory that cannot be fixed yet is ignored in
+`.cargo/audit.toml` with its reason and the condition for removing the entry). Dependabot opens
+weekly, grouped update PRs for Cargo and the Actions. See
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md) and [`AGENTS.md`](../../AGENTS.md).

@@ -11,8 +11,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The tag, Cargo.toml and python/Cargo.toml must name the same version, and
+  # python/pyproject.toml must take its version from python/Cargo.toml (`dynamic`), so a wheel
+  # built from this tag reports the release it came from.
+  versions:
+    name: versions agree
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compare the tag with the crate and wheel versions
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          wheel="$(sed -n 's/^version *= *"\(.*\)"/\1/p' python/Cargo.toml | head -n 1)"
+          echo "tag=$tag crate=$crate wheel=$wheel"
+          if [ -z "$crate" ] || [ -z "$wheel" ]; then
+            echo "::error::could not read the version from Cargo.toml or python/Cargo.toml"
+            exit 1
+          fi
+          if [ "$tag" != "$crate" ] || [ "$tag" != "$wheel" ]; then
+            echo "::error::tag v$tag, Cargo.toml $crate and python/Cargo.toml $wheel disagree"
+            exit 1
+          fi
+          if grep -Eq '^version *=' python/pyproject.toml; then
+            echo "::error::python/pyproject.toml pins a version; it must use dynamic = [\"version\"]"
+            exit 1
+          fi
+          if ! grep -Eq '^dynamic *= *\[ *"version" *\]' python/pyproject.toml; then
+            echo "::error::python/pyproject.toml must declare dynamic = [\"version\"]"
+            exit 1
+          fi
+
   build:
     name: build (${{ matrix.target }})
+    needs: versions
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -71,6 +103,7 @@ jobs:
   # x86_64 runner) and for Apple silicon macOS, matching pinakes.Index to the CLI's own index.
   python-wheels:
     name: python wheel (${{ matrix.target }})
+    needs: versions
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

@@ -4,7 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "pinakes"
-version = "1.0.3"
+# The version is read from python/Cargo.toml by maturin, so the wheel cannot lag the crate.
+dynamic = ["version"]
 description = "Python bindings for the pinakes BM25 measurement index (SPEC §17.2)"
 readme = "../README.md"
 license = { text = "Apache-2.0" }
