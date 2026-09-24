@@ -757,9 +757,12 @@ already runs. Timeouts 30 s; errors fail the eval.
 
 `.github/workflows/curate.yml` in this repository as a reusable workflow (`workflow_call`) plus
 `examples/curate-weekly.yml` showing how a consumer calls it: resolve, diff against the
-committed manifest, stop when empty, eval before and after, duplicates, report, then open or
-update one PR on branch `pinakes/weekly` with the manifest, residue, duplicates and report
-committed. Inputs: config path, queries path, gate baseline path. Uses `peter-evans/create-pull-request`.
+committed manifest, stop when empty, eval before and after, duplicates, report (Markdown and
+`report.json`), `check` against the config's `gates` (§2.11), then open or update one PR on
+branch `pinakes/weekly` with the manifest, residue, duplicates and report committed
+(`report.json` is not committed). A violated gate never fails the job: it puts `(gates failed:
+<names>)` in the PR title and the label `gate-failed` next to the label `pinakes`. Inputs:
+config path, queries path, gate baseline path. Uses `peter-evans/create-pull-request`.
 
 `action.yml` at the repository root, "Set up pinakes", is a composite action that downloads a
 released binary for the runner's platform (`version`, default `latest`, resolved through the
