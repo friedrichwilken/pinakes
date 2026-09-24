@@ -66,6 +66,8 @@ can be scored before it is merged.
 
 ## Going further
 
+- [`pinakes init`](docs/manual/commands.md#init) — scaffold the config, the ledgers and the
+  weekly workflow for a new repository, with each source's resolver detected for you.
 - [Six resolvers](docs/manual/resolvers.md) for however your sources organise their docs
   (VitePress, Docusaurus, mdBook, a sitemap, a glob, or a script of your own).
 - [Rendering](docs/manual/rendering.md) — turn Kubernetes CRDs, OpenAPI schemas, or your own

@@ -21,6 +21,7 @@ use cli::duplicates::{DuplicatesArgs, run_duplicates};
 use cli::embed::{EmbedArgs, run_embed};
 use cli::eval::{EvalArgs, run_eval};
 use cli::grade::{GradeArgs, run_grade};
+use cli::init::{InitArgs, run_init};
 use cli::queries::{QueriesCommand, run_queries};
 use cli::report::{ReportArgs, run_report};
 use cli::residue::{ResidueCommand, run_residue_list};
@@ -41,6 +42,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Scaffold pinakes.yaml, empty decisions and queries ledgers and .gitignore entries.
+    ///
+    /// Each repository URL becomes a source with its docs layout detected; `--workflow` also
+    /// writes the weekly curation workflow. Existing files are never overwritten.
+    Init(InitArgs),
     /// Fetch every source, select pages and write the artifact, manifest and residue.
     Resolve(ResolveArgs),
     /// Check that the committed manifest matches the config, the artifact and the policy.
@@ -105,6 +111,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<ExitCode> {
     let paths = Paths::for_config(&cli.config);
     match cli.command {
+        Command::Init(args) => run_init(&paths, args),
         Command::Resolve(args) => run_resolve(paths, args),
         Command::Verify(args) => run_verify(paths, args),
         Command::Residue {

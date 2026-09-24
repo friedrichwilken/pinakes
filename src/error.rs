@@ -89,6 +89,9 @@ pub enum CommandError {
     /// `decide` was given an id that is neither residue nor a page.
     #[error("unknown id {0}: not in residue.jsonl or manifest.json")]
     UnknownId(String),
+    /// `init` was given a repository URL that is not `https://github.com/<owner>/<repo>`.
+    #[error("{0:?} is not a https://github.com/<owner>/<repo> URL")]
+    RepoUrl(String),
     /// A JSON value could not be produced.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
