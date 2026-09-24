@@ -32,6 +32,9 @@ pub(crate) struct ReportArgs {
     /// A `pinakes usage --json` report to render as the "Usage" section (SPEC §15.3).
     #[arg(long, value_name = "USAGE")]
     usage: Option<PathBuf>,
+    /// Also write the report's facts as JSON (SPEC §2.10) to this file.
+    #[arg(long, value_name = "OUT")]
+    json: Option<PathBuf>,
 }
 
 pub(crate) fn run_report(paths: &Paths, args: ReportArgs) -> Result<ExitCode> {
@@ -43,6 +46,7 @@ pub(crate) fn run_report(paths: &Paths, args: ReportArgs) -> Result<ExitCode> {
         new_artifact: Some(args.new_artifact.unwrap_or_else(|| paths.artifact.clone())),
         old_artifact: args.old_artifact,
         usage: args.usage,
+        json: args.json,
     };
     let text = commands::report(paths, &options, &GitHubFetcher::new())?;
     std::io::stdout().lock().write_all(text.as_bytes())?;

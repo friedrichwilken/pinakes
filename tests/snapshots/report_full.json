@@ -1,0 +1,169 @@
+{
+  "version": 1,
+  "summary": {
+    "sources": 1,
+    "pages": 3,
+    "residue": 5,
+    "undecided": 3,
+    "excluded": 0,
+    "decisions": 4,
+    "changes": {
+      "since": "2026-09-01T00:00:00Z",
+      "added": 1,
+      "removed": 3,
+      "changed": 1
+    }
+  },
+  "eval": {
+    "before": {
+      "tuning": {
+        "overall": {
+          "recall@5": 0.8,
+          "recall@10": 0.85,
+          "mrr": 0.66,
+          "n": 40
+        },
+        "per_kind": {
+          "howto": {
+            "recall@5": 0.9,
+            "recall@10": 0.95,
+            "mrr": 0.8,
+            "n": 10
+          }
+        }
+      },
+      "holdout": {
+        "overall": {
+          "recall@5": 0.5,
+          "recall@10": 0.5,
+          "mrr": 0.4,
+          "n": 4
+        },
+        "per_kind": {}
+      }
+    },
+    "after": {
+      "tuning": {
+        "overall": {
+          "recall@5": 0.85,
+          "recall@10": 0.9,
+          "mrr": 0.7,
+          "n": 40
+        },
+        "per_kind": {
+          "concept": {
+            "recall@5": 0.7,
+            "recall@10": 0.7,
+            "mrr": 0.5,
+            "n": 5
+          },
+          "howto": {
+            "recall@5": 0.9,
+            "recall@10": 1.0,
+            "mrr": 0.85,
+            "n": 10
+          }
+        }
+      },
+      "holdout": {
+        "overall": {
+          "recall@5": 0.75,
+          "recall@10": 0.75,
+          "mrr": 0.6,
+          "n": 4
+        },
+        "per_kind": {}
+      }
+    }
+  },
+  "pages": {
+    "added": [
+      "handbook::docs/new.md"
+    ],
+    "removed": [
+      {
+        "id": "handbook::docs/dropped.md",
+        "reason": "excluded_by_decision"
+      },
+      {
+        "id": "handbook::docs/old.md",
+        "reason": "gone_upstream"
+      },
+      {
+        "id": "removed-src::docs/x.md",
+        "reason": "source_removed"
+      }
+    ],
+    "changed": [
+      {
+        "id": "handbook::docs/changed.md",
+        "lines_added": 2,
+        "lines_removed": 1
+      }
+    ]
+  },
+  "residue": {
+    "new": [
+      {
+        "rule": "nav:dangling-link",
+        "text": "linked from `docs/_sidebar.md` but the file does not exist",
+        "ids": [
+          "handbook::docs/ghost.md"
+        ]
+      },
+      {
+        "rule": "glob:outside-include",
+        "text": "outside the configured include patterns",
+        "ids": [
+          "handbook::docs/fresh.md"
+        ]
+      }
+    ],
+    "undecided": [
+      "handbook::docs/known-residue.md",
+      "handbook::docs/fresh.md",
+      "handbook::docs/ghost.md"
+    ],
+    "excluded": []
+  },
+  "expired_decisions": [
+    {
+      "id": "handbook::docs/changed.md",
+      "decision": "unsure",
+      "why": "page_changed"
+    },
+    {
+      "id": "handbook::docs/old.md",
+      "decision": "include",
+      "why": "page_gone"
+    }
+  ],
+  "unresolved_links": {
+    "handbook": [
+      "handbook::docs/ghost.md"
+    ]
+  },
+  "archived_sources": [
+    "handbook"
+  ],
+  "duplicates": {
+    "count": 2,
+    "pairs": [
+      {
+        "kind": "mirror",
+        "canonical": "handbook::docs/new.md",
+        "duplicate": "handbook::docs/getting-started.md",
+        "similarity": 0.71,
+        "suggested": "review"
+      },
+      {
+        "kind": "near",
+        "canonical": "handbook::docs/getting-started.md",
+        "duplicate": "removed-src::docs/x.md",
+        "similarity": 0.93,
+        "suggested": "exclude"
+      }
+    ]
+  },
+  "usage": null
+}
