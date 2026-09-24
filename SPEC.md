@@ -819,3 +819,59 @@ the existing golden queries must not regress except where §10.3 says they are r
 
 A TUI; a hosted service; PyPI and crates.io publishing; embeddings computed locally without an
 endpoint; graph or knowledge-base features.
+
+---
+
+# pinakes — specification, iteration 3
+
+Iteration 3 has one theme: pinakes is stage a only. Evaluation moves to its own tool, `kanon`,
+and pinakes becomes a library the other tools depend on for the one reading of an artifact.
+
+## 20. Library surface
+
+Two consumers read the artifact through this crate rather than parsing its files themselves:
+`kanon` (evaluation) and a serving consumer. The modules below are the surface they may depend
+on; their public items follow the same compatibility rule as the files they read (the artifact
+contract version of §2.8): additive within a major version of the crate, a removal or rename only
+with a new major.
+
+| module | what a consumer gets |
+|---|---|
+| `corpus` | `load_pages` (an artifact directory into `Page`s, with the source priorities and the mirror rule), `Page`, `Priorities`, `DEFAULT_PRIORITY`, `mark_mirrors`, `load_residue_page`, `CorpusError` |
+| `index` | the built-in BM25 index of §5: `Index`, `Hit`, `Unit`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
+| `tokenizer` | the tokeniser of §5 and §10.3, so a consumer's own index cuts the same tokens |
+| `chunks` | `Chunk`, `chunks`, `chunk_id`: the retrieval units of §2.9, the same cut the index and `embed` use |
+| `manifest`, `layout` | `manifest.json`'s types and loader, the artifact's file and directory names |
+| `text`, `jsonl`, `num` | content hashing and cleaning, JSON Lines reading and writing, the one `usize -> f64` cast |
+| `trail` | `trail.jsonl`'s types (§15.1); written by a serving consumer, read by `usage` here and by `kanon` |
+| `config` | `pinakes.yaml`'s schema, for a consumer that reads the `eval:` block or the source priorities |
+| `llm` | the OpenAI-compatible chat client, shared by `classify` here and by `kanon`'s grader |
+
+Everything else in the crate is an implementation detail of the pinakes commands and may change
+in a minor release.
+
+## 21. What moves to kanon
+
+`eval`, `embed`, `grade`, `queries` (add, check, import), the backends of §16 (`bm25-tantivy`,
+`dense`, `hybrid`, `external`), `--gate`, and the evaluation sections of `report` (§2.7's
+before/after tables) move to `kanon`, which depends on this crate for §20. The move happens in
+this order, so both repositories stay green at every step:
+
+1. `kanon` builds the moved code against this crate's library surface, with the same flags and
+   file formats, so an existing `queries.jsonl` and `eval:` block keep working. The moved code
+   uses nothing outside §20 except `residue::excerpt` (the grader's candidate excerpts), which
+   `kanon` carries as its own helper.
+2. This crate deletes the moved commands, `src/backend/`, `report`'s `--eval-before` /
+   `--eval-after` flags and `ReportInput`'s eval fields (§2.7's before/after tables are then
+   `kanon`'s), and the matching `CommandError` variants. For one minor release the deleted
+   subcommands remain as stubs that print one line naming the `kanon` command to run instead and
+   exit 1; the release after removes the stubs.
+3. §5 and §9 are reworded (no `eval` in the crate layout; the index is built by whoever measures);
+   §6 and §16 shrink to a pointer at `kanon`'s contracts; the README, manual and tutorial drop
+   the evaluation sections and link across; the reusable curate workflow (§17.1) calls `kanon
+   eval --gate` instead of `pinakes eval --gate`.
+
+`usage` (§15.3) stays: it reads the trail, but its output is residue-side. `llm` and `classify`
+(§14.2) stay. The index (§5) stays as the reference measurement index that `kanon` uses by
+default. Until step 2 lands, §6 and §16 describe what this crate ships, and `pinakes eval` and
+friends keep working as documented.
