@@ -30,22 +30,27 @@ const EPSILON: f64 = 0.25;
 /// Memory budget of the single-threaded index writer.
 const WRITER_BUDGET: usize = 64 << 20;
 
-/// One retrieval unit exposed for embedding (SPEC §16.2): the same text `Index` scores, so a
-/// dense backend built from these embeds exactly what BM25 searches.
+/// One retrieval unit (SPEC §5): the one cut [`Index::from_pages`] indexes as three fields,
+/// `embed` (SPEC §16.2) embeds as `text` and `chunks` (SPEC §2.8) emits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
     /// The page this unit belongs to.
     pub page_id: String,
-    /// The unit's heading, empty for the intro (see [`Section::heading`](super::Section::heading)).
+    /// The page title, the index's `title` field.
+    pub title: String,
+    /// The unit's heading, empty for the intro (see [`Section::heading`](super::Section::heading));
+    /// the index's `heading` field.
     pub heading: String,
+    /// The section text, the index's `body` field.
+    pub body: String,
     /// Title, heading and body joined into one text worth embedding.
     pub text: String,
 }
 
 /// The retrieval units of the searchable (non-mirror) pages, in page then section order.
 ///
-/// `pages` must already have [`mark_mirrors`] applied; mirrors are skipped, matching what
-/// [`Index::from_pages`] indexes.
+/// `pages` must already have [`mark_mirrors`] applied; mirrors are skipped. This is the only
+/// place the cut is made: [`Index::from_pages`] indexes exactly these units.
 pub fn iter_units(pages: &[Page]) -> Vec<Unit> {
     let mut units = Vec::new();
     for page in pages.iter().filter(|p| p.mirror_of.is_none()) {
@@ -57,7 +62,9 @@ pub fn iter_units(pages: &[Page]) -> Vec<Unit> {
             };
             units.push(Unit {
                 page_id: page.id.clone(),
+                title: page.title.clone(),
                 heading: section.heading,
+                body: section.body,
                 text,
             });
         }
@@ -219,24 +226,31 @@ impl Index {
         let mut writer: IndexWriter<TantivyDocument> =
             index.writer_with_num_threads(1, WRITER_BUDGET)?;
         let mut stats = Stats::default();
-        for (position, &page_index) in searchable.iter().enumerate() {
-            let page = &pages[page_index];
-            let title_tokens = tokenize(&page.title);
-            for section in split_sections(&index_text(&page.content)) {
-                let heading_tokens = tokenize(&section.heading);
-                let body_tokens = tokenize(&section.body);
-                let len = stats.add_unit(&title_tokens, &heading_tokens, &body_tokens);
-                let mut doc = TantivyDocument::default();
-                doc.add_text(fields.title, &page.title);
-                doc.add_text(fields.heading, &section.heading);
-                doc.add_text(fields.body, &section.body);
-                doc.add_text(fields.page_id, &page.id);
-                doc.add_text(fields.source, &page.source);
-                doc.add_text(fields.doc_type, &page.doc_type);
-                doc.add_u64(fields.page, position as u64);
-                doc.add_u64(fields.len, len as u64);
-                writer.add_document(doc)?;
-            }
+        // Position in `searchable` by page id; `iter_units` yields units in that same order.
+        let position_of: HashMap<&str, usize> = searchable
+            .iter()
+            .enumerate()
+            .map(|(position, &page_index)| (pages[page_index].id.as_str(), position))
+            .collect();
+        for unit in iter_units(&pages) {
+            let Some(&position) = position_of.get(unit.page_id.as_str()) else {
+                continue;
+            };
+            let page = &pages[searchable[position]];
+            let title_tokens = tokenize(&unit.title);
+            let heading_tokens = tokenize(&unit.heading);
+            let body_tokens = tokenize(&unit.body);
+            let len = stats.add_unit(&title_tokens, &heading_tokens, &body_tokens);
+            let mut doc = TantivyDocument::default();
+            doc.add_text(fields.title, &unit.title);
+            doc.add_text(fields.heading, &unit.heading);
+            doc.add_text(fields.body, &unit.body);
+            doc.add_text(fields.page_id, &unit.page_id);
+            doc.add_text(fields.source, &page.source);
+            doc.add_text(fields.doc_type, &page.doc_type);
+            doc.add_u64(fields.page, position as u64);
+            doc.add_u64(fields.len, len as u64);
+            writer.add_document(doc)?;
         }
         writer.commit()?;
         let searcher = index.reader()?.searcher();
@@ -648,5 +662,34 @@ mod tests {
         assert_eq!(readme_units[1].heading, "Upload caching");
         assert!(readme_units[1].text.contains("Storage Module"));
         assert!(readme_units[1].text.contains("Enable upload caching"));
+        assert_eq!(readme_units[1].title, "Storage Module");
+        assert!(readme_units[1].body.starts_with("\nEnable upload caching"));
+    }
+
+    /// The index holds exactly the units `iter_units` cuts: same count, same page per unit,
+    /// on the golden fixture with its configured priorities (three mirrors collapsed).
+    #[test]
+    fn index_units_are_iter_units_on_the_golden_fixture() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden/artifact");
+        let priorities = Priorities {
+            explicit: [
+                ("handbook", 10),
+                ("guides", 5),
+                ("cookbook", 1),
+                ("schemas", 1),
+            ]
+            .into_iter()
+            .map(|(name, priority)| (name.to_string(), priority))
+            .collect(),
+        };
+        let index = Index::build(&fixture, &priorities).unwrap();
+        let units = iter_units(index.pages());
+        assert_eq!(index.unit_len.len(), units.len());
+        assert_eq!(index.unit_page.len(), units.len());
+        assert_eq!(units.len(), 52, "pinned with tests/chunks_cli.rs");
+        for (dense, unit) in units.iter().enumerate() {
+            let page = &index.pages()[index.searchable[index.unit_page[dense]]];
+            assert_eq!(page.id, unit.page_id, "unit {dense}");
+        }
     }
 }
