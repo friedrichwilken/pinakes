@@ -1,0 +1,15 @@
+# Settings for `cargo audit` (the `audit` CI job and `just audit`).
+#
+# Every ignored advisory needs a reason and an exit condition here; remove the entry as soon
+# as the condition holds.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2026-0253: `lru` < 0.18.2, `LruCache::pop()` is not panic-safe (unsound). The
+  # unsoundness needs a `pop()` on a key type whose `Drop` panics, under `catch_unwind`. `lru`
+  # reaches this crate only through tantivy 0.26.2 (which requires lru ^0.16.3), and tantivy's
+  # one cache (`store/reader.rs`) is keyed by `usize` block offsets, whose `Drop` cannot panic;
+  # tantivy never calls `pop()` on it at all. tantivy's main branch already depends on lru
+  # 0.18.2; drop this entry when the next tantivy release is taken (`cargo update -p tantivy`).
+  "RUSTSEC-2026-0253",
+]
