@@ -35,6 +35,12 @@
 //! grows and validates the judge (`queries.jsonl`); [`diff`] and [`report`] describe changes;
 //! [`artifact`] materialises a compiled corpus; [`render`] is the SPEC §10.1 render hook.
 //!
+//! Consumers of an artifact (an evaluation tool, a serving system) depend on the modules SPEC
+//! §20 lists — [`corpus`], [`index`], [`chunks`], [`tokenizer`], [`manifest`], [`layout`],
+//! [`text`], [`jsonl`], [`num`], [`trail`], [`config`] and [`llm`] — and those follow the
+//! compatibility rule stated there; every other module is an implementation detail of the
+//! commands. SPEC §21 says which commands are moving out to a separate evaluation tool.
+//!
 //! [`error`] holds [`error::CommandError`], the error type every command returns. [`commands`]
 //! is one file per subcommand, each owning its options and outcome, re-exported by name from
 //! [`commands`] itself, along with [`workspace::Paths`], [`error::CommandError`] and
