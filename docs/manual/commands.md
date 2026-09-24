@@ -5,6 +5,7 @@ to stdout. `GITHUB_TOKEN` is used when set, to raise the GitHub API rate limit.
 
 | command | reads | writes | exit codes |
 |---|---|---|---|
+| `init [REPO_URL…] [--workflow] [--dir DIR]` | each URL once, to detect its layout | `pinakes.yaml`, empty `decisions.jsonl` and `queries.jsonl`, `.gitignore` entries; with `--workflow`, `.github/workflows/curate.yml` | 0; 1 bad URL or I/O error |
 | `resolve [--artifact DIR] [--from-manifest M]` | config, decisions (or a manifest to reproduce) | artifact, `manifest.json`, `residue.jsonl`, `duplicates.jsonl` | 0 ok; 1 error |
 | `verify [--artifact DIR] [--no-artifact]` | config, manifest, artifact | nothing | 0; 3 stale; 4 policy violation |
 | `diff OLD.json NEW.json [--new-artifact DIR] [--old-artifact DIR]` | two manifests, page content | JSON on stdout, summary on stderr | 0 same; 3 differences |
@@ -12,6 +13,7 @@ to stdout. `GITHUB_TOKEN` is used when set, to raise the GitHub API rate limit.
 | `duplicates [--artifact DIR] [--threshold 0.8] [--json OUT]` | artifact, manifest and config (optional) | JSONL on stdout or in `OUT`, summary on stderr | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME] [--superseded-by ID]` | residue, manifest | appends to `decisions.jsonl` | 0; 1 unknown id |
 | `report [--old M] [--new M] [--eval-before E] [--eval-after E] [--new-artifact DIR] [--old-artifact DIR] [--usage U] [--json OUT]` | manifests, residue, decisions, duplicates, eval JSON, usage JSON | `report.md` on stdout; with `--json`, its facts as JSON in `OUT` ([SPEC §2.8](../../SPEC.md#28-reportjson--the-reports-facts-machine-readable)) | 0 |
+| `check [--report FILE]` | config (`gates`), `report.json` | violated gates on stderr, a one-line JSON summary on stdout | 0 ok; 2 gate violated; 1 error (including no `report.json`) |
 | `eval [--artifact DIR] [--queries FILE] [--k N] [--json OUT] [--gate BASELINE] [--with ID…] [--without ID…] [--backend NAME] [--backend-url URL] [--embeddings FILE] [--allow-stale] [--compare NAME,NAME,…]` | artifact, queries, config (optional), embeddings (`dense`/`hybrid`) | table(s) on stderr, JSON on stdout or in `OUT` | 0; 2 gate failed |
 | `embed [--artifact DIR] [--model NAME] [--out embeddings.bin] [--batch 64]` | artifact, `PINAKES_EMBED_URL`/`KEY`/`MODEL` | `embeddings.bin`, `embeddings.json` | 0; 1 error (including a missing endpoint) |
 | `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` on stdout or in `FILE`, summary on stderr | 0; 1 error |
@@ -21,6 +23,40 @@ to stdout. `GITHUB_TOKEN` is used when set, to raise the GitHub API rate limit.
 | `grade --trail FILE [--backend bm25] [--k 20] [--model NAME] [--out OUT]` | trail, artifact | `graded.jsonl` on stdout or in `OUT` | 0 |
 | `queries import FILE --min-grade 2 [--holdout-share 0.2] [--seed N] [--queries FILE]` | `graded.jsonl`, manifest | appends to `queries.jsonl` | 0 |
 | `usage --trail FILE [--since DURATION] [--json OUT]` | trail, manifest, artifact (for gap candidates) | report on stdout or in `OUT`, summary on stderr | 0 |
+
+## `init`
+
+Scaffolds a workspace and never overwrites: an existing file is left alone and reported as
+skipped, and an existing `.gitignore` only gains the lines it does not already have
+(`/artifact`, `/artifact-*`, `/report.md`). Everything lands next to `--config` unless `--dir`
+names another directory (created when missing).
+
+```sh
+pinakes init https://github.com/example-org/handbook.git --workflow
+```
+
+```text
+wrote pinakes.yaml
+wrote decisions.jsonl
+wrote queries.jsonl
+wrote .gitignore
+wrote .github/workflows/curate.yml
+```
+
+Each URL becomes one source in `pinakes.yaml`, named after the repository, on its default
+branch (`main` when the GitHub API cannot say, with a comment to that effect), with the resolver
+picked from the checkout's file list: a `.vitepress/config.*` anywhere means `vitepress`, a
+`sidebars.js` or `sidebars.ts` means `docusaurus`, a `SUMMARY.md` means `mdbook`; otherwise
+`glob` on `docs/**/*.md` when the repository has a `docs/` directory, else on `**/*.md`. A
+navigation file outside the resolver's default location is written as an explicit `path`. When
+a fetch fails, the source is still written as `glob` on `**/*.md` with a comment saying why, and
+`init` still exits 0, and a URL given twice is written once, with a warning. Given at least one
+URL, `pinakes resolve` runs on the generated config unedited; with none, it holds one annotated
+placeholder source to replace first, and `init` says so on stderr. The `policy` block carries
+the [values SPEC §2.1 shows](config.md#pinakesyaml); the `eval` block is written commented out,
+to enable once `queries.jsonl` has entries. `--workflow` writes the
+consumer side of the [weekly workflow](weekly-workflow.md), the same file as
+`examples/curate-weekly.yml`.
 
 ## `verify`
 
@@ -39,6 +75,25 @@ Re-fetches exactly the recorded commits and copies exactly the recorded pages, r
 recorded `render` step; the artifact it produces is identical byte for byte, and any hash
 mismatch is an error rather than a silent drift. This is how a consumer's build step
 materialises a reviewed, committed manifest without re-running discovery.
+
+## `check`
+
+Reads the `report.json` that `report --json` writes (default: `report.json` next to the config;
+`--report FILE` for another) and compares each maximum under the config's
+[`gates`](config.md#gates) with the matching count. Prints one line per violated gate,
+`gate <name>: <count> > <maximum>`, then `gates: ok (N checked)`, `gates: FAILED (M of N
+violated)` or `gates: none configured` (nothing is read then), and on stdout one JSON line for
+scripts, `{"version":1,"checked":N,"violations":[{"gate":…,"limit":…,"actual":…}]}`:
+
+```sh
+pinakes report --old /tmp/old.json --json report.json > report.md
+pinakes check
+```
+
+Exit 2 when a gate is violated, 1 when the report is missing (the message says to run
+`report --json` first). Recall stays with `eval --gate`. The [weekly
+workflow](weekly-workflow.md) turns a violation into the pull request's title and label. The
+exact contract is [SPEC §2.11](../../SPEC.md#29-check--gates-on-reportjson).
 
 ## `diff`
 

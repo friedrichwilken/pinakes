@@ -10,9 +10,22 @@ an extra input), reproduces the committed manifest with `resolve --from-manifest
 measures "after" (gated against a baseline only when one is already committed, and never
 failing the job on a drop — the point is a reviewable PR, not a silently skipped one), runs
 `duplicates` when the installed binary has that subcommand (checked with `--help` first),
-renders `report`, and opens or updates one pull request on branch `pinakes/weekly` with the
-manifest, residue, duplicates and report committed, using the report as the PR body via
+renders `report` (the Markdown, and `report.json` into the runner's temp directory), runs
+[`check`](commands.md#check) against the config's [`gates`](config.md#gates), and opens or
+updates one pull request on branch `pinakes/weekly` with the manifest, residue, duplicates and
+`report.md` committed (never `report.json`), using the report as the PR body via
 [`peter-evans/create-pull-request`](https://github.com/peter-evans/create-pull-request).
+
+A violated gate never fails the job, for the same reason as the eval gate: the pull request is
+where a reviewer should see it. The PR now carries the label `pinakes`; when a gate is violated
+its title becomes `chore: refresh documentation corpus (gates failed: <gate names>)` and it also
+carries the label `gate-failed`, so a branch protection rule or a reviewer's filter can act on
+it. Both labels are new with this step; `create-pull-request` does not document creating a
+label that does not exist, so a consumer may need to create `pinakes` and `gate-failed` in its
+repository once. Without a `gates:` block the step reports `gates: none configured` and the
+title and labels are the plain ones. The step's outputs are `gate` (`passed`, `failed`,
+`skipped` for a binary whose `report` has no `--json`, or `error`) and `violations` (the
+violated gates' names, comma separated).
 
 A consumer calls it from its own repository, on whatever schedule it likes:
 

@@ -7,6 +7,7 @@
 //! module re-exports them by name so every `pinakes::commands::<name>` path stays as it was
 //! when this was a single file.
 
+mod check;
 mod chunks;
 mod classify;
 mod decide;
@@ -15,6 +16,7 @@ mod duplicates;
 mod embed;
 mod eval;
 mod grade;
+mod init;
 mod queries;
 mod report;
 mod residue;
@@ -27,6 +29,9 @@ pub use crate::error::CommandError;
 pub use crate::pipeline::{ResolveOptions, ResolveOutcome, resolve};
 pub use crate::workspace::Paths;
 
+pub use check::{
+    CHECK_VERSION, CheckOptions, CheckOutcome, Violation, check, check_gates, check_warnings,
+};
 pub use chunks::{ChunksOptions, ChunksOutcome, chunks};
 pub use classify::{ClassifyOptions, ClassifyOutcome, classify};
 pub use decide::decide;
@@ -39,6 +44,10 @@ pub use eval::{
     eval_compare, eval_embedder_from_env, eval_plan,
 };
 pub use grade::{GradeOptions, GradeOutcome, grade};
+pub use init::{
+    DetectedLayout, FALLBACK_REF, GITIGNORE_LINES, InitOptions, InitOutcome, WORKFLOW,
+    WORKFLOW_PATH, detect_layout, init, source_name,
+};
 pub use queries::{
     QueriesAddOptions, QueriesImportOptions, QueriesImportOutcome, queries_add, queries_check,
     queries_import,

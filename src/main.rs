@@ -12,6 +12,7 @@ use pinakes::commands::Paths;
 
 mod cli;
 
+use cli::check::{CheckArgs, run_check};
 use cli::chunks::{ChunksArgs, run_chunks};
 use cli::classify::{ClassifyArgs, run_classify};
 use cli::decide::{DecideArgs, run_decide};
@@ -20,6 +21,7 @@ use cli::duplicates::{DuplicatesArgs, run_duplicates};
 use cli::embed::{EmbedArgs, run_embed};
 use cli::eval::{EvalArgs, run_eval};
 use cli::grade::{GradeArgs, run_grade};
+use cli::init::{InitArgs, run_init};
 use cli::queries::{QueriesCommand, run_queries};
 use cli::report::{ReportArgs, run_report};
 use cli::residue::{ResidueCommand, run_residue_list};
@@ -40,6 +42,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Scaffold pinakes.yaml, empty decisions and queries ledgers and .gitignore entries.
+    ///
+    /// Each repository URL becomes a source with its docs layout detected; `--workflow` also
+    /// writes the weekly curation workflow. Existing files are never overwritten.
+    Init(InitArgs),
     /// Fetch every source, select pages and write the artifact, manifest and residue.
     Resolve(ResolveArgs),
     /// Check that the committed manifest matches the config, the artifact and the policy.
@@ -67,6 +74,8 @@ enum Command {
     },
     /// Render the Markdown report (PR body) on stdout.
     Report(ReportArgs),
+    /// Compare report.json with the config's `gates`: exit 2 when a gate is violated.
+    Check(CheckArgs),
     /// Measure retrieval quality: table on stderr, JSON on stdout, exit 2 when the gate fails.
     Eval(EvalArgs),
     /// Grow and validate the judge, `queries.jsonl`.
@@ -102,6 +111,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<ExitCode> {
     let paths = Paths::for_config(&cli.config);
     match cli.command {
+        Command::Init(args) => run_init(&paths, args),
         Command::Resolve(args) => run_resolve(paths, args),
         Command::Verify(args) => run_verify(paths, args),
         Command::Residue {
@@ -125,6 +135,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             old_artifact,
         } => run_diff(&paths, &old, &new, new_artifact, old_artifact),
         Command::Report(args) => run_report(&paths, args),
+        Command::Check(args) => run_check(&paths, args),
         Command::Eval(args) => run_eval(paths, args),
         Command::Duplicates(args) => run_duplicates(paths, args),
         Command::Queries { command } => run_queries(&paths, command),

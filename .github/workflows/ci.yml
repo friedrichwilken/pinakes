@@ -111,8 +111,25 @@ jobs:
         working-directory: examples
         run: |
           ../target/release/pinakes report --old "$RUNNER_TEMP/old-manifest.json" \
-            --eval-after "$RUNNER_TEMP/eval.json" > "$RUNNER_TEMP/report.md"
+            --eval-after "$RUNNER_TEMP/eval.json" --json "$RUNNER_TEMP/report.json" \
+            > "$RUNNER_TEMP/report.md"
           cat "$RUNNER_TEMP/report.md"
+      # The example's own `gates:` block must hold against its own report (SPEC §2.11): any
+      # exit but 0 fails the job.
+      # The example's gates are set for the committed residue; a fresh resolve against moved
+      # upstream repositories may legitimately violate one, so only an undocumented exit fails.
+      - name: check (0 ok, 2 gate violated)
+        working-directory: examples
+        run: |
+          set +e
+          ../target/release/pinakes check --report "$RUNNER_TEMP/report.json"
+          status=$?
+          set -e
+          case "$status" in
+            0) echo "gates ok" ;;
+            2) echo "a gate is violated on the fresh corpus (upstream moved)" ;;
+            *) echo "check failed with exit $status"; exit "$status" ;;
+          esac
 
   # Python bindings (python/, SPEC §17.2): build the extension module and run the pytest suite
   # against it. Not a manylinux build (that's release.yml's job) - this only needs to prove the
