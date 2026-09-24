@@ -24,9 +24,10 @@ Module map, grouped bottom-up by what depends on what. One line per module: what
 
 **Depend on nothing else in the crate:** `text` (hashing, front matter, titles, path helpers),
 `tokenizer` (the tantivy `PinakesTokenizer`, stopwords, title keys), `layout` (the artifact's
-file and directory names), `jsonl` (read/write/append JSON Lines with line-numbered errors),
-`num` (the one `usize -> f64` cast), `workspace` (`Paths`, the file locations every command
-uses), `config` (`pinakes.yaml`'s schema) and `llm` (the shared OpenAI-compatible chat client).
+file and directory names and its contract version), `jsonl` (read/write/append JSON Lines with
+line-numbered errors), `num` (the one `usize -> f64` cast), `workspace` (`Paths`, the file
+locations every command uses), `config` (`pinakes.yaml`'s schema) and `llm` (the shared
+OpenAI-compatible chat client).
 
 **Sources and their recorded history:** `sources` (fetch a checkout) and `manifest`
 (`manifest.json`'s schema) depend on `config`; `decisions` (`decisions.jsonl`) depends on
@@ -139,7 +140,7 @@ cargo test                                            # unit, integration, golde
 CI runs the same plus `cargo doc --no-deps` with `RUSTDOCFLAGS=-D warnings`, a build on the
 `rust-version` from `Cargo.toml`, the end-to-end example against the network, and `cargo audit`.
 
-Four suites pin behaviour rather than assert it:
+Five suites pin behaviour rather than assert it:
 
 - `tests/golden.rs` compares `eval` on `tests/fixtures/golden` with `expected.json`. Refresh
   with `UPDATE_GOLDEN=1 cargo test --test golden`. The other golden suites
@@ -150,6 +151,9 @@ Four suites pin behaviour rather than assert it:
   `duplicates.jsonl`, `report.md` and `residue list` written by a fresh resolve and a
   `--from-manifest` one, under `tests/snapshots/pipeline_pin/`. Refresh with
   `UPDATE_SNAPSHOTS=1 cargo test --test pipeline_pin`.
+- `tests/schema.rs` pins the JSON Schema of `manifest.json`, generated from the `manifest`
+  types, at `docs/schemas/manifest.schema.json`. Refresh with
+  `UPDATE_SCHEMAS=1 cargo test --test schema`.
 - `tests/eval_cli.rs` and `tests/eval_compare_cli.rs` pin the CLI's JSON and table output for
   `eval` through the binary. They have no refresh flag; update the hand-written assertions
   directly when a change is intended.

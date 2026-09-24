@@ -7,10 +7,12 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::config::Render;
+use crate::layout::{ARTIFACT_VERSION, NewerArtifactVersion, check_artifact_version};
 
 /// The only manifest version written or read by this iteration.
 pub const MANIFEST_VERSION: u32 = 1;
@@ -39,13 +41,30 @@ pub enum ManifestError {
     /// The manifest version is not supported.
     #[error("unsupported manifest version {0}; expected {MANIFEST_VERSION}")]
     Version(u32),
+    /// The manifest was written under a newer artifact contract (SPEC §2.8) than this build reads.
+    #[error("{path}: {source}")]
+    ArtifactVersion {
+        /// The manifest path.
+        path: PathBuf,
+        /// The version found and the one supported.
+        #[source]
+        source: NewerArtifactVersion,
+    },
+}
+
+fn default_artifact_version() -> u32 {
+    ARTIFACT_VERSION
 }
 
 /// The curated references for every source.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Manifest {
     /// Manifest format version; equals [`MANIFEST_VERSION`].
     pub version: u32,
+    /// The artifact contract version (SPEC §2.8) the manifest and its artifact follow; missing
+    /// means 1. Written as [`ARTIFACT_VERSION`]; a higher value is rejected on read.
+    #[serde(default = "default_artifact_version")]
+    pub artifact_version: u32,
     /// RFC 3339 UTC time the manifest was generated.
     pub generated_at: String,
     /// Sources by name.
@@ -53,7 +72,7 @@ pub struct Manifest {
 }
 
 /// One source as recorded in the manifest.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ManifestSource {
     /// `owner/repo` slug.
     pub repo: String,
@@ -89,7 +108,7 @@ pub struct ManifestSource {
 }
 
 /// A selected page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PageEntry {
     /// Hex SHA-256 of the file bytes.
     pub sha256: String,
@@ -111,7 +130,7 @@ pub struct PageEntry {
 }
 
 /// What caused a page to be selected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SelectedBy {
     /// An external resolver reported `selected: true`.
@@ -155,6 +174,7 @@ impl Manifest {
     pub fn new(generated_at: String) -> Manifest {
         Manifest {
             version: MANIFEST_VERSION,
+            artifact_version: ARTIFACT_VERSION,
             generated_at,
             sources: BTreeMap::new(),
         }
@@ -174,6 +194,12 @@ impl Manifest {
         if manifest.version != MANIFEST_VERSION {
             return Err(ManifestError::Version(manifest.version));
         }
+        check_artifact_version(manifest.artifact_version).map_err(|source| {
+            ManifestError::ArtifactVersion {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
         Ok(manifest)
     }
 
@@ -301,7 +327,7 @@ mod tests {
         let text = sample().to_json().unwrap();
         assert!(text.ends_with("}\n"), "trailing newline");
         assert!(
-            text.starts_with("{\n  \"generated_at\""),
+            text.starts_with("{\n  \"artifact_version\": 1,\n  \"generated_at\""),
             "top-level keys sorted: {text}"
         );
         let lines: Vec<&str> = text.lines().collect();
@@ -424,6 +450,60 @@ mod tests {
             Manifest::load(&dir.path().join("missing.json")).unwrap_err(),
             ManifestError::Io { .. }
         ));
+    }
+
+    fn load_with_artifact_version(field: &str) -> Result<Manifest, ManifestError> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("m.json");
+        std::fs::write(
+            &path,
+            format!("{{\"version\": 1, {field}\"generated_at\": \"\", \"sources\": {{}}}}"),
+        )
+        .unwrap();
+        Manifest::load(&path)
+    }
+
+    #[test]
+    fn artifact_version_missing_means_one_equal_is_accepted_and_newer_is_rejected() {
+        assert_eq!(load_with_artifact_version("").unwrap().artifact_version, 1);
+        assert_eq!(
+            load_with_artifact_version("\"artifact_version\": 1, ")
+                .unwrap()
+                .artifact_version,
+            ARTIFACT_VERSION
+        );
+        assert_eq!(
+            load_with_artifact_version("\"artifact_version\": 0, ")
+                .unwrap()
+                .artifact_version,
+            0,
+            "an older version is read as it is"
+        );
+        let err = load_with_artifact_version("\"artifact_version\": 2, ").unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ManifestError::ArtifactVersion {
+                    source: NewerArtifactVersion(2),
+                    ..
+                }
+            ),
+            "{err}"
+        );
+        assert!(
+            err.to_string().ends_with(
+                "m.json: artifact version 2 is newer than this pinakes supports (1); \
+                 upgrade pinakes"
+            ),
+            "{err}"
+        );
+        assert!(
+            sample()
+                .to_json()
+                .unwrap()
+                .contains("\"artifact_version\": 1"),
+            "always written"
+        );
     }
 
     #[test]

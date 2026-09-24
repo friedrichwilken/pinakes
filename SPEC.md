@@ -80,6 +80,7 @@ consumes YAML or JSON rather than Markdown.
 ```json
 {
   "version": 1,
+  "artifact_version": 1,                     // the artifact contract this file follows (§2.8)
   "generated_at": "2026-09-16T12:00:00Z",
   "sources": {
     "handbook": {
@@ -107,7 +108,9 @@ consumes YAML or JSON rather than Markdown.
 ```
 
 Page identity everywhere is `<source name>::<path>`. `sha256` is of the file bytes.
-Sorted keys, two-space indent, trailing newline, so diffs are readable.
+Sorted keys, two-space indent, trailing newline, so diffs are readable. A JSON Schema of the
+file, generated from the code and pinned by a test, lives at
+[`docs/schemas/manifest.schema.json`](docs/schemas/manifest.schema.json).
 
 A source's `render` step, when configured, is recorded per source (`{"type": "openapi"}` or
 `{"type": "external", "command": [...], "args": [...]}`, absent when there is none) so
@@ -122,12 +125,14 @@ where the manifest is later reproduced from.
 <artifact>/
   manifest.json
   <source>/…/<page>.md          # selected pages, original relative paths
-  <source>/meta.json            # {repo, module: <source name>, base_url, commit, pages: {path: {title, doc_type, section}}, residue, unresolved}
+  <source>/meta.json            # {artifact_version, repo, module: <source name>, base_url, commit, pages: {path: {title, doc_type, section}}, residue, unresolved, unrendered}
   _residue/<source>/…/<page>.md # leftovers, for excerpts and measurement
 ```
 
 This layout is a stable contract that consumers rely on; keep it exact.
-`base_url` is `https://github.com/<owner>/<repo>/blob/<commit>`.
+`base_url` is `https://github.com/<owner>/<repo>/blob/<commit>`. `meta.json` carries the same
+`artifact_version` as the manifest (§2.8), so a consumer reading one source directory can check
+it without the manifest.
 
 ### 2.4 `residue.jsonl` — what was left out (machine-written, reviewable)
 
@@ -219,6 +224,28 @@ Every page mentioned in "New residue", "Duplicates", "Added pages", "Removed pag
 (§2.4, §11, §2.2); a mention with no title renders as `path` in code instead. "Unresolved
 links" links the navigation file the dangling link came from, not the missing target, since the
 target does not exist (§2.4).
+
+### 2.8 Artifact contract version
+
+The artifact contract is everything a consumer of an artifact reads: the directory layout of
+§2.3, the fields of `<source>/meta.json` and the fields of `manifest.json` (§2.2). It carries
+one integer version, `artifact_version`, written into both `manifest.json` and every
+`meta.json`; the current version is 1. A file without the field is version 1.
+
+Within a major, changes are additive only: a new field, a new optional file, a new enum value.
+Removing or renaming a field or a file, or changing what an existing field means, is a new
+major. A reader accepts an equal or lower version and rejects a higher one with a single line
+naming both versions (`artifact version 2 is newer than this pinakes supports (1); upgrade
+pinakes`): the manifest reader when it loads `manifest.json`, and the artifact reader when it
+loads a source's `meta.json`, so every consumer that goes through the library's artifact reader
+gets the check without doing anything. A JSON Schema for `manifest.json` is generated from the
+code and committed at `docs/schemas/manifest.schema.json`; a test keeps it current.
+
+Upgrading: `verify` compares the artifact's `manifest.json` and every `meta.json` byte for byte
+with what the current manifest implies, so an artifact materialised by a release that did not
+write `artifact_version` exits 3 (`manifest.json` differs, plus one `meta.json` per source);
+run `resolve --from-manifest` to rematerialise it and commit the one-line `artifact_version`
+diff to `manifest.json`.
 
 ## 3. External resolver contract
 

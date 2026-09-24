@@ -7,6 +7,21 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- `manifest.json` and every `<source>/meta.json` carry `artifact_version` (issue #49, SPEC
+  §2.8): the artifact contract they follow (directory layout, `meta.json` fields, manifest
+  fields), currently 1. Missing means 1; a newer major is rejected on read by the manifest reader
+  and by the artifact reader every backend, `eval`, `embed` and the Python wheel go through, with
+  one line: `artifact version 2 is newer than this pinakes supports (1); upgrade pinakes`.
+- A JSON Schema for `manifest.json`, generated from the manifest types with the new `schemars`
+  dependency and committed at `docs/schemas/manifest.schema.json`; `tests/schema.rs` pins it
+  (refresh with `UPDATE_SCHEMAS=1 cargo test --test schema`, also part of `just update-golden`).
+
+### Changed
+
+- `verify` exits 3 on an artifact materialised by a previous release, since its `manifest.json`
+  and `meta.json` files lack `artifact_version`; run `resolve --from-manifest` and commit the
+  one-line manifest diff.
+
 - A `justfile`: `just install` (cargo install from the checkout), `just check` (the offline CI
   gates), `just e2e` (the example against the network), `just update-golden`, `just wheel`,
   `just audit`, and `just skill <project>` to symlink the curate skill into a project.
