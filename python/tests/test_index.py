@@ -7,6 +7,7 @@ pages in the lower-priority sources are left out of the search corpus. ``tests/q
 pins the query -> expected-page pairs reused below.
 """
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -76,3 +77,24 @@ def test_read_round_trips_page_metadata(index: Index) -> None:
 
 def test_read_missing_page_returns_none(index: Index) -> None:
     assert index.read("handbook::docs/does-not-exist.md") is None
+
+
+def test_chunks_are_the_units_eval_measures(index: Index) -> None:
+    # Pinned by tests/chunks_cli.rs: 52 units over the 30 searchable pages.
+    chunks = index.chunks()
+    assert len(chunks) == 52
+    assert chunks[0].id == "cookbook::docs/README.md#0"
+    assert chunks[0].ordinal == 0
+    assert chunks[0].heading == ""
+    assert chunks[0].text.startswith("Cookbook\n\n# Cookbook\n\n")
+    assert repr(chunks[0]).startswith("Chunk(")
+    # ids are page#ordinal, ordinals restart at 0 on every page and run consecutively.
+    next_ordinal: dict[str, int] = {}
+    for chunk in chunks:
+        assert chunk.id == f"{chunk.page}#{chunk.ordinal}"
+        assert chunk.ordinal == next_ordinal.get(chunk.page, 0)
+        next_ordinal[chunk.page] = chunk.ordinal + 1
+    assert len(next_ordinal) == index.searchable_count
+    # sha256 is the hash of the text's UTF-8 bytes.
+    for chunk in chunks:
+        assert chunk.sha256 == hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()

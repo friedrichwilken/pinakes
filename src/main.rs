@@ -12,6 +12,7 @@ use pinakes::commands::Paths;
 
 mod cli;
 
+use cli::chunks::{ChunksArgs, run_chunks};
 use cli::classify::{ClassifyArgs, run_classify};
 use cli::decide::{DecideArgs, run_decide};
 use cli::diff::run_diff;
@@ -77,6 +78,8 @@ enum Command {
     Duplicates(DuplicatesArgs),
     /// Embed every retrieval unit through an OpenAI-compatible endpoint (SPEC §16.2).
     Embed(EmbedArgs),
+    /// Emit the retrieval units `eval` measures, one JSON object per line (SPEC §2.9).
+    Chunks(ChunksArgs),
     /// Ask a model to judge undecided residue and near-duplicate candidates.
     Classify(ClassifyArgs),
     /// Replay a served-query trail against a backend and grade each candidate with a model.
@@ -126,6 +129,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Duplicates(args) => run_duplicates(paths, args),
         Command::Queries { command } => run_queries(&paths, command),
         Command::Embed(args) => run_embed(paths, args),
+        Command::Chunks(args) => run_chunks(&paths, args),
         Command::Classify(args) => run_classify(&paths, args),
         Command::Grade(args) => run_grade(&paths, args),
         Command::Usage(args) => run_usage(&paths, args),

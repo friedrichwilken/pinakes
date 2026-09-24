@@ -246,6 +246,28 @@ with what the current manifest implies, so an artifact materialised by a release
 write `artifact_version` exits 3 (`manifest.json` differs, plus one `meta.json` per source);
 run `resolve --from-manifest` to rematerialise it and commit the one-line `artifact_version`
 diff to `manifest.json`.
+### 2.9 `chunks.jsonl` — the retrieval units (machine-written, optional)
+
+`{"heading": "Install", "id": "handbook::docs/install.md#1", "ordinal": 1, "page": "handbook::docs/install.md", "sha256": "…", "text": "Install\nInstall\n\nRun the installer …"}`
+
+One line per retrieval unit of the artifact, cut by exactly the rules of §5, in page then unit
+order. Written by `chunks` (§4) to `--out FILE` or stdout; keys sorted. Fields:
+
+- `page`: the page id, `<source>::<path>` (§2.2).
+- `ordinal`: the unit's 0-based position within its page.
+- `id`: `<page>#<ordinal>`, e.g. `handbook::docs/install.md#0` for the page intro.
+- `heading`: the unit's H2 heading, `<H2> / <H3>` for a section split at H3, empty for the intro.
+- `text`: the unit text `embed` (§16.2) embeds, title, heading and body joined as §5 step 4
+  shows. The built-in index scores the same cut as three fields (title ×3, heading ×2, body ×1),
+  so `chunks` pins the units, not their scores.
+- `sha256`: lowercase hex SHA-256 of `text`'s UTF-8 bytes.
+
+Mirror pages (§5) yield no lines, matching what `eval` indexes. `embeddings.bin` (§16.2) rows
+align with these lines positionally: row `i` is the embedding of chunk line `i` (its
+`unit_ids` name page ids today, not chunk ids). A consumer building its own
+index (stage b) can index these lines, or reimplement §5 and check its cut against them, so a
+recall number from `eval` describes the units it actually serves. An external backend (§16.4)
+may report these ids as the unit a hit refers to; that contract is not defined here yet.
 
 ## 3. External resolver contract
 
@@ -279,6 +301,7 @@ All commands take `--config pinakes.yaml` (default) and print human output to st
 | `eval [--artifact DIR] [--json OUT] [--gate BASELINE.json]` | artifact, queries | table on stderr, json on stdout | 0; 2 gate failed |
 | `eval --with ID… / --without ID…` | as above | delta for adding/removing pages | 0 |
 | `verify [--artifact DIR]` | config, committed manifest | nothing | 0; 3 manifest stale; 4 policy violation |
+| `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` (§2.9) in `FILE` or on stdout, a summary on stderr | 0; 1 error |
 
 `resolve` downloads codeload tarballs (no git needed), reads the resolved commit from the tarball's
 pax `comment` header, falls back to the wrapper directory suffix; unauthenticated, `GITHUB_TOKEN`
@@ -289,7 +312,31 @@ used when present; checks `archived` via the GitHub API, degrading to unknown on
 - tantivy, in-memory index built from the artifact at `eval` time.
 - Units: the page intro (text before the first H2) and one unit per H2 section; H2 sections over
   1200 tokens are split at H3. Fields: `title` (boost 3), `heading` (boost 2), `body`, plus
-  stored `page_id`, `source`, `doc_type`.
+  stored `page_id`, `source`, `doc_type`. The exact cut, which `chunks` (§2.9) emits, `embed`
+  (§16.2) embeds and this index scores as those three fields:
+  1. Start from the page's cleaned content (frontmatter and HTML comments removed, §2.3) and
+     reduce it to index text, in this order: images `!\[([^\]]*)\]\([^)]*\)` become their
+     label (`$1`), then links `\[([^\]]*)\]\([^)]*\)` become their label, then every HTML tag
+     `</?[a-zA-Z][^>]*>` (which may span lines) becomes one space.
+  2. Split at H2 lines, going line by line: a line matching `^##\s+(.+?)\s*#*\s*$` opens a new
+     unit whose heading is the captured text, trimmed; lines inside a fenced code block (a line
+     whose trimmed start is ```` ``` ```` toggles the fence) never count as headings. The lines
+     before the first H2 are the intro, with an empty heading; a part with an empty heading is
+     dropped when blank (whitespace only). A page without H2 lines is a single intro unit, even
+     when empty.
+  3. An H2 unit (never the intro) whose body has more than 1200 tokens is split again the same
+     way at H3 lines (`^###\s+(.+?)\s*#*\s*$`): the lines before its first
+     H3 keep the H2 heading (dropped when blank), each H3 part gets the heading `<H2> / <H3>`.
+     Tokens are counted as the tokeniser below emits them: after stopword removal (the list is
+     `tokenizer::STOPWORDS`: a, an, and, are, as, at, be, by, can, do, does, for, from, how, i,
+     if, in, is, it, its, my, of, on, or, that, the, this, to, was, what, when, which, with, you,
+     your) and including the §10.3 compound forms, which count as extra tokens.
+  4. A unit's text is `<title>\n\n<body>` for the intro and `<title>\n<heading>\n\n<body>`
+     otherwise, where `title` is the page's navigation title, else its H1, else its frontmatter
+     title, and `body` is the unit's lines joined with `\n` (heading lines excluded; a page's
+     trailing newline is not kept). Lines are Rust's `str::lines`: split at `\n`, a trailing
+     `\r` dropped from each line, so a CRLF page yields the same text and `sha256` as its
+     LF-only twin, which a splitter that keeps `\r` would not. Mirror pages yield no units.
 - Page score = max unit score. Results are de-duplicated by tokenised title; when two sources carry
   the same title (nav title or H1), only the higher `priority` source's page is indexed (mirror rule).
   Priorities come from `pinakes.yaml` alone (`priority`, default 1): a source the config does not
@@ -614,7 +661,8 @@ release so `@v1` always resolves to the newest compatible one.
 `python/` contains a PyO3 crate `pinakes-py` built with maturin exposing `pinakes.Index`:
 `Index.build(artifact_dir, priorities: dict[str,int] | None = None)`, `search(query, k=10,
 module=None) -> list[Hit]` with `Hit(page_id, score, heading)`, `page_count`, `searchable_count`,
-and `read(page_id) -> Page(title, url, module, doc_type, section, content)`. Built in CI for
+`read(page_id) -> Page(title, url, module, doc_type, section, content)` and `chunks() ->
+list[Chunk]` with `Chunk(id, page, heading, ordinal, text, sha256)` (§2.9). Built in CI for
 Linux x86_64/aarch64 and macOS arm64 on tags, attached to the release; not published to PyPI.
 
 ## 18. Definition of done for iteration 2
