@@ -1,7 +1,9 @@
 # Releases
 
-A release is a tag `vX.Y.Z` on `main`, matching the `version` in `Cargo.toml`. Pushing the
-tag runs `.github/workflows/release.yml`, which builds release binaries for
+A release is a tag `vX.Y.Z` on `main`, matching the `version` in `Cargo.toml` and in
+`python/Cargo.toml` (`python/pyproject.toml` takes its version from the latter, so the wheel
+cannot lag the crate). Pushing the tag runs `.github/workflows/release.yml`, which first fails
+when the tag and the two `Cargo.toml` versions disagree, then builds release binaries for
 `x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl` (static), `aarch64-unknown-linux-gnu`
 and `aarch64-apple-darwin` (Apple silicon only; Intel Macs are not supported), packages each as
 `pinakes-X.Y.Z-<target>.tar.gz` (the binary, `README.md`, `LICENSE` and `SPEC.md`), builds the
