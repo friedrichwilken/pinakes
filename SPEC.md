@@ -55,6 +55,13 @@ eval:
   # backend_url: http://localhost:8080   # for backend: external
   # embeddings: embeddings.bin       # for backend: dense | hybrid, relative to this file
   # compare: [bm25, dense, hybrid]   # one table per backend; wins over `backend` for a bare eval
+gates:                               # `check` (§2.11) exits 2 when report.json exceeds a maximum
+  undecided_residue_max: 0           # each key is optional; an absent key is a gate that is off
+  removed_pages_max: 5
+  # expired_decisions_max: 0
+  # archived_sources_max: 0
+  # unresolved_links_max: 0
+  # duplicates_max: 0
 ```
 
 Precedence for a file: `policy.deny` > source `resolver.exclude` > decisions > resolver selection.
@@ -344,6 +351,37 @@ Fields, one per report section, in the section order of §2.7:
 - `usage` — `null` unless a usage report was given (§15.3), else that report's
   `never_retrieved`, `retrieved_never_cited` and `uncited_queries` as `usage --json` writes them.
 
+### 2.11 `check` — gates on `report.json`
+
+`check [--report FILE]` reads a `report.json` (default: `report.json` next to the config) and
+compares each maximum set under `gates:` in `pinakes.yaml` (§2.1) with the corresponding count in
+it. Recall is not gated here; that stays with `eval --gate`. The gates, and the fact each one
+reads:
+
+| gate | count in `report.json` |
+|---|---|
+| `undecided_residue_max` | the length of `residue.undecided` |
+| `removed_pages_max` | the length of `pages.removed`; empty when `report` ran without `--old` (`summary.changes` is `null`), so the gate then passes vacuously and `check` prints a `warning:` line on stderr |
+| `expired_decisions_max` | the length of `expired_decisions` |
+| `archived_sources_max` | the length of `archived_sources` |
+| `unresolved_links_max` | the number of ids over every source in `unresolved_links` |
+| `duplicates_max` | `duplicates.count` (pairs of every kind) |
+
+A gate is violated when its count is strictly greater than the maximum; equal passes. An absent
+key is a gate that is off. On stderr, one line per violated gate, `gate <name>: <count> >
+<maximum>`, then a summary line: `gates: ok (N checked)`, `gates: FAILED (M of N violated)` or,
+when no gate is set at all, `gates: none configured` (the report is then not read). On stdout,
+one JSON line with the same facts, so a workflow reads the outcome without parsing stderr:
+
+```json
+{"version":1,"checked":2,"violations":[{"gate":"undecided_residue_max","limit":0,"actual":3}]}
+```
+
+`version` follows the rule of §2.10. Exit 0 when nothing is violated, 2 when something is, 1 on
+an error — including a missing report file, which the message says to produce with
+`report --json` first, and a report whose `version` is newer than this build's (§2.10), which
+is refused rather than read with the wrong meaning.
+
 ## 3. External resolver contract
 
 pinakes runs `command + args` with cwd = the checked-out repository, env `PINAKES_SOURCE=<name>`,
@@ -373,6 +411,7 @@ All commands take `--config pinakes.yaml` (default) and print human output to st
 | `residue list [--source S] [--reason R] [--include-excluded]` | `residue.jsonl` (+ decisions to hide decided ones) | JSONL | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME]` | residue + manifest for the hash | appends to `decisions.jsonl` | 0; 1 unknown id |
 | `report [--old M] [--new M] [--eval-before E] [--eval-after E] [--json OUT]` | manifests, residue, decisions, eval json | `report.md` on stdout; `report.json` (§2.10) in `OUT` | 0 |
+| `check [--report FILE]` | config `gates`, `report.json` (§2.11) | violated gates on stderr, JSON summary on stdout | 0 ok; 2 gate violated; 1 error (e.g. no report) |
 | `eval [--artifact DIR] [--json OUT] [--gate BASELINE.json]` | artifact, queries | table on stderr, json on stdout | 0; 2 gate failed |
 | `eval --with ID… / --without ID…` | as above | delta for adding/removing pages | 0 |
 | `verify [--artifact DIR]` | config, committed manifest | nothing | 0; 3 manifest stale; 4 policy violation |

@@ -25,3 +25,6 @@ eval:
   queries: queries.jsonl
   k: 10
   max_recall_drop: 0.05
+gates:                               # `pinakes check` compares report.json with these (SPEC §2.11)
+  undecided_residue_max: 1           # residue.jsonl has one expected entry (SUMMARY.md); absent = off
+  removed_pages_max: 5

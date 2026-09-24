@@ -134,6 +134,30 @@ pub enum CommandError {
     /// `report.json` (SPEC §2.10) could not be written or read.
     #[error(transparent)]
     Report(#[from] ReportError),
+    /// `check` found no `report.json` to compare the gates against.
+    #[error(
+        "{}: no report to check; run `pinakes report --json {}` first",
+        path.display(),
+        path.display()
+    )]
+    NoReport {
+        /// Where the report was expected.
+        path: PathBuf,
+    },
+    /// `check` was given a `report.json` newer than this build understands (SPEC §2.10).
+    #[error(
+        "{}: report.json version {version} is newer than this build understands ({supported}); \
+         a newer pinakes wrote it",
+        path.display()
+    )]
+    ReportVersion {
+        /// The report file.
+        path: PathBuf,
+        /// The document's `version`.
+        version: u32,
+        /// The version this build writes and reads.
+        supported: u32,
+    },
 }
 
 /// A page-loading failure is reported as the [`IndexError`] it has always been.

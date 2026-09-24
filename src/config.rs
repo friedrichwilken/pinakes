@@ -109,6 +109,9 @@ pub struct Config {
     /// Evaluation settings (used by `eval`, part 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eval: Option<EvalConfig>,
+    /// Maxima `check` compares `report.json` against (SPEC §2.11); absent means no gate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gates: Option<Gates>,
 }
 
 /// One documentation source: a GitHub repository at a ref, with a resolver.
@@ -365,6 +368,49 @@ pub struct EvalConfig {
 
 fn default_k() -> usize {
     10
+}
+
+/// The gates `check` applies to `report.json` (SPEC §2.1 `gates`, §2.11). Every field is a
+/// maximum; a count above it violates the gate, and an absent field is a gate that is off.
+/// Recall is not gated here: that is `eval --gate`'s job.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Gates {
+    /// Most residue entries no effective decision covers (`residue.undecided`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undecided_residue_max: Option<usize>,
+    /// Most pages removed since the previous manifest (`pages.removed`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed_pages_max: Option<usize>,
+    /// Most expired decisions (`expired_decisions`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expired_decisions_max: Option<usize>,
+    /// Most sources whose repository is archived (`archived_sources`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_sources_max: Option<usize>,
+    /// Most dangling navigation links over every source (`unresolved_links`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unresolved_links_max: Option<usize>,
+    /// Most duplicate pairs of any kind (`duplicates.count`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duplicates_max: Option<usize>,
+}
+
+impl Gates {
+    /// How many gates are set: the `N` in `check`'s `gates: ok (N checked)`.
+    pub fn configured(&self) -> usize {
+        [
+            self.undecided_residue_max,
+            self.removed_pages_max,
+            self.expired_decisions_max,
+            self.archived_sources_max,
+            self.unresolved_links_max,
+            self.duplicates_max,
+        ]
+        .iter()
+        .filter(|gate| gate.is_some())
+        .count()
+    }
 }
 
 fn default_holdout_min() -> f64 {
@@ -644,6 +690,9 @@ eval:
   queries: queries.jsonl
   k: 10
   max_recall_drop: 0.05
+gates:
+  undecided_residue_max: 0
+  removed_pages_max: 5
 "#;
 
     fn minimal(name: &str, repo: &str) -> String {
@@ -740,10 +789,66 @@ eval:
     }
 
     #[test]
+    fn parses_the_gates_and_rejects_an_unknown_gate() {
+        let config = Config::from_yaml(FULL).unwrap();
+        let gates = config.gates.unwrap();
+        assert_eq!(gates.undecided_residue_max, Some(0));
+        assert_eq!(gates.removed_pages_max, Some(5));
+        assert_eq!(gates.expired_decisions_max, None);
+        assert_eq!(gates.archived_sources_max, None);
+        assert_eq!(gates.unresolved_links_max, None);
+        assert_eq!(gates.duplicates_max, None);
+        assert_eq!(gates.configured(), 2);
+
+        // Every gate parses; an empty block is a block with nothing configured.
+        let yaml = format!(
+            "{}gates:\n  undecided_residue_max: 1\n  removed_pages_max: 2\n  \
+             expired_decisions_max: 3\n  archived_sources_max: 4\n  unresolved_links_max: 5\n  \
+             duplicates_max: 6\n",
+            minimal("handbook", "https://github.com/example-org/handbook.git")
+        );
+        let gates = Config::from_yaml(&yaml).unwrap().gates.unwrap();
+        assert_eq!(
+            gates,
+            Gates {
+                undecided_residue_max: Some(1),
+                removed_pages_max: Some(2),
+                expired_decisions_max: Some(3),
+                archived_sources_max: Some(4),
+                unresolved_links_max: Some(5),
+                duplicates_max: Some(6),
+            }
+        );
+        assert_eq!(gates.configured(), 6);
+        let yaml = format!(
+            "{}gates: {{}}\n",
+            minimal("handbook", "https://github.com/example-org/handbook.git")
+        );
+        assert_eq!(
+            Config::from_yaml(&yaml).unwrap().gates,
+            Some(Gates::default())
+        );
+        assert_eq!(Gates::default().configured(), 0);
+
+        // A recall gate belongs to `eval`, and a typo must not silently switch a gate off.
+        for bad in ["recall_drop_max: 0.05", "undecided_residue_mx: 0"] {
+            let yaml = format!(
+                "{}gates:\n  {bad}\n",
+                minimal("handbook", "https://github.com/example-org/handbook.git")
+            );
+            assert!(
+                matches!(Config::from_yaml(&yaml).unwrap_err(), ConfigError::Yaml(_)),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
     fn defaults_apply_when_sections_are_missing() {
         let config = Config::from_yaml(&minimal("a", "https://github.com/o/r")).expect("valid");
         assert_eq!(config.policy, Policy::default());
         assert!(config.eval.is_none());
+        assert!(config.gates.is_none());
         assert_eq!(config.sources[0].priority, DEFAULT_PRIORITY);
         assert_eq!(config.sources[0].slug().url(), "https://github.com/o/r.git");
         assert!(config.source("a").is_some());

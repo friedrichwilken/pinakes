@@ -1,3 +1,4 @@
+pub(crate) mod check;
 pub(crate) mod chunks;
 pub(crate) mod classify;
 pub(crate) mod decide;
@@ -13,7 +14,7 @@ pub(crate) mod resolve;
 pub(crate) mod usage;
 pub(crate) mod verify;
 
-/// Exit code for a failed `eval --gate`.
+/// Exit code for a failed `eval --gate` or a violated gate in `check`.
 pub(crate) const EXIT_GATE: u8 = 2;
 /// Exit code for `diff` differences and a stale manifest in `verify`.
 pub(crate) const EXIT_DIFFERENCES: u8 = 3;
