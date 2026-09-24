@@ -14,6 +14,8 @@ pinakes-artifact*/
 # Outputs of eval and report (the example's manifest, residue and queries stay tracked)
 /report.md
 /examples/report.md
+/report.json
+/examples/report.json
 eval*.json
 !/tests/fixtures/**/eval*.json
 /examples/decisions.jsonl.bak
