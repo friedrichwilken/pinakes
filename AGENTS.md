@@ -53,8 +53,10 @@ shim so paths used before the split (`pinakes::resolve::precedence`, and so on) 
 mirror rule); `index` (`tokenizer.rs`... `index/bm25.rs`, `index/sections.rs`) builds the BM25
 index on it and re-exports its and `tokenizer`'s items, so `pinakes::index::...` paths did not
 move; `backend` (`bm25`, `tantivy`, `dense`, `hybrid`, `external`) depends on `corpus`, `index`
-and `embed`; `eval` measures a `Backend` and depends only on `index`, `jsonl`, `num` (not
-`backend` itself — the code that picks a backend for `eval` lives in `commands::eval`).
+and `embed`; `chunks` (`Chunk`, `chunks.jsonl`'s schema, built on `index::iter_units`) depends
+on `corpus`, `index` and `text`; `eval` measures a `Backend` and depends only on `index`,
+`jsonl`, `num` (not `backend` itself — the code that picks a backend for `eval` lives in
+`commands::eval`).
 
 **Everything else that reports on the corpus** (peers; each may use the others): `duplicates`
 and `classify` (`ClassifyItem`, LLM judging of undecided residue/near-duplicates) both read a

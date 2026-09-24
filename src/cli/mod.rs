@@ -1,3 +1,4 @@
+pub(crate) mod chunks;
 pub(crate) mod classify;
 pub(crate) mod decide;
 pub(crate) mod diff;

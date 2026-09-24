@@ -15,6 +15,11 @@ All notable changes to this project are documented in this file. The format is b
 - A JSON Schema for `manifest.json`, generated from the manifest types with the new `schemars`
   dependency and committed at `docs/schemas/manifest.schema.json`; `tests/schema.rs` pins it
   (refresh with `UPDATE_SCHEMAS=1 cargo test --test schema`, also part of `just update-golden`).
+- `pinakes chunks [--artifact DIR] [--out FILE]` (SPEC §2.9) writes the retrieval units `eval`
+  measures as JSONL (`id`, `page`, `heading`, `ordinal`, `text`, `sha256`), cut by the same
+  code, so a consumer's own index can agree with the measured one; SPEC §5 now states the
+  splitting rules precisely enough to reimplement. The Python wheel gains `Index.chunks()`
+  (issue #19).
 
 ### Changed
 

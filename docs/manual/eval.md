@@ -146,6 +146,8 @@ Pages are cleaned of frontmatter, HTML comments, link and image targets and HTML
 into the intro plus one unit per H2 (H2 sections over 1200 tokens split at H3), scored by title
 (×3), heading (×2) and body, ranked by their best unit and de-duplicated by tokenised title. The
 tokeniser lowercases, keeps `[a-z0-9]+` runs and drops a small stopword list; no stemming.
+`pinakes chunks` ([Commands](commands.md#chunks)) emits exactly these units, so a consumer's own
+index can be checked against what `eval` measured.
 
 **Scoring.** The score is Okapi BM25 with `k1` 1.5, `b` 0.75 and negative IDFs floored at a
 quarter of the average IDF, computed with exact unit lengths, and field boosts act as

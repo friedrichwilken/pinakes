@@ -21,4 +21,6 @@ print(index.page_count, "pages,", index.searchable_count, "searchable")
 hits = index.search("how do I install the service", k=3)
 page = index.read(hits[0].page_id)
 print(page.title, page.url)
+for chunk in index.chunks():          # the units eval measures, as `pinakes chunks` emits them
+    print(chunk.id, chunk.heading, chunk.sha256)
 ```

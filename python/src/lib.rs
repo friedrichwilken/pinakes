@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pinakes_lib::artifact::{META_FILE, Meta};
+use pinakes_lib::chunks;
 use pinakes_lib::index::{self, Priorities};
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
@@ -93,6 +94,59 @@ impl Page {
     }
 }
 
+/// One retrieval unit (SPEC §2.9): the same cut `pinakes chunks` emits and `pinakes eval` scores.
+#[pyclass(module = "pinakes", frozen, skip_from_py_object)]
+#[derive(Debug, Clone)]
+struct Chunk {
+    /// `<page>#<ordinal>`.
+    #[pyo3(get)]
+    id: String,
+    /// The page id, `<source>::<path>`.
+    #[pyo3(get)]
+    page: String,
+    /// The H2 heading, `<H2> / <H3>` for a section split at H3, empty for the intro.
+    #[pyo3(get)]
+    heading: String,
+    /// The unit's 0-based position within its page.
+    #[pyo3(get)]
+    ordinal: usize,
+    /// The unit text `embed` embeds: title, heading and body joined (SPEC §5 step 4); the
+    /// built-in index scores the same three parts as separate fields.
+    #[pyo3(get)]
+    text: String,
+    /// Lowercase hex SHA-256 of `text`'s UTF-8 bytes.
+    #[pyo3(get)]
+    sha256: String,
+}
+
+#[pymethods]
+impl Chunk {
+    fn __repr__(&self) -> String {
+        format!(
+            "Chunk(id={:?}, page={:?}, heading={:?}, ordinal={}, text=<{} chars>, sha256={:?})",
+            self.id,
+            self.page,
+            self.heading,
+            self.ordinal,
+            self.text.chars().count(),
+            self.sha256
+        )
+    }
+}
+
+impl From<chunks::Chunk> for Chunk {
+    fn from(chunk: chunks::Chunk) -> Self {
+        Chunk {
+            id: chunk.id,
+            page: chunk.page,
+            heading: chunk.heading,
+            ordinal: chunk.ordinal,
+            text: chunk.text,
+            sha256: chunk.sha256,
+        }
+    }
+}
+
 /// The in-memory BM25 index over an artifact directory (SPEC §5), the same index `pinakes eval`
 /// measures the corpus with.
 #[pyclass(module = "pinakes")]
@@ -166,6 +220,17 @@ impl Index {
         self.inner.searchable_count()
     }
 
+    /// Every retrieval unit of the searchable pages (SPEC §2.9), in page then unit order: the
+    /// same cut `pinakes chunks` writes and `eval` measures, so a consumer's own index can be
+    /// built from, or checked against, exactly what was scored. Mirror pages yield no chunks.
+    fn chunks(&self, py: Python<'_>) -> Vec<Chunk> {
+        let inner = &self.inner;
+        py.detach(|| chunks::chunks(inner.pages()))
+            .into_iter()
+            .map(Chunk::from)
+            .collect()
+    }
+
     /// The page with this id (`<source>::<path>`), or `None` if there is no such page.
     fn read(&self, page_id: &str) -> PyResult<Option<Page>> {
         let Some(page) = self.inner.page(page_id) else {
@@ -189,5 +254,6 @@ fn pinakes(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Index>()?;
     m.add_class::<Hit>()?;
     m.add_class::<Page>()?;
+    m.add_class::<Chunk>()?;
     Ok(())
 }

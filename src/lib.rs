@@ -25,8 +25,9 @@
 //!
 //! [`corpus`] loads an artifact directory into pages (source priorities, the mirror rule);
 //! [`index`] builds the built-in BM25 index on top of it and re-exports its items, so
-//! `pinakes::index::...` paths did not move; [`backend`] / [`embed`] give [`eval`] a choice of
-//! retriever shapes (SPEC §16) beyond that built-in index.
+//! `pinakes::index::...` paths did not move; [`chunks`] emits those units as `chunks.jsonl`, the
+//! contract a consumer's own index can be checked against; [`backend`] / [`embed`] give [`eval`]
+//! a choice of retriever shapes (SPEC §16) beyond that built-in index.
 //!
 //! [`duplicates`] finds near-duplicate and mirror pages; [`classify`] uses [`llm`] to judge
 //! undecided residue and near-duplicate candidates; [`grade`] uses the judge to grade what a
@@ -43,6 +44,7 @@
 
 pub mod artifact;
 pub mod backend;
+pub mod chunks;
 pub mod classify;
 pub mod commands;
 pub mod config;
