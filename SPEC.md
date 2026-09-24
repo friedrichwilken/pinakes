@@ -268,6 +268,81 @@ align with these lines positionally: row `i` is the embedding of chunk line `i` 
 index (stage b) can index these lines, or reimplement §5 and check its cut against them, so a
 recall number from `eval` describes the units it actually serves. An external backend (§16.4)
 may report these ids as the unit a hit refers to; that contract is not defined here yet.
+### 2.10 `report.json` — the report's facts (machine-readable)
+
+`report --json OUT` writes the facts behind `report.md` as one JSON document. The Markdown and
+the JSON are rendered from the same prepared structure (the effective decisions, the residue and
+its undecided subset, the diff, the expired decisions, and so on, computed once), so they
+cannot drift: every count or id the Markdown shows is in the JSON, and every list keeps the
+Markdown's order. The JSON additionally carries the id lists and counts a CI gate needs (the
+undecided ids, the eval `n` per row, the duplicate count); titles, URLs, excerpts and prose
+stay in the Markdown. The file is pretty-printed with a two-space indent and a trailing
+newline. Shown here compacted, this is the document for the report the test fixture
+`tests/snapshots/report_full.md` renders (`tests/snapshots/report_full.json` is the file):
+
+```json
+{
+  "version": 1,
+  "summary": {"sources": 1, "pages": 3, "residue": 5, "undecided": 3, "excluded": 0, "decisions": 4, "changes": {"since": "2026-09-01T00:00:00Z", "added": 1, "removed": 3, "changed": 1}},
+  "eval": {
+    "before": {"tuning": {"overall": {"recall@5": 0.8, "recall@10": 0.85, "mrr": 0.66, "n": 40}, "per_kind": {"howto": {"recall@5": 0.9, "recall@10": 0.95, "mrr": 0.8, "n": 10}}},
+               "holdout": {"overall": {"recall@5": 0.5, "recall@10": 0.5, "mrr": 0.4, "n": 4}, "per_kind": {}}},
+    "after": {"tuning": {"overall": {"recall@5": 0.85, "recall@10": 0.9, "mrr": 0.7, "n": 40}, "per_kind": {"concept": {"recall@5": 0.7, "recall@10": 0.7, "mrr": 0.5, "n": 5}, "howto": {"recall@5": 0.9, "recall@10": 1.0, "mrr": 0.85, "n": 10}}},
+              "holdout": {"overall": {"recall@5": 0.75, "recall@10": 0.75, "mrr": 0.6, "n": 4}, "per_kind": {}}}
+  },
+  "pages": {
+    "added": ["handbook::docs/new.md"],
+    "removed": [{"id": "handbook::docs/dropped.md", "reason": "excluded_by_decision"}, {"id": "handbook::docs/old.md", "reason": "gone_upstream"}, {"id": "removed-src::docs/x.md", "reason": "source_removed"}],
+    "changed": [{"id": "handbook::docs/changed.md", "lines_added": 2, "lines_removed": 1}]
+  },
+  "residue": {
+    "new": [{"rule": "nav:dangling-link", "text": "linked from `docs/_sidebar.md` but the file does not exist", "ids": ["handbook::docs/ghost.md"]},
+            {"rule": "glob:outside-include", "text": "outside the configured include patterns", "ids": ["handbook::docs/fresh.md"]}],
+    "undecided": ["handbook::docs/known-residue.md", "handbook::docs/fresh.md", "handbook::docs/ghost.md"],
+    "excluded": []
+  },
+  "expired_decisions": [{"id": "handbook::docs/changed.md", "decision": "unsure", "why": "page_changed"}, {"id": "handbook::docs/old.md", "decision": "include", "why": "page_gone"}],
+  "unresolved_links": {"handbook": ["handbook::docs/ghost.md"]},
+  "archived_sources": ["handbook"],
+  "duplicates": {"count": 2, "pairs": [
+    {"kind": "mirror", "canonical": "handbook::docs/new.md", "duplicate": "handbook::docs/getting-started.md", "similarity": 0.71, "suggested": "review"},
+    {"kind": "near", "canonical": "handbook::docs/getting-started.md", "duplicate": "removed-src::docs/x.md", "similarity": 0.93, "suggested": "exclude"}]},
+  "usage": null
+}
+```
+
+Fields, one per report section, in the section order of §2.7:
+
+- `version` — the document's major version. `1` today; a missing field means `1`. Within a
+  major version changes are additive only (new fields may appear, none is removed or changes
+  meaning); a field removal or a change of meaning bumps it.
+- `summary` — the Summary counts: `sources` and `pages` in the current manifest; `residue`
+  entries, of which `undecided` have no decision that applies to their current hash and
+  `excluded` carry reason `excluded` (§2.4); `decisions` in effect (the last line per id);
+  `changes` is `null` without a previous manifest, else `since` (the previous manifest's
+  `generated_at`) and the diff's `added`, `removed` and `changed` counts.
+- `eval` — `null` when no eval result was given; else `before` and `after` (each `null` when
+  not given), each with the `tuning` split and the `holdout` split (`null` when there are no
+  held-out queries), in the shape `eval --json` writes (`overall` and `per_kind`, each
+  `recall@5`, `recall@10`, `mrr`, `n`): the same numbers the before/after table prints.
+- `pages` — `added` page ids; `removed` pages with their `reason`, one of `gone_upstream`,
+  `dropped_by_resolver`, `source_removed` or `excluded_by_decision` (the wording the Markdown
+  prints, as identifiers); `changed` pages with `lines_added` and `lines_removed` (§13). All
+  empty without a previous manifest, else in the diff's order, as the Markdown lists them.
+- `residue` — `new`: the "New residue" groups in the Markdown's order, each the `rule` key and
+  `text` (§2.4) and the `ids` in that group in the Markdown's order; `undecided`: every
+  undecided residue id, in registry order (the order the Markdown lists residue in);
+  `excluded`: the groups of the collapsed excluded block, in the same shape.
+- `expired_decisions` — each expired decision's `id`, its `decision` (`include`, `exclude` or
+  `unsure`) and `why`: `page_changed` (the page exists with another hash) or `page_gone`.
+- `unresolved_links` — dangling navigation links (§2.4's `unresolved_link`), the residue ids
+  grouped by source name, each list in the Markdown's order.
+- `archived_sources` — the names of sources the manifest records as archived, by name.
+- `duplicates` — `count` and every pair (§11) as `kind` (`exact`, `mirror`, `near`), the
+  `canonical` and `duplicate` ids, `similarity` and the `suggested` verdict, in the Markdown's
+  order (by kind, then as `duplicates.jsonl` lists them).
+- `usage` — `null` unless a usage report was given (§15.3), else that report's
+  `never_retrieved`, `retrieved_never_cited` and `uncited_queries` as `usage --json` writes them.
 
 ## 3. External resolver contract
 
@@ -297,7 +372,7 @@ All commands take `--config pinakes.yaml` (default) and print human output to st
 | `diff OLD.json NEW.json` | two manifests | JSON on stdout (added/removed/changed/sources) and a human summary on stderr | 0 same; 3 differences |
 | `residue list [--source S] [--reason R] [--include-excluded]` | `residue.jsonl` (+ decisions to hide decided ones) | JSONL | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME]` | residue + manifest for the hash | appends to `decisions.jsonl` | 0; 1 unknown id |
-| `report [--old M] [--new M] [--eval-before E] [--eval-after E]` | manifests, residue, decisions, eval json | `report.md` on stdout | 0 |
+| `report [--old M] [--new M] [--eval-before E] [--eval-after E] [--json OUT]` | manifests, residue, decisions, eval json | `report.md` on stdout; `report.json` (§2.10) in `OUT` | 0 |
 | `eval [--artifact DIR] [--json OUT] [--gate BASELINE.json]` | artifact, queries | table on stderr, json on stdout | 0; 2 gate failed |
 | `eval --with ID… / --without ID…` | as above | delta for adding/removing pages | 0 |
 | `verify [--artifact DIR]` | config, committed manifest | nothing | 0; 3 manifest stale; 4 policy violation |

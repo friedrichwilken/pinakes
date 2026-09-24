@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "summary": {
+    "sources": 1,
+    "pages": 3,
+    "residue": 5,
+    "undecided": 3,
+    "excluded": 0,
+    "decisions": 4,
+    "changes": null
+  },
+  "eval": null,
+  "pages": {
+    "added": [],
+    "removed": [],
+    "changed": []
+  },
+  "residue": {
+    "new": [
+      {
+        "rule": "nav:dangling-link",
+        "text": "linked from `docs/_sidebar.md` but the file does not exist",
+        "ids": [
+          "handbook::docs/ghost.md"
+        ]
+      },
+      {
+        "rule": "glob:outside-include",
+        "text": "outside the configured include patterns",
+        "ids": [
+          "handbook::docs/known-residue.md",
+          "handbook::docs/fresh.md"
+        ]
+      }
+    ],
+    "undecided": [
+      "handbook::docs/known-residue.md",
+      "handbook::docs/fresh.md",
+      "handbook::docs/ghost.md"
+    ],
+    "excluded": []
+  },
+  "expired_decisions": [
+    {
+      "id": "handbook::docs/changed.md",
+      "decision": "unsure",
+      "why": "page_changed"
+    },
+    {
+      "id": "handbook::docs/old.md",
+      "decision": "include",
+      "why": "page_gone"
+    }
+  ],
+  "unresolved_links": {
+    "handbook": [
+      "handbook::docs/ghost.md"
+    ]
+  },
+  "archived_sources": [
+    "handbook"
+  ],
+  "duplicates": {
+    "count": 0,
+    "pairs": []
+  },
+  "usage": {
+    "never_retrieved": [
+      "handbook::docs/uninstall.md"
+    ],
+    "retrieved_never_cited": [
+      "handbook::docs/getting-started.md"
+    ],
+    "uncited_queries": [
+      {
+        "query": "how do I write a plugin",
+        "top_retrieved": "cookbook::docs/README.md",
+        "best_residue": {
+          "id": "cookbook::docs/recipes/draft-plugin.md",
+          "score": 1.42
+        }
+      },
+      {
+        "query": "totally unmatched question"
+      }
+    ]
+  }
+}

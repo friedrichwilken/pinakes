@@ -19,6 +19,7 @@ use crate::llm::ChatError;
 use crate::manifest::ManifestError;
 use crate::queries::QueriesError;
 use crate::render::RenderError;
+use crate::report::ReportError;
 use crate::residue::ResidueError;
 use crate::resolve::ResolveError;
 use crate::sources::SourceError;
@@ -130,6 +131,9 @@ pub enum CommandError {
     /// Bad or unreadable usage report, or an invalid `--since`.
     #[error(transparent)]
     Usage(#[from] UsageError),
+    /// `report.json` (SPEC §2.10) could not be written or read.
+    #[error(transparent)]
+    Report(#[from] ReportError),
 }
 
 /// A page-loading failure is reported as the [`IndexError`] it has always been.

@@ -32,11 +32,14 @@ pub struct ReportOptions {
     pub old_artifact: Option<PathBuf>,
     /// A `pinakes usage --json` report to render as the "Usage" section (SPEC §15.3).
     pub usage: Option<PathBuf>,
+    /// Also write the report's facts as `report.json` (SPEC §2.10) here.
+    pub json: Option<PathBuf>,
 }
 
 /// Run `report`: render the Markdown PR body from manifests, residue, decisions, duplicates,
-/// eval and usage files. `fetcher` is only used, per [`diff()`], to re-fetch a changed page's
-/// old text when `options.old_artifact` does not already have it.
+/// eval and usage files, and write the same facts as JSON to `options.json` when it is set
+/// (SPEC §2.10). `fetcher` is only used, per [`diff()`], to re-fetch a changed page's old text
+/// when `options.old_artifact` does not already have it.
 pub fn report(
     paths: &Paths,
     options: &ReportOptions,
@@ -73,7 +76,7 @@ pub fn report(
         })
         .transpose()?;
     let registry = PageRegistry::load(Some(&new), &residue);
-    Ok(report::render(ReportInput {
+    let prepared = report::prepare(ReportInput {
         old: old.as_ref(),
         new: &new,
         diff: computed_diff.as_ref(),
@@ -83,7 +86,11 @@ pub fn report(
         eval_after: eval_after.as_ref(),
         duplicates: &duplicate_pairs,
         usage: usage.as_ref(),
-    }))
+    });
+    if let Some(path) = &options.json {
+        prepared.facts().save(path)?;
+    }
+    Ok(prepared.markdown())
 }
 
 #[cfg(test)]
@@ -91,6 +98,7 @@ mod tests {
     use super::*;
     use crate::pipeline::resolve;
     use crate::pipeline::testing::{CONFIG, fetcher, opts, workspace};
+    use crate::report::ReportFacts;
 
     #[test]
     fn report_reads_the_workspace_files() {
@@ -108,6 +116,37 @@ mod tests {
         assert!(matches!(
             report(&paths, &options, &fetcher()).unwrap_err(),
             CommandError::Eval(_)
+        ));
+    }
+
+    #[test]
+    fn report_writes_its_facts_as_json_when_asked() {
+        let (_dir, paths) = workspace(CONFIG);
+        resolve(&paths, &opts(), &fetcher()).unwrap();
+        let json = paths.config_dir().join("report.json");
+        let options = ReportOptions {
+            json: Some(json.clone()),
+            ..ReportOptions::default()
+        };
+        let text = report(&paths, &options, &fetcher()).unwrap();
+        assert!(text.contains("- Pages: 2\n"), "{text}");
+        let facts = ReportFacts::load(&json).unwrap();
+        assert_eq!(facts.version, report::FACTS_VERSION);
+        assert_eq!(facts.summary.pages, 2);
+        assert_eq!(facts.duplicates.count, 0);
+        assert!(facts.summary.changes.is_none());
+        let written = std::fs::read_to_string(&json).unwrap();
+        assert!(written.starts_with("{\n  \"version\": 1,\n"), "{written}");
+        assert!(written.ends_with("}\n"));
+
+        // An unwritable path is the command's error, not a panic.
+        let options = ReportOptions {
+            json: Some(paths.config_dir().join("missing-dir").join("report.json")),
+            ..ReportOptions::default()
+        };
+        assert!(matches!(
+            report(&paths, &options, &fetcher()).unwrap_err(),
+            CommandError::Report(_)
         ));
     }
 }
