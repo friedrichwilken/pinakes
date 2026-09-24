@@ -7,6 +7,7 @@
 //! module re-exports them by name so every `pinakes::commands::<name>` path stays as it was
 //! when this was a single file.
 
+mod check;
 mod chunks;
 mod classify;
 mod decide;
@@ -27,6 +28,9 @@ pub use crate::error::CommandError;
 pub use crate::pipeline::{ResolveOptions, ResolveOutcome, resolve};
 pub use crate::workspace::Paths;
 
+pub use check::{
+    CHECK_VERSION, CheckOptions, CheckOutcome, Violation, check, check_gates, check_warnings,
+};
 pub use chunks::{ChunksOptions, ChunksOutcome, chunks};
 pub use classify::{ClassifyOptions, ClassifyOutcome, classify};
 pub use decide::decide;

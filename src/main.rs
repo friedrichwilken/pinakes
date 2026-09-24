@@ -12,6 +12,7 @@ use pinakes::commands::Paths;
 
 mod cli;
 
+use cli::check::{CheckArgs, run_check};
 use cli::chunks::{ChunksArgs, run_chunks};
 use cli::classify::{ClassifyArgs, run_classify};
 use cli::decide::{DecideArgs, run_decide};
@@ -67,6 +68,8 @@ enum Command {
     },
     /// Render the Markdown report (PR body) on stdout.
     Report(ReportArgs),
+    /// Compare report.json with the config's `gates`: exit 2 when a gate is violated.
+    Check(CheckArgs),
     /// Measure retrieval quality: table on stderr, JSON on stdout, exit 2 when the gate fails.
     Eval(EvalArgs),
     /// Grow and validate the judge, `queries.jsonl`.
@@ -125,6 +128,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             old_artifact,
         } => run_diff(&paths, &old, &new, new_artifact, old_artifact),
         Command::Report(args) => run_report(&paths, args),
+        Command::Check(args) => run_check(&paths, args),
         Command::Eval(args) => run_eval(paths, args),
         Command::Duplicates(args) => run_duplicates(paths, args),
         Command::Queries { command } => run_queries(&paths, command),

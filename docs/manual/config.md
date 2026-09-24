@@ -27,6 +27,9 @@ policy:
   deny: ["**/CLAUDE.md", "**/adr/**", "**/CHANGELOG.md"]
   archived: warn
   min_pages_per_source: 1
+gates:                               # optional; each key is a maximum `pinakes check` enforces
+  undecided_residue_max: 0
+  removed_pages_max: 5
 ```
 
 | Key | Meaning |
@@ -41,10 +44,31 @@ policy:
 | `policy.archived` | `warn` (default) or `drop` for a source whose GitHub repo is archived. |
 | `policy.min_pages_per_source` | `verify` reports a policy violation (exit 4) below this count. |
 | `eval` | Evaluation settings; see [Evaluation](eval.md#choosing-what-eval-measures). |
+| `gates` | Optional maxima for [`check`](commands.md#check); see [Gates](#gates) below. |
 
 `glob` selects files by pattern; `external` runs a command with `cwd` set to the checkout and
 `PINAKES_SOURCE`/`PINAKES_COMMIT` in the environment. See [Resolvers](resolvers.md) for the
 full contract and the four built-in navigation resolvers.
+
+## Gates
+
+`gates` holds the maxima [`pinakes check`](commands.md#check) compares against the counts in
+`report.json` (written by `report --json`). Every key is optional and an absent key is a gate
+that is off; a count strictly above its maximum violates the gate, equal passes. Recall is not
+gated here: that is `eval --gate` with `eval.max_recall_drop` (see
+[Evaluation](eval.md#choosing-what-eval-measures)).
+
+| Key | Counts |
+|---|---|
+| `gates.undecided_residue_max` | Residue entries no effective decision covers (`residue.undecided`). |
+| `gates.removed_pages_max` | Pages removed since the previous manifest (`pages.removed`). Only meaningful when `report` ran with `--old`; without it the count is empty, the gate passes vacuously and `check` prints a `warning:` line. |
+| `gates.expired_decisions_max` | Decisions whose page changed or vanished (`expired_decisions`). |
+| `gates.archived_sources_max` | Sources whose repository is archived (`archived_sources`). |
+| `gates.unresolved_links_max` | Dangling navigation links over every source (`unresolved_links`). |
+| `gates.duplicates_max` | Duplicate pairs of any kind, exact, mirror or near (`duplicates.count`). |
+
+The [weekly workflow](weekly-workflow.md) runs `check` after `report` and marks the pull
+request when a gate is violated.
 
 ## Page identity and precedence
 
@@ -66,6 +90,7 @@ decision (`decide` or `classify`) > the resolver's own selection.
 | `decisions.jsonl` | you or an agent | yes | Append-only verdicts on residue or a duplicate: `include`, `exclude` or `unsure`, tied to the page hash. Later lines win; a changed page expires the decision. |
 | `queries.jsonl` | you or a grader | yes | The judge for `eval`: query, expected page ids or prefixes, kind, holdout flag. See [Evaluation](eval.md). |
 | `report.md` | `report` | no | The PR body: counts, eval before/after, added/removed/changed pages, new residue, expired decisions, unresolved links, archived sources, duplicates. See [Commands](commands.md). |
+| `report.json` | `report --json` | no | The same facts as `report.md`, as JSON ([SPEC §2.10](../../SPEC.md#28-reportjson--the-reports-facts-machine-readable)); what `check` reads. |
 
 The artifact directory is not committed; it is rebuilt from the manifest with
 `resolve --from-manifest` wherever it is needed (locally, in CI, or by a consumer's build step).

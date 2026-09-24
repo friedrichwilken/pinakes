@@ -12,6 +12,7 @@ to stdout. `GITHUB_TOKEN` is used when set, to raise the GitHub API rate limit.
 | `duplicates [--artifact DIR] [--threshold 0.8] [--json OUT]` | artifact, manifest and config (optional) | JSONL on stdout or in `OUT`, summary on stderr | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME] [--superseded-by ID]` | residue, manifest | appends to `decisions.jsonl` | 0; 1 unknown id |
 | `report [--old M] [--new M] [--eval-before E] [--eval-after E] [--new-artifact DIR] [--old-artifact DIR] [--usage U] [--json OUT]` | manifests, residue, decisions, duplicates, eval JSON, usage JSON | `report.md` on stdout; with `--json`, its facts as JSON in `OUT` ([SPEC §2.8](../../SPEC.md#28-reportjson--the-reports-facts-machine-readable)) | 0 |
+| `check [--report FILE]` | config (`gates`), `report.json` | violated gates on stderr, a one-line JSON summary on stdout | 0 ok; 2 gate violated; 1 error (including no `report.json`) |
 | `eval [--artifact DIR] [--queries FILE] [--k N] [--json OUT] [--gate BASELINE] [--with ID…] [--without ID…] [--backend NAME] [--backend-url URL] [--embeddings FILE] [--allow-stale] [--compare NAME,NAME,…]` | artifact, queries, config (optional), embeddings (`dense`/`hybrid`) | table(s) on stderr, JSON on stdout or in `OUT` | 0; 2 gate failed |
 | `embed [--artifact DIR] [--model NAME] [--out embeddings.bin] [--batch 64]` | artifact, `PINAKES_EMBED_URL`/`KEY`/`MODEL` | `embeddings.bin`, `embeddings.json` | 0; 1 error (including a missing endpoint) |
 | `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` on stdout or in `FILE`, summary on stderr | 0; 1 error |
@@ -39,6 +40,25 @@ Re-fetches exactly the recorded commits and copies exactly the recorded pages, r
 recorded `render` step; the artifact it produces is identical byte for byte, and any hash
 mismatch is an error rather than a silent drift. This is how a consumer's build step
 materialises a reviewed, committed manifest without re-running discovery.
+
+## `check`
+
+Reads the `report.json` that `report --json` writes (default: `report.json` next to the config;
+`--report FILE` for another) and compares each maximum under the config's
+[`gates`](config.md#gates) with the matching count. Prints one line per violated gate,
+`gate <name>: <count> > <maximum>`, then `gates: ok (N checked)`, `gates: FAILED (M of N
+violated)` or `gates: none configured` (nothing is read then), and on stdout one JSON line for
+scripts, `{"version":1,"checked":N,"violations":[{"gate":…,"limit":…,"actual":…}]}`:
+
+```sh
+pinakes report --old /tmp/old.json --json report.json > report.md
+pinakes check
+```
+
+Exit 2 when a gate is violated, 1 when the report is missing (the message says to run
+`report --json` first). Recall stays with `eval --gate`. The [weekly
+workflow](weekly-workflow.md) turns a violation into the pull request's title and label. The
+exact contract is [SPEC §2.11](../../SPEC.md#29-check--gates-on-reportjson).
 
 ## `diff`
 
