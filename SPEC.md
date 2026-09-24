@@ -415,11 +415,37 @@ All commands take `--config pinakes.yaml` (default) and print human output to st
 | `eval [--artifact DIR] [--json OUT] [--gate BASELINE.json]` | artifact, queries | table on stderr, json on stdout | 0; 2 gate failed |
 | `eval --with ID… / --without ID…` | as above | delta for adding/removing pages | 0 |
 | `verify [--artifact DIR]` | config, committed manifest | nothing | 0; 3 manifest stale; 4 policy violation |
+| `init [REPO_URL…] [--workflow] [--dir DIR]` | nothing; each URL is fetched once to detect its layout | `pinakes.yaml`, empty `decisions.jsonl` and `queries.jsonl`, `.gitignore` entries; with `--workflow`, `.github/workflows/curate.yml` | 0; 1 bad URL or I/O error |
 | `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` (§2.9) in `FILE` or on stdout, a summary on stderr | 0; 1 error |
 
 `resolve` downloads codeload tarballs (no git needed), reads the resolved commit from the tarball's
 pax `comment` header, falls back to the wrapper directory suffix; unauthenticated, `GITHUB_TOKEN`
 used when present; checks `archived` via the GitHub API, degrading to unknown on network errors.
+
+`init` scaffolds a workspace for a new adopter and never overwrites: a file that already exists
+is left alone and reported as skipped; an existing `.gitignore` only gains the lines it does not
+already contain (`/artifact`, `/artifact-*`, `/report.md`). It writes a commented `pinakes.yaml`
+(`version`, one source per URL given — or one annotated placeholder source when none — the
+`policy` block with the values §2.1 shows, and a commented-out `eval` block), an empty
+`decisions.jsonl` (§2.5) and an empty `queries.jsonl` (§2.6), all next to the config (`--dir`
+picks another directory, created when missing). `--workflow` also writes
+`.github/workflows/curate.yml`, the consumer half of §17.1, byte for byte the content of
+`examples/curate-weekly.yml`. The generated config always loads: every source it writes is
+valid, so, given at least one URL, `pinakes resolve` can run on it unedited; with none, the
+placeholder source must be edited first, and `init` says so on stderr. A URL given more than
+once is fetched and written once, with a warning.
+
+For each URL, `init` derives the source name from the repository name (characters outside
+`[A-Za-z0-9_-]` become `-`, a name already taken gets a numeric suffix), asks the GitHub API for
+the default branch (falling back to `main`, and saying so in a comment when the branch could
+not be determined), fetches that ref once as a tarball and picks the resolver from the file
+list, first match wins: a `.vitepress/config.*` anywhere → `vitepress`; a `sidebars.js` or
+`sidebars.ts` anywhere → `docusaurus`; a `SUMMARY.md` anywhere → `mdbook`; otherwise `glob`
+with `include: ["docs/**/*.md"]` when the checkout has a `docs/` directory, else `["**/*.md"]`.
+A navigation file found somewhere other than the resolver's default `path` (§12) is written as
+an explicit `path`. When the fetch fails, the source is still written — `glob` on `**/*.md` with
+a comment saying that detection failed and why — and `init` still exits 0: a scaffold must not
+fail on a flaky network.
 
 ## 5. Built-in BM25 backend (measurement only)
 
@@ -793,3 +819,59 @@ the existing golden queries must not regress except where §10.3 says they are r
 
 A TUI; a hosted service; PyPI and crates.io publishing; embeddings computed locally without an
 endpoint; graph or knowledge-base features.
+
+---
+
+# pinakes — specification, iteration 3
+
+Iteration 3 has one theme: pinakes is stage a only. Evaluation moves to its own tool, `kanon`,
+and pinakes becomes a library the other tools depend on for the one reading of an artifact.
+
+## 20. Library surface
+
+Two consumers read the artifact through this crate rather than parsing its files themselves:
+`kanon` (evaluation) and a serving consumer. The modules below are the surface they may depend
+on; their public items follow the same compatibility rule as the files they read (the artifact
+contract version of §2.8): additive within a major version of the crate, a removal or rename only
+with a new major.
+
+| module | what a consumer gets |
+|---|---|
+| `corpus` | `load_pages` (an artifact directory into `Page`s, with the source priorities and the mirror rule), `Page`, `Priorities`, `DEFAULT_PRIORITY`, `mark_mirrors`, `load_residue_page`, `CorpusError` |
+| `index` | the built-in BM25 index of §5: `Index`, `Hit`, `Unit`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
+| `tokenizer` | the tokeniser of §5 and §10.3, so a consumer's own index cuts the same tokens |
+| `chunks` | `Chunk`, `chunks`, `chunk_id`: the retrieval units of §2.9, the same cut the index and `embed` use |
+| `manifest`, `layout` | `manifest.json`'s types and loader, the artifact's file and directory names |
+| `text`, `jsonl`, `num` | content hashing and cleaning, JSON Lines reading and writing, the one `usize -> f64` cast |
+| `trail` | `trail.jsonl`'s types (§15.1); written by a serving consumer, read by `usage` here and by `kanon` |
+| `config` | `pinakes.yaml`'s schema, for a consumer that reads the `eval:` block or the source priorities |
+| `llm` | the OpenAI-compatible chat client, shared by `classify` here and by `kanon`'s grader |
+
+Everything else in the crate is an implementation detail of the pinakes commands and may change
+in a minor release.
+
+## 21. What moves to kanon
+
+`eval`, `embed`, `grade`, `queries` (add, check, import), the backends of §16 (`bm25-tantivy`,
+`dense`, `hybrid`, `external`), `--gate`, and the evaluation sections of `report` (§2.7's
+before/after tables) move to `kanon`, which depends on this crate for §20. The move happens in
+this order, so both repositories stay green at every step:
+
+1. `kanon` builds the moved code against this crate's library surface, with the same flags and
+   file formats, so an existing `queries.jsonl` and `eval:` block keep working. The moved code
+   uses nothing outside §20 except `residue::excerpt` (the grader's candidate excerpts), which
+   `kanon` carries as its own helper.
+2. This crate deletes the moved commands, `src/backend/`, `report`'s `--eval-before` /
+   `--eval-after` flags and `ReportInput`'s eval fields (§2.7's before/after tables are then
+   `kanon`'s), and the matching `CommandError` variants. For one minor release the deleted
+   subcommands remain as stubs that print one line naming the `kanon` command to run instead and
+   exit 1; the release after removes the stubs.
+3. §5 and §9 are reworded (no `eval` in the crate layout; the index is built by whoever measures);
+   §6 and §16 shrink to a pointer at `kanon`'s contracts; the README, manual and tutorial drop
+   the evaluation sections and link across; the reusable curate workflow (§17.1) calls `kanon
+   eval --gate` instead of `pinakes eval --gate`.
+
+`usage` (§15.3) stays: it reads the trail, but its output is residue-side. `llm` and `classify`
+(§14.2) stay. The index (§5) stays as the reference measurement index that `kanon` uses by
+default. Until step 2 lands, §6 and §16 describe what this crate ships, and `pinakes eval` and
+friends keep working as documented.

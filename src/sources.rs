@@ -67,6 +67,12 @@ pub trait Fetcher {
 
     /// Whether the repository is archived upstream; `None` when that cannot be determined.
     fn archived(&self, slug: &RepoSlug) -> Option<bool>;
+
+    /// The repository's default branch; `None` when that cannot be determined cheaply (the
+    /// default, for fetchers that only serve tarballs).
+    fn default_branch(&self, _slug: &RepoSlug) -> Option<String> {
+        None
+    }
 }
 
 /// The real fetcher: codeload.github.com for tarballs, api.github.com for metadata.
@@ -110,6 +116,18 @@ impl GitHubFetcher {
         }
         request
     }
+
+    /// The repository's metadata from the GitHub API; `None` on any network or decoding error.
+    fn repository(&self, slug: &RepoSlug) -> Option<serde_json::Value> {
+        let url = format!("https://api.github.com/repos/{slug}");
+        let response = self
+            .get(&url, Some(Duration::from_secs(30)))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .call()
+            .ok()?;
+        response.into_body().read_json().ok()
+    }
 }
 
 fn http_error(url: &str, err: &ureq::Error) -> SourceError {
@@ -137,15 +155,13 @@ impl Fetcher for GitHubFetcher {
     }
 
     fn archived(&self, slug: &RepoSlug) -> Option<bool> {
-        let url = format!("https://api.github.com/repos/{slug}");
-        let response = self
-            .get(&url, Some(Duration::from_secs(30)))
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .call()
-            .ok()?;
-        let body: serde_json::Value = response.into_body().read_json().ok()?;
-        body.get("archived")?.as_bool()
+        self.repository(slug)?.get("archived")?.as_bool()
+    }
+
+    fn default_branch(&self, slug: &RepoSlug) -> Option<String> {
+        let body = self.repository(slug)?;
+        let branch = body.get("default_branch")?.as_str()?;
+        (!branch.trim().is_empty()).then(|| branch.to_string())
     }
 }
 
@@ -387,6 +403,7 @@ pub mod testing {
     pub struct FakeFetcher {
         tarballs: BTreeMap<(String, String), Vec<u8>>,
         archived: BTreeMap<String, bool>,
+        default_branches: BTreeMap<String, String>,
         /// Every `(slug, ref)` requested so far, in order.
         pub requests: Mutex<Vec<(String, String)>>,
     }
@@ -401,6 +418,12 @@ pub mod testing {
         /// Register the archived flag for `slug`; unregistered slugs report unknown.
         pub fn set_archived(&mut self, slug: &str, archived: bool) {
             self.archived.insert(slug.to_string(), archived);
+        }
+
+        /// Register the default branch of `slug`; unregistered slugs report unknown.
+        pub fn set_default_branch(&mut self, slug: &str, branch: &str) {
+            self.default_branches
+                .insert(slug.to_string(), branch.to_string());
         }
     }
 
@@ -421,6 +444,10 @@ pub mod testing {
 
         fn archived(&self, slug: &RepoSlug) -> Option<bool> {
             self.archived.get(&slug.to_string()).copied()
+        }
+
+        fn default_branch(&self, slug: &RepoSlug) -> Option<String> {
+            self.default_branches.get(&slug.to_string()).cloned()
         }
     }
 }
@@ -544,6 +571,9 @@ mod tests {
             fetcher.archived(&RepoSlug::parse("https://github.com/o/z").unwrap()),
             None
         );
+        assert_eq!(fetcher.default_branch(&slug), None, "unregistered");
+        fetcher.set_default_branch("o/r", "trunk");
+        assert_eq!(fetcher.default_branch(&slug).as_deref(), Some("trunk"));
         let err = fetch_checkout(&fetcher, &slug, "v9", dir.path()).unwrap_err();
         assert!(matches!(err, SourceError::NotFound { .. }));
         assert_eq!(fetcher.requests.lock().unwrap().len(), 2);
