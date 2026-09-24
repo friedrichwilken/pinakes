@@ -59,7 +59,7 @@ decision (`decide` or `classify`) > the resolver's own selection.
 | File | Written by | Committed | What it is |
 |---|---|---|---|
 | `pinakes.yaml` | you | yes | Sources, policy, and eval settings (above). |
-| `manifest.json` | `resolve` | yes | Per source: resolved commit, archived flag, every selected page with its sha256, title, doc type, section and what selected it, plus residue and unresolved paths. Sorted keys, two-space indent. |
+| `manifest.json` | `resolve` | yes | Per source: resolved commit, archived flag, every selected page with its sha256, title, doc type, section and what selected it, plus residue and unresolved paths. `artifact_version` names the artifact contract the file and its artifact follow (missing means 1; a newer one is rejected). Sorted keys, two-space indent. Full schema: [`docs/schemas/manifest.schema.json`](../schemas/manifest.schema.json). |
 | `<artifact>/` | `resolve` | no | `manifest.json`, `<source>/<original path>.md`, `<source>/meta.json` and `_residue/<source>/…` for the leftovers. A stable layout consumers rely on. |
 | `residue.jsonl` | `resolve` | yes | What was left out and why (`not_selected`, `unresolved_link`, `new_source`, `excluded`) with title, excerpt, upstream url and the rule (`{key, text}`) that decided it. |
 | `duplicates.jsonl` | `resolve` | yes | Exact, mirror and near-duplicate page pairs, canonical first, each with its upstream url and a `suggested` verdict for `decide`. See [Near-duplicate detection](duplicates.md). |

@@ -28,6 +28,10 @@ resolver kinds) or with the artifact on disk (missing pages, changed bytes, a di
 `meta.json`). A policy violation (exit 4) is a source with fewer than `min_pages_per_source`
 pages, an archived source under `archived: drop`, or a page that matches `policy.deny`.
 
+An artifact materialised by a release that did not write `artifact_version` (SPEC §2.8) exits 3
+here, as `manifest.json` and one `meta.json` per source differ; run `resolve --from-manifest`
+to rematerialise it and commit the one-line `artifact_version` diff to `manifest.json`.
+
 ## `resolve --from-manifest`
 
 Re-fetches exactly the recorded commits and copies exactly the recorded pages, re-running any

@@ -56,10 +56,11 @@ e2e: release
     @echo "report at {{tmp}}/report.md"
     cd examples && git checkout -- manifest.json residue.jsonl && git clean -fq -- duplicates.jsonl
 
-# Refresh the pinned golden result and the report snapshots after an intended change (say why in the commit).
+# Refresh the pinned golden result, the report snapshots and the manifest schema after an intended change (say why in the commit).
 update-golden:
     UPDATE_GOLDEN=1 cargo test --test golden
     UPDATE_SNAPSHOTS=1 cargo test
+    UPDATE_SCHEMAS=1 cargo test --test schema
 
 # Build the Python wheel into dist/ and run its pytest suite (needs maturin and pytest on PATH).
 wheel:

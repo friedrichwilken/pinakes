@@ -275,7 +275,7 @@ impl Resolver {
 
 /// How a source's selected pages become Markdown pages, when they are not already Markdown
 /// (SPEC §10.1). The render step runs after selection and before the artifact is written.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Render {
     /// Run an external command that emits the SPEC §10.1 JSONL contract.

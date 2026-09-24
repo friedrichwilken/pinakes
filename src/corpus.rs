@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::config::Config;
-use crate::layout::{META_FILE, RESIDUE_DIR};
+use crate::layout::{ARTIFACT_VERSION, META_FILE, NewerArtifactVersion, RESIDUE_DIR};
 use crate::manifest::page_id;
 use crate::text::{clean_content, extract_title};
 use crate::tokenizer::title_key;
@@ -37,6 +37,24 @@ pub enum CorpusError {
         id: String,
         /// Where the page was expected.
         path: PathBuf,
+    },
+    /// A `meta.json` has an `artifact_version` that is not a non-negative integer.
+    #[error("{path}: artifact_version must be a non-negative integer, found {value}")]
+    BadArtifactVersion {
+        /// The `meta.json` path.
+        path: PathBuf,
+        /// The JSON value found.
+        value: String,
+    },
+    /// A `meta.json` was written under a newer artifact contract (SPEC §2.8) than this build
+    /// reads.
+    #[error("{path}: {source}")]
+    ArtifactVersion {
+        /// The `meta.json` path.
+        path: PathBuf,
+        /// The version found and the one supported.
+        #[source]
+        source: NewerArtifactVersion,
     },
 }
 
@@ -128,13 +146,31 @@ pub(crate) struct NavEntry {
     section: String,
 }
 
-fn read_meta(dir: &Path) -> SourceMeta {
-    let Ok(text) = std::fs::read_to_string(dir.join(META_FILE)) else {
-        return SourceMeta::default();
+/// Read `<dir>/meta.json`. A missing or unparsable file contributes nothing (every field is
+/// optional); an `artifact_version` that is not a non-negative integer, or one newer than
+/// [`ARTIFACT_VERSION`], is an error.
+fn read_meta(dir: &Path) -> Result<SourceMeta, CorpusError> {
+    let path = dir.join(META_FILE);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(SourceMeta::default());
     };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return SourceMeta::default();
+        return Ok(SourceMeta::default());
     };
+    let artifact_version = match value.get("artifact_version") {
+        None => ARTIFACT_VERSION,
+        Some(found) => match found.as_u64() {
+            Some(n) => u32::try_from(n).unwrap_or(u32::MAX),
+            None => {
+                return Err(CorpusError::BadArtifactVersion {
+                    path,
+                    value: found.to_string(),
+                });
+            }
+        },
+    };
+    crate::layout::check_artifact_version(artifact_version)
+        .map_err(|source| CorpusError::ArtifactVersion { path, source })?;
     let string = |key: &str| value.get(key).and_then(|v| v.as_str()).map(str::to_string);
     let field = |entry: &serde_json::Value, key: &str| {
         entry
@@ -160,11 +196,11 @@ fn read_meta(dir: &Path) -> SourceMeta {
                 .collect()
         })
         .unwrap_or_default();
-    SourceMeta {
+    Ok(SourceMeta {
         repo: string("repo"),
         module: string("module"),
         pages,
-    }
+    })
 }
 
 /// Relative paths (`/`-separated) of every `.md` file under `root`, sorted per directory.
@@ -244,7 +280,7 @@ pub fn load_pages(artifact: &Path, priorities: &Priorities) -> Result<Vec<Page>,
         if name.starts_with('_') || !dir.is_dir() {
             continue;
         }
-        let meta = read_meta(&dir);
+        let meta = read_meta(&dir)?;
         let priority = priorities.of(&name);
         let mut files = Vec::new();
         markdown_files(&dir, "", &mut files)?;
@@ -281,7 +317,7 @@ pub fn load_residue_page(
         });
     }
     let raw = read_lossy(&file)?;
-    let meta = read_meta(&artifact.join(source));
+    let meta = read_meta(&artifact.join(source))?;
     let priority = priorities.of(source);
     Ok(make_page(source, path, &raw, None, &meta, priority))
 }
@@ -392,6 +428,73 @@ mod tests {
                 None
             ]
         );
+    }
+
+    fn artifact_with_meta(meta: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("s");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("p.md"), "# P\n").unwrap();
+        std::fs::write(source.join(META_FILE), meta).unwrap();
+        dir
+    }
+
+    #[test]
+    fn meta_artifact_version_missing_means_one_equal_is_accepted_and_newer_is_rejected() {
+        let priorities = Priorities::default();
+        for meta in [
+            "{\"repo\": \"o/r\"}",
+            "{\"artifact_version\": 1, \"repo\": \"o/r\"}",
+            "{\"artifact_version\": 0, \"repo\": \"o/r\"}",
+        ] {
+            let dir = artifact_with_meta(meta);
+            let pages = load_pages(dir.path(), &priorities).unwrap();
+            assert_eq!(pages.len(), 1, "{meta}");
+            assert_eq!(pages[0].repo, "o/r", "{meta}");
+        }
+        let dir = artifact_with_meta("{\"artifact_version\": 2, \"repo\": \"o/r\"}");
+        let err = load_pages(dir.path(), &priorities).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                CorpusError::ArtifactVersion {
+                    source: NewerArtifactVersion(2),
+                    ..
+                }
+            ),
+            "{err}"
+        );
+        assert!(
+            err.to_string().ends_with(
+                "meta.json: artifact version 2 is newer than this pinakes supports (1); \
+                 upgrade pinakes"
+            ),
+            "{err}"
+        );
+        let dir = artifact_with_meta("{\"artifact_version\": 99999999999}");
+        assert!(
+            matches!(
+                load_pages(dir.path(), &priorities).unwrap_err(),
+                CorpusError::ArtifactVersion { .. }
+            ),
+            "a number too large for u32 is newer, not missing"
+        );
+        for meta in [
+            "{\"artifact_version\": \"later\"}",
+            "{\"artifact_version\": -1}",
+        ] {
+            let dir = artifact_with_meta(meta);
+            let err = load_pages(dir.path(), &priorities).unwrap_err();
+            assert!(
+                matches!(err, CorpusError::BadArtifactVersion { .. }),
+                "{meta}: {err}"
+            );
+            assert!(
+                err.to_string()
+                    .contains("meta.json: artifact_version must be a non-negative integer, found "),
+                "{err}"
+            );
+        }
     }
 
     #[test]

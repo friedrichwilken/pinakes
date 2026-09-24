@@ -17,7 +17,7 @@ cargo test
 Library crate `pinakes` (modules per `SPEC.md` §9), binary `pinakes` (`src/main.rs`, clap
 only). Errors are `thiserror` types in the library and `anyhow` at the CLI edge.
 
-Four suites pin behaviour rather than assert it, each with its own refresh flag:
+Five suites pin behaviour rather than assert it, each with its own refresh flag:
 
 - `tests/golden.rs`, `tests/golden_mdbook.rs`, `tests/backend_tantivy_golden.rs` and
   `tests/backend_dense_hybrid_golden.rs` compare `eval` on a fixture corpus with an
@@ -26,6 +26,8 @@ Four suites pin behaviour rather than assert it, each with its own refresh flag:
 - `tests/pipeline_pin.rs` pins the bytes of `manifest.json`, `residue.jsonl`,
   `duplicates.jsonl`, `report.md` and `residue list` written by a fresh resolve and a
   `--from-manifest` one. Refresh with `UPDATE_SNAPSHOTS=1 cargo test --test pipeline_pin`.
+- `tests/schema.rs` pins the JSON Schema of `manifest.json` at `docs/schemas/manifest.schema.json`
+  byte for byte. Refresh with `UPDATE_SCHEMAS=1 cargo test --test schema`.
 - `tests/eval_cli.rs` and `tests/eval_compare_cli.rs` pin the CLI's JSON and table output for
   `eval` through the binary; update the hand-written assertions directly when a change is
   intended, there is no refresh flag.

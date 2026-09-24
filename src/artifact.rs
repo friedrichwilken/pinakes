@@ -4,7 +4,7 @@
 //! <artifact>/
 //!   manifest.json
 //!   <source>/…/<page>.md          # selected pages, original relative paths
-//!   <source>/meta.json            # {repo, module, base_url, commit, pages, residue, unresolved}
+//!   <source>/meta.json            # {artifact_version, repo, module, base_url, commit, pages, …}
 //!   _residue/<source>/…/<page>.md # leftovers, for excerpts and measurement
 //! ```
 //!
@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::config::RepoSlug;
+use crate::layout::ARTIFACT_VERSION;
 use crate::manifest::{Manifest, ManifestError, ManifestSource, page_id, to_sorted_json};
 use crate::sources::Checkout;
 use crate::text::sha256_hex;
@@ -72,9 +73,16 @@ pub struct MetaPage {
     pub section: String,
 }
 
+fn default_artifact_version() -> u32 {
+    ARTIFACT_VERSION
+}
+
 /// `<source>/meta.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Meta {
+    /// The artifact contract version (SPEC §2.8) this file follows; missing means 1.
+    #[serde(default = "default_artifact_version")]
+    pub artifact_version: u32,
     /// `owner/repo` slug.
     pub repo: String,
     /// The source name.
@@ -102,6 +110,7 @@ impl Meta {
             |slug| slug.blob_base_url(&source.commit),
         );
         Meta {
+            artifact_version: ARTIFACT_VERSION,
             repo: source.repo.clone(),
             module: name.to_string(),
             base_url,
@@ -352,7 +361,8 @@ mod tests {
         );
         let meta = fs::read_to_string(artifact.join("handbook/meta.json")).unwrap();
         let expected = format!(
-            "{{\n  \"base_url\": \"https://github.com/example-org/handbook/blob/{SHA}\",\n  \
+            "{{\n  \"artifact_version\": 1,\n  \
+             \"base_url\": \"https://github.com/example-org/handbook/blob/{SHA}\",\n  \
              \"commit\": \"{SHA}\",\n  \"module\": \"handbook\",\n  \"pages\": {{\n    \
              \"docs/user/README.md\": {{\n      \"doc_type\": \"concept\",\n      \
              \"section\": \"\",\n      \"title\": \"Handbook\"\n    }}\n  }},\n  \

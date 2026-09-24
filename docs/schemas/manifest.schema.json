@@ -1,0 +1,232 @@
+{
+  "$defs": {
+    "ManifestSource": {
+      "description": "One source as recorded in the manifest.",
+      "properties": {
+        "archived": {
+          "default": null,
+          "description": "Whether the repository is archived upstream; `null` when unknown.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "commit": {
+          "description": "The commit the ref resolved to.",
+          "type": "string"
+        },
+        "pages": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PageEntry"
+          },
+          "description": "Selected pages by relative path.",
+          "type": "object"
+        },
+        "ref": {
+          "description": "The configured ref (branch, tag or SHA).",
+          "type": "string"
+        },
+        "render": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Render"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The render step (SPEC §10.1) that ran over this source's selected pages, absent when\nnone did. External command paths are recorded as they were actually run (absolutised\nagainst the config file at resolve time), so `resolve --from-manifest` can re-run the\nexact program regardless of where the manifest is reproduced from (SPEC §2.2)."
+        },
+        "repo": {
+          "description": "`owner/repo` slug.",
+          "type": "string"
+        },
+        "repo_url": {
+          "description": "Clone URL as configured.",
+          "type": "string"
+        },
+        "residue": {
+          "default": [],
+          "description": "Relative paths of pages left out (see `residue.jsonl` for why).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "resolver": {
+          "description": "Resolver kind, `glob` or `external`.",
+          "type": "string"
+        },
+        "unrendered": {
+          "default": [],
+          "description": "Selected paths a render step (SPEC §10.1) produced no page for.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unresolved": {
+          "default": [],
+          "description": "Navigation links the resolver reported that have no file.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "repo",
+        "repo_url",
+        "ref",
+        "commit",
+        "resolver",
+        "pages"
+      ],
+      "type": "object"
+    },
+    "PageEntry": {
+      "description": "A selected page.",
+      "properties": {
+        "doc_type": {
+          "default": "",
+          "description": "Document type as reported by the resolver; may be empty.",
+          "type": "string"
+        },
+        "rendered_from": {
+          "description": "The selected path this page was rendered from (SPEC §10.1), when it is a rendered page\nrather than a copy of the selected file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "section": {
+          "default": "",
+          "description": "Navigation section as reported by the resolver; may be empty.",
+          "type": "string"
+        },
+        "selected_by": {
+          "$ref": "#/$defs/SelectedBy",
+          "description": "What selected the page."
+        },
+        "sha256": {
+          "description": "Hex SHA-256 of the file bytes.",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "description": "Page title (nav title, first H1 or frontmatter `title:`; may be empty).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sha256",
+        "selected_by"
+      ],
+      "type": "object"
+    },
+    "Render": {
+      "description": "How a source's selected pages become Markdown pages, when they are not already Markdown\n(SPEC §10.1). The render step runs after selection and before the artifact is written.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Run an external command that emits the SPEC §10.1 JSONL contract.",
+          "properties": {
+            "args": {
+              "default": [],
+              "description": "Trailing arguments.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "command": {
+              "description": "Program and leading arguments; relative paths are resolved against the config file.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "external",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "command"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The built-in CRD / `OpenAPI` schema renderer (SPEC §10.2).",
+          "properties": {
+            "type": {
+              "const": "openapi",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SelectedBy": {
+      "description": "What caused a page to be selected.",
+      "oneOf": [
+        {
+          "const": "resolver",
+          "description": "An external resolver reported `selected: true`.",
+          "type": "string"
+        },
+        {
+          "const": "include",
+          "description": "A glob include pattern matched.",
+          "type": "string"
+        },
+        {
+          "const": "decision",
+          "description": "A decision with verdict `include`.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The curated references for every source.",
+  "properties": {
+    "artifact_version": {
+      "default": 1,
+      "description": "The artifact contract version (SPEC §2.8) the manifest and its artifact follow; missing\nmeans 1. Written as [`ARTIFACT_VERSION`]; a higher value is rejected on read.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "generated_at": {
+      "description": "RFC 3339 UTC time the manifest was generated.",
+      "type": "string"
+    },
+    "sources": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ManifestSource"
+      },
+      "description": "Sources by name.",
+      "type": "object"
+    },
+    "version": {
+      "description": "Manifest format version; equals [`MANIFEST_VERSION`].",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "generated_at",
+    "sources"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}

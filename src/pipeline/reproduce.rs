@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::config::RepoSlug;
+use crate::layout::ARTIFACT_VERSION;
 use crate::manifest::{Manifest, ManifestSource, PageEntry, SelectedBy};
 use crate::page::PageRegistry;
 use crate::render;
@@ -22,7 +23,10 @@ pub(super) fn reproduce(
     fetcher: &dyn Fetcher,
     work: &Path,
 ) -> Result<ResolveOutcome, CommandError> {
-    let manifest = Manifest::load(manifest_path)?;
+    let mut manifest = Manifest::load(manifest_path)?;
+    // The artifact and manifest written below have this build's shape, whatever the loaded
+    // manifest was written under (SPEC §2.8).
+    manifest.artifact_version = ARTIFACT_VERSION;
     let mut checkouts = BTreeMap::new();
     let mut all_residue = Vec::new();
     for (name, source) in &manifest.sources {
