@@ -7,6 +7,7 @@ pub(crate) mod duplicates;
 pub(crate) mod embed;
 pub(crate) mod eval;
 pub(crate) mod grade;
+pub(crate) mod init;
 pub(crate) mod queries;
 pub(crate) mod report;
 pub(crate) mod residue;

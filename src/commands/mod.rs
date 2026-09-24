@@ -16,6 +16,7 @@ mod duplicates;
 mod embed;
 mod eval;
 mod grade;
+mod init;
 mod queries;
 mod report;
 mod residue;
@@ -43,6 +44,10 @@ pub use eval::{
     eval_compare, eval_embedder_from_env, eval_plan,
 };
 pub use grade::{GradeOptions, GradeOutcome, grade};
+pub use init::{
+    DetectedLayout, FALLBACK_REF, GITIGNORE_LINES, InitOptions, InitOutcome, WORKFLOW,
+    WORKFLOW_PATH, detect_layout, init, source_name,
+};
 pub use queries::{
     QueriesAddOptions, QueriesImportOptions, QueriesImportOutcome, queries_add, queries_check,
     queries_import,
