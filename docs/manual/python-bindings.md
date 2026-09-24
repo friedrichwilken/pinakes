@@ -8,7 +8,7 @@ curator measured is exactly what this import searches, not a reimplementation of
 is published to PyPI, so install the wheel for your platform directly from the release assets:
 
 ```sh
-pip install pinakes-1.0.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+pip install pinakes-1.1.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 ```
 
 (check a release's assets for the current version and your platform's filename).
