@@ -20,6 +20,11 @@ All notable changes to this project are documented in this file. The format is b
   code, so a consumer's own index can agree with the measured one; SPEC §5 now states the
   splitting rules precisely enough to reimplement. The Python wheel gains `Index.chunks()`
   (issue #19).
+- `pinakes init [REPO_URL…] [--workflow] [--dir DIR]` (issue #25): scaffold a commented
+  `pinakes.yaml`, empty `decisions.jsonl` and `queries.jsonl`, and the `.gitignore` entries for
+  work directories; each URL is fetched once to pre-fill the matching resolver (`vitepress`,
+  `docusaurus`, `mdbook` or `glob`), and `--workflow` drops the weekly curation workflow in
+  place. Never overwrites an existing file.
 
 ### Changed
 
