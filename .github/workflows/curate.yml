@@ -166,15 +166,59 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # `report.md` is committed by the PR below (it is the PR body); `report.json` is only
+      # read by `check`, so it goes to the runner's temp directory and never into the PR.
+      # `--json` (and `check`, which shipped with it) is only used when this build has it, the
+      # way `duplicates` is guarded above, so a consumer on an older release still gets its PR.
       - name: report
         if: steps.diff.outputs.changed == 'true'
+        id: report
         run: |
+          json_args=()
+          if pinakes report --help 2>/dev/null | grep -q -- --json; then
+            json_args=(--json "$RUNNER_TEMP/report.json")
+            echo "json=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pinakes report --json: not in this build; the gates are skipped"
+            echo "json=false" >> "$GITHUB_OUTPUT"
+          fi
           pinakes --config "${{ inputs.config }}" report \
             --old "$RUNNER_TEMP/old-manifest.json" \
             --new "${{ steps.paths.outputs.config_dir }}/manifest.json" \
             --eval-before "$RUNNER_TEMP/eval-before.json" \
             --eval-after "$RUNNER_TEMP/eval-after.json" \
+            "${json_args[@]}" \
             > "${{ steps.paths.outputs.config_dir }}/report.md"
+
+      # The gates from `pinakes.yaml` (SPEC §2.11) are reported, not fatal, for the same reason
+      # as the eval gate above: a violation belongs in the PR's title and labels, where a
+      # reviewer sees it, not in a job that failed before opening the PR. `gate` is `passed`,
+      # `failed`, `skipped` (no `report.json` from this build) or `error` (check itself failed,
+      # which is annotated as a warning); `violations` lists the violated gates' names. Nothing
+      # in this step may fail the job.
+      - name: check the gates
+        if: steps.diff.outputs.changed == 'true'
+        id: check
+        run: |
+          gate=skipped
+          violations=""
+          if [ "${{ steps.report.outputs.json }}" = "true" ]; then
+            set +e
+            pinakes --config "${{ inputs.config }}" check \
+              --report "$RUNNER_TEMP/report.json" > "$RUNNER_TEMP/check.json"
+            status=$?
+            set -e
+            case "$status" in
+              0) gate=passed ;;
+              2) gate=failed
+                 violations=$(jq -r '[.violations[].gate] | join(",")' "$RUNNER_TEMP/check.json" \
+                   2>/dev/null) || violations="" ;;
+              *) gate=error
+                 echo "::warning::pinakes check exited $status; the PR is opened without a gate verdict" ;;
+            esac
+          fi
+          echo "gate=$gate" >> "$GITHUB_OUTPUT"
+          echo "violations=$violations" >> "$GITHUB_OUTPUT"
 
       - name: List the files the PR commits
         if: steps.diff.outputs.changed == 'true'
@@ -192,12 +236,17 @@ jobs:
             echo "PINAKES_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # A violated gate shows in the title and as the `gate-failed` label next to `pinakes`.
       - name: Open or update the weekly curation pull request
         if: steps.diff.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v8
         with:
           branch: pinakes/weekly
           commit-message: "chore: refresh documentation corpus"
-          title: "chore: refresh documentation corpus"
+          title: >-
+            ${{ steps.check.outputs.gate == 'failed'
+            && format('chore: refresh documentation corpus (gates failed: {0})', steps.check.outputs.violations)
+            || 'chore: refresh documentation corpus' }}
+          labels: ${{ steps.check.outputs.gate == 'failed' && 'pinakes,gate-failed' || 'pinakes' }}
           body-path: ${{ steps.paths.outputs.config_dir }}/report.md
           add-paths: ${{ steps.commit-paths.outputs.paths }}
