@@ -120,7 +120,7 @@ jobs:
             manylinux: ""
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
         if: runner.os == 'Linux'
       - uses: Swatinem/rust-cache@v2
         with:
