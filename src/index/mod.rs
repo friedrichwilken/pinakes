@@ -1,4 +1,4 @@
-//! Built-in BM25 measurement backend (SPEC §5): tokeniser, section splitting and the tantivy
+//! Built-in BM25 reference index (SPEC §5): tokeniser, section splitting and the tantivy
 //! index over an artifact directory.
 //!
 //! The rules are this tool's retrieval model, pinned by the golden corpus (SPEC §7.3):

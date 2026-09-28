@@ -1,8 +1,8 @@
-//! The retrieval units of an artifact as a contract (SPEC §2.9): one [`Chunk`] per unit `eval`
-//! measures, so a consumer's own index and `eval` agree on what a hit refers to.
+//! The retrieval units of an artifact as a contract (SPEC §2.9): one [`Chunk`] per unit the
+//! built-in index searches, so a consumer's own index and `kanon` agree on what a hit refers to.
 //!
 //! The cut is [`crate::index::iter_units`] itself, not a copy of its rules (SPEC §5): a chunk's
-//! `text` is byte for byte the unit `embed` embeds (title, heading and body joined), and the
+//! `text` is byte for byte the unit a consumer embeds (title, heading and body joined), and the
 //! built-in index scores the same cut as three boosted fields, so `chunks` pins the units, not
 //! the scores. This module depends on [`crate::corpus`], [`crate::index`] and [`crate::text`]
 //! only.
@@ -24,7 +24,7 @@ pub struct Chunk {
     pub heading: String,
     /// The unit's 0-based position within its page.
     pub ordinal: usize,
-    /// The unit text `embed` embeds: title, heading and body joined (SPEC §5 step 4); the
+    /// The unit text a consumer embeds: title, heading and body joined (SPEC §5 step 4); the
     /// built-in index scores the same three parts as separate fields.
     pub text: String,
     /// Lowercase hex SHA-256 of `text`'s UTF-8 bytes.

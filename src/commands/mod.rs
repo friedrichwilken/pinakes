@@ -13,11 +13,7 @@ mod classify;
 mod decide;
 mod diff;
 mod duplicates;
-mod embed;
-mod eval;
-mod grade;
 mod init;
-mod queries;
 mod report;
 mod residue;
 #[cfg(test)]
@@ -37,20 +33,9 @@ pub use classify::{ClassifyOptions, ClassifyOutcome, classify};
 pub use decide::decide;
 pub use diff::{DiffOptions, diff};
 pub use duplicates::{DuplicatesOptions, duplicates};
-pub use embed::{EmbedOptions, EmbedOutcome, embed};
-pub use eval::{
-    BackendEvalOptions, BackendEvalOutcome, DEFAULT_K, DEFAULT_MAX_RECALL_DROP, EvalFlags,
-    EvalOptions, EvalOutcome, EvalPlan, apply_eval_config_defaults, eval, eval_backend,
-    eval_compare, eval_embedder_from_env, eval_plan,
-};
-pub use grade::{GradeOptions, GradeOutcome, grade};
 pub use init::{
     DetectedLayout, FALLBACK_REF, GITIGNORE_LINES, InitOptions, InitOutcome, WORKFLOW,
     WORKFLOW_PATH, detect_layout, init, source_name,
-};
-pub use queries::{
-    QueriesAddOptions, QueriesImportOptions, QueriesImportOutcome, queries_add, queries_check,
-    queries_import,
 };
 pub use report::{ReportOptions, report};
 pub use residue::residue_list;

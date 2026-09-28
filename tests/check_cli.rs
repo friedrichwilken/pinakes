@@ -19,7 +19,8 @@ const CONFIG: &str = "version: 1\nsources:\n  - name: handbook\n    \
 
 /// A `report.json` with three undecided residue ids, one removed page, no expired decision, one
 /// archived source, one unresolved link and two duplicate pairs (compacted; `report --json`
-/// pretty-prints, and `check` reads either).
+/// pretty-prints, and `check` reads either). It still carries the `eval` key that a release
+/// before evaluation moved to kanon wrote; readers ignore it.
 const REPORT: &str = r#"{
   "version": 1,
   "summary": {"sources": 1, "pages": 3, "residue": 3, "undecided": 3, "excluded": 0,
@@ -130,13 +131,13 @@ fn check_exits_1_without_a_report_and_0_without_gates() {
     assert!(out.stdout.is_empty());
 
     // A report from a newer pinakes: refused with exit 1 and a line naming the version.
-    let newer = REPORT.replacen("\"version\": 1", "\"version\": 2", 1);
+    let newer = REPORT.replacen("\"version\": 1", "\"version\": 3", 1);
     fs::write(dir.path().join("report.json"), newer).unwrap();
     let out = pinakes(dir.path(), &["check"]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(1), "{stderr}");
     assert!(
-        stderr.contains("report.json version 2 is newer than this build understands (1)"),
+        stderr.contains("report.json version 3 is newer than this build understands (2)"),
         "{stderr}"
     );
     assert!(out.stdout.is_empty());

@@ -31,7 +31,7 @@ const EPSILON: f64 = 0.25;
 const WRITER_BUDGET: usize = 64 << 20;
 
 /// One retrieval unit (SPEC §5): the one cut [`Index::from_pages`] indexes as three fields,
-/// `embed` (SPEC §16.2) embeds as `text` and `chunks` (SPEC §2.8) emits.
+/// a consumer embeds as `text` and `chunks` (SPEC §2.9) emits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
     /// The page this unit belongs to.

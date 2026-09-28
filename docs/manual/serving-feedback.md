@@ -1,8 +1,8 @@
-# Learning from serving: the trail, grade, usage
+# Learning from serving: the trail and usage
 
-Everything in [Evaluation](eval.md) tunes the corpus against a judge (`queries.jsonl`) that a
-person or a model wrote ahead of time. Stage **c** (serving, a consumer's own job) sees
-something pinakes never does: what real users actually asked and whether the pages retrieved for
+Evaluation with [`kanon`](measuring-retrieval.md) tunes the corpus against a judge
+(`queries.jsonl`) that a person or a model wrote ahead of time. Stage **c** (serving, a
+consumer's own job) sees something pinakes never does: what real users actually asked and whether the pages retrieved for
 them were any good. `trail.jsonl` is the bridge back — a consumer-written log pinakes only ever
 reads:
 
@@ -19,28 +19,11 @@ example corpus; because it only reads the committed `manifest.json`,
 
 ## Grading what was served
 
-`pinakes grade` replays every distinct query in the trail against a backend (today, always the
-built-in BM25 index — `--backend` accepts no other name until `SPEC.md` §16.1's backend trait
-lands), fetches `--k` candidates (default 20) per query, and asks the same OpenAI-compatible
-model endpoint as [`classify`](classify.md) to grade each candidate 0 (irrelevant) to 3 (fully
-relevant):
-
-```sh
-pinakes grade --trail trail.jsonl --k 20 --out graded.jsonl
-```
-
-Each line of `graded.jsonl` is `{"query", "id", "grade", "model", "at"}`. `pinakes queries
-import` turns that into rows for `queries.jsonl`, one per distinct query, `expected` being the
-ids graded at or above `--min-grade` (default 2); a query with no candidate meeting the bar is
-skipped and reported rather than added with an empty `expected`. `holdout` is assigned by a
-seeded PRNG (`--seed`) to approximate `--holdout-share` (default `eval.holdout_min`, 0.2), and
-every imported row carries `"by": "grader:<model>"` so its provenance is never confused with a
-human-written or `queries add`-written row:
-
-```sh
-pinakes queries import graded.jsonl --min-grade 2 --holdout-share 0.2 --seed 1
-pinakes queries check   # the imported rows are ordinary queries.jsonl rows from here on
-```
+Turning a trail into new queries is `kanon`'s: `kanon grade` replays every distinct query in the
+trail against a backend and asks a model to grade each candidate 0 (irrelevant) to 3 (fully
+relevant), and `kanon queries import` turns the graded lines into rows for `queries.jsonl`. See
+[Measuring retrieval](measuring-retrieval.md) for where those commands went. `pinakes grade`
+and `pinakes queries` remain for one minor release as stubs that name the `kanon` command.
 
 ## Usage statistics
 

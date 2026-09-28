@@ -61,8 +61,8 @@ wrote manifest.json and residue.jsonl (0 residue entries) and artifact
 `manifest.json` — the file you commit, and the file `diff` and `verify` compare against — records
 the resolved commit and every selected page with its hash and title. What a resolver saw but did
 not select lands in `residue.jsonl` with an excerpt, so a reviewer (or an agent) can decide on it
-without opening the file, and `pinakes eval` measures a query set against the corpus so a change
-can be scored before it is merged.
+without opening the file, and [`kanon`](https://github.com/friedrichwilken/kanon) measures a
+query set against the corpus so a change can be scored before it is merged.
 
 ## Going further
 
@@ -74,15 +74,15 @@ can be scored before it is merged.
   formats into indexable pages.
 - [Near-duplicate detection](docs/manual/duplicates.md) — find and prune mirrored or
   near-identical pages across sources.
-- [Retrieval backends](docs/manual/backends.md) — measure bm25, tantivy, dense, hybrid or your
-  own search endpoint against the same query set.
+- [Measuring retrieval](docs/manual/measuring-retrieval.md) — the query set, the metrics, the
+  backends and the gate live in `kanon`; how the corpus hands over to it.
 - [Classifying residue with a model](docs/manual/classify.md) and
   [curating with an agent](docs/manual/curating-with-an-agent.md) — review leftovers at scale
   instead of one at a time.
 - [A weekly GitHub Actions workflow](docs/manual/weekly-workflow.md) that reproduces the corpus,
   measures it, and opens a pull request when a source changes.
-- [Learning from serving](docs/manual/serving-feedback.md) — feed real user queries back in to
-  grow the query set and spot removal candidates.
+- [Learning from serving](docs/manual/serving-feedback.md) — read what real users asked to spot
+  removal candidates and gaps.
 
 ## Learn more
 

@@ -18,8 +18,6 @@ pub struct Paths {
     pub artifact: PathBuf,
     /// `duplicates.jsonl`, written by `resolve` next to `residue.jsonl` (SPEC §11).
     pub duplicates: PathBuf,
-    /// `embeddings.bin`, written by `embed` (SPEC §16.2); `embeddings.json` sits next to it.
-    pub embeddings: PathBuf,
 }
 
 impl Paths {
@@ -33,7 +31,6 @@ impl Paths {
             decisions: dir.join("decisions.jsonl"),
             artifact: dir.join("artifact"),
             duplicates: dir.join("duplicates.jsonl"),
-            embeddings: dir.join("embeddings.bin"),
         }
     }
 

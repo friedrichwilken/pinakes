@@ -8,10 +8,6 @@
 - Decisions: 4
 - Changes: no previous manifest to compare with
 
-## Eval before/after
-
-_No evaluation results supplied._
-
 ## Added pages
 
 _none_

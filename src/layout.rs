@@ -2,7 +2,7 @@
 //! version (SPEC §2.8).
 //!
 //! This module depends on nothing else in the crate, so readers of an artifact (`index`, `usage`,
-//! `embed`) can name its files without importing `artifact`, which re-exports these names.
+//! `kanon`) can name its files without importing `artifact`, which re-exports these names.
 
 /// Name of the residue directory at the artifact root.
 pub const RESIDUE_DIR: &str = "_residue";

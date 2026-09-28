@@ -192,7 +192,6 @@ mod tests {
                 decisions: 1,
                 changes: None,
             },
-            eval: None,
             pages: PagesFacts {
                 added: vec![],
                 removed: (1..=2)
@@ -367,8 +366,8 @@ mod tests {
         newer.version = FACTS_VERSION + 1;
         newer.save(&elsewhere).unwrap();
         let err = check(&paths, &options).unwrap_err();
-        assert!(matches!(err, CommandError::ReportVersion { version, .. } if version == 2));
-        assert!(err.to_string().contains("version 2"), "{err}");
+        assert!(matches!(err, CommandError::ReportVersion { version, .. } if version == 3));
+        assert!(err.to_string().contains("version 3"), "{err}");
     }
 
     #[test]

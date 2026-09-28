@@ -51,8 +51,7 @@ e2e: release
     cd examples && ../{{release}} resolve --artifact "{{tmp}}/artifact"
     cd examples && ../{{release}} verify --artifact "{{tmp}}/artifact"
     cd examples && ../{{release}} diff "{{tmp}}/old-manifest.json" manifest.json > "{{tmp}}/diff.json" || [ $? -eq 3 ]
-    cd examples && ../{{release}} eval --artifact "{{tmp}}/artifact" --queries queries.jsonl --json "{{tmp}}/eval.json"
-    cd examples && ../{{release}} report --old "{{tmp}}/old-manifest.json" --eval-after "{{tmp}}/eval.json" > "{{tmp}}/report.md"
+    cd examples && ../{{release}} report --old "{{tmp}}/old-manifest.json" > "{{tmp}}/report.md"
     @echo "report at {{tmp}}/report.md"
     cd examples && git checkout -- manifest.json residue.jsonl && git clean -fq -- duplicates.jsonl
 

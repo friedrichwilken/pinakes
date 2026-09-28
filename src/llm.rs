@@ -1,5 +1,5 @@
-//! A shared OpenAI-compatible chat completions client (SPEC §14.2), used by `classify` and
-//! `grade`.
+//! A shared OpenAI-compatible chat completions client (SPEC §14.2), used by `classify` here and
+//! by `kanon`'s grader.
 //!
 //! Configuration comes from the environment: `PINAKES_LLM_URL` (base URL, required),
 //! `PINAKES_LLM_KEY` (bearer token, optional) and `PINAKES_LLM_MODEL` (overridden by a
@@ -38,7 +38,7 @@ pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub enum ChatError {
     /// `PINAKES_LLM_URL` is not set.
     #[error(
-        "PINAKES_LLM_URL is not set: classify and grade need an OpenAI-compatible chat \
+        "PINAKES_LLM_URL is not set: classify needs an OpenAI-compatible chat \
          completions endpoint"
     )]
     MissingUrl,
@@ -242,7 +242,7 @@ impl ChatTransport for UreqChatTransport {
 
 /// Test doubles: a transport that returns scripted responses in order.
 ///
-/// Public so `classify` and `grade`'s own tests, and integration tests, can exercise the
+/// Public so `classify`'s own tests, `kanon`'s, and integration tests, can exercise the
 /// retry and parsing logic without a network call.
 pub mod testing {
     use std::sync::Mutex;

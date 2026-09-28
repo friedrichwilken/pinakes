@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "summary": {
     "sources": 1,
     "pages": 3,
@@ -9,7 +9,6 @@
     "decisions": 4,
     "changes": null
   },
-  "eval": null,
   "pages": {
     "added": [],
     "removed": [],

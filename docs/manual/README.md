@@ -12,9 +12,8 @@ the [tutorial](../tutorials/curate-a-corpus.md).
   files.
 - [Near-duplicate detection](duplicates.md) — exact, mirror and near-duplicate pages, and the
   winner rule.
-- [Evaluation](eval.md) — the query set, the metrics, and how to grow `queries.jsonl`.
-- [Retrieval backends](backends.md) — measuring bm25, tantivy, dense, hybrid or an external
-  search endpoint with the same query set.
+- [Measuring retrieval](measuring-retrieval.md) — evaluation moved to `kanon`; what stayed here
+  and how the corpus hands over.
 - [Classifying residue with a model](classify.md) — an LLM proposes include/exclude/unsure at
   scale.
 - [Curating with an agent](curating-with-an-agent.md) — a Claude Code skill that runs a curation
@@ -22,8 +21,7 @@ the [tutorial](../tutorials/curate-a-corpus.md).
 - [Weekly curation workflow](weekly-workflow.md) — the reusable GitHub Actions workflow that
   opens a PR on a schedule.
 - [Setup action](setup-action.md) — putting the `pinakes` binary on `PATH` in any workflow.
-- [Learning from serving](serving-feedback.md) — the trail, grading real queries, and usage
-  statistics.
+- [Learning from serving](serving-feedback.md) — the trail and usage statistics.
 - [Development](development.md) — building, testing, and CI.
 - [Releases](releases.md) — tags, the release build, and the moving major tag.
 - [Python bindings](python-bindings.md) — the `pinakes` wheel.

@@ -18,7 +18,7 @@ excluded.
 - **Never edit `manifest.json` or the artifact.** Only `pinakes decide` may change what is in
   the corpus, and only `pinakes resolve` regenerates the artifact from that.
 - **Never exclude a `resolver`-selected page.** Before proposing `exclude` on any id, check its
-  `selected_by` in `manifest.json` (read-only, e.g. `pinakes eval` or `jq` over the file). If it
+  `selected_by` in `manifest.json` (read-only, e.g. `jq` over the file). If it
   is `"resolver"`, the resolver's author decided it belongs; propose `unsure` at most, and say
   why in the rationale instead of excluding it.
 - **Batches of 20.** Never propose more than 20 candidates at once, and never call `decide` for
@@ -68,12 +68,12 @@ excluded.
    user says to stop for this session. Leave anything genuinely ambiguous as `unsure` rather
    than guessing — it stays out of `residue list` without being excluded.
 
-7. **Finish with `pinakes report`.** Run it once more at the end (with `--old`/`--eval-before`/
-   `--eval-after` when those files are available) and show the result, so the session ends with
+7. **Finish with `pinakes report`.** Run it once more at the end (with `--old` when that file is
+   available) and show the result, so the session ends with
    a clear record of what changed and why.
 
 ## What this skill does not do
 
 It does not run `pinakes resolve` (that re-fetches sources and is the operator's call), does
 not run `pinakes classify` or any LLM-batch decision-making (a human confirms every batch here),
-and does not touch `queries.jsonl` — that is `pinakes queries add`/`check`, a separate job.
+and does not touch `queries.jsonl` — that is `kanon queries add`/`check`, a separate job.

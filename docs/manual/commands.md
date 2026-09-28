@@ -12,17 +12,14 @@ to stdout. `GITHUB_TOKEN` is used when set, to raise the GitHub API rate limit.
 | `residue list [--source S] [--reason R] [--include-excluded]` | `residue.jsonl`, decisions | JSONL on stdout | 0 |
 | `duplicates [--artifact DIR] [--threshold 0.8] [--json OUT]` | artifact, manifest and config (optional) | JSONL on stdout or in `OUT`, summary on stderr | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME] [--superseded-by ID]` | residue, manifest | appends to `decisions.jsonl` | 0; 1 unknown id |
-| `report [--old M] [--new M] [--eval-before E] [--eval-after E] [--new-artifact DIR] [--old-artifact DIR] [--usage U] [--json OUT]` | manifests, residue, decisions, duplicates, eval JSON, usage JSON | `report.md` on stdout; with `--json`, its facts as JSON in `OUT` ([SPEC §2.8](../../SPEC.md#28-reportjson--the-reports-facts-machine-readable)) | 0 |
+| `report [--old M] [--new M] [--new-artifact DIR] [--old-artifact DIR] [--usage U] [--json OUT]` | manifests, residue, decisions, duplicates, usage JSON | `report.md` on stdout; with `--json`, its facts as JSON in `OUT` ([SPEC §2.8](../../SPEC.md#210-reportjson--the-reports-facts-machine-readable)) | 0 |
 | `check [--report FILE]` | config (`gates`), `report.json` | violated gates on stderr, a one-line JSON summary on stdout | 0 ok; 2 gate violated; 1 error (including no `report.json`) |
-| `eval [--artifact DIR] [--queries FILE] [--k N] [--json OUT] [--gate BASELINE] [--with ID…] [--without ID…] [--backend NAME] [--backend-url URL] [--embeddings FILE] [--allow-stale] [--compare NAME,NAME,…]` | artifact, queries, config (optional), embeddings (`dense`/`hybrid`) | table(s) on stderr, JSON on stdout or in `OUT` | 0; 2 gate failed |
-| `embed [--artifact DIR] [--model NAME] [--out embeddings.bin] [--batch 64]` | artifact, `PINAKES_EMBED_URL`/`KEY`/`MODEL` | `embeddings.bin`, `embeddings.json` | 0; 1 error (including a missing endpoint) |
 | `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` on stdout or in `FILE`, summary on stderr | 0; 1 error |
-| `queries add --id ID --query TEXT --expected ID… [--kind K] [--holdout] [--queries FILE]` | manifest | appends to `queries.jsonl` | 0; 1 unknown expected id |
-| `queries check [--queries FILE]` | `queries.jsonl`, manifest, config (optional) | nothing | 0; 4 unknown id, duplicate id or held-out share too low |
 | `classify [--model NAME] [--batch 20] [--dry-run]` | residue, duplicates, decisions, manifest, artifact | `decisions.jsonl` (or JSONL on stdout with `--dry-run`) | 0 |
-| `grade --trail FILE [--backend bm25] [--k 20] [--model NAME] [--out OUT]` | trail, artifact | `graded.jsonl` on stdout or in `OUT` | 0 |
-| `queries import FILE --min-grade 2 [--holdout-share 0.2] [--seed N] [--queries FILE]` | `graded.jsonl`, manifest | appends to `queries.jsonl` | 0 |
 | `usage --trail FILE [--since DURATION] [--json OUT]` | trail, manifest, artifact (for gap candidates) | report on stdout or in `OUT`, summary on stderr | 0 |
+
+`eval`, `embed`, `grade` and `queries` moved to [`kanon`](measuring-retrieval.md). Here they
+remain for one minor release as stubs that print the `kanon` command to run and exit 1.
 
 ## `init`
 
@@ -54,7 +51,7 @@ a fetch fails, the source is still written as `glob` on `**/*.md` with a comment
 URL, `pinakes resolve` runs on the generated config unedited; with none, it holds one annotated
 placeholder source to replace first, and `init` says so on stderr. The `policy` block carries
 the [values SPEC §2.1 shows](config.md#pinakesyaml); the `eval` block is written commented out,
-to enable once `queries.jsonl` has entries. `--workflow` writes the
+for `kanon` to read once `queries.jsonl` has entries. `--workflow` writes the
 consumer side of the [weekly workflow](weekly-workflow.md), the same file as
 `examples/curate-weekly.yml`.
 
@@ -91,9 +88,9 @@ pinakes check
 ```
 
 Exit 2 when a gate is violated, 1 when the report is missing (the message says to run
-`report --json` first). Recall stays with `eval --gate`. The [weekly
+`report --json` first). Recall stays with `kanon eval --gate`. The [weekly
 workflow](weekly-workflow.md) turns a violation into the pull request's title and label. The
-exact contract is [SPEC §2.11](../../SPEC.md#29-check--gates-on-reportjson).
+exact contract is [SPEC §2.11](../../SPEC.md#211-check--gates-on-reportjson).
 
 ## `diff`
 
@@ -117,11 +114,11 @@ each changed page's line counts when both commits are known.
 
 ## `chunks`
 
-Emits the retrieval units that [`eval`](eval.md) measures, one JSON object per line, keys
+Emits the retrieval units the built-in index searches, one JSON object per line, keys
 sorted, in page then unit order (`SPEC.md` §2.9): the intro plus one unit per H2 of every
 searchable page, H2 sections over 1200 tokens split at H3, mirror pages left out. A consumer
 building its own index can index these lines, or reimplement the split and compare, so a
-recall number from `eval` describes the units it actually serves.
+recall number from [`kanon`](measuring-retrieval.md) describes the units it actually serves.
 
 ```sh
 pinakes chunks --out chunks.jsonl
@@ -132,7 +129,7 @@ pinakes chunks --out chunks.jsonl
 ```
 
 `id` is `<page id>#<ordinal>`, `ordinal` counts from 0 within the page, `heading` is empty for
-the intro and `<H2> / <H3>` for a section split at H3, `text` is the unit `embed` embeds
+the intro and `<H2> / <H3>` for a section split at H3, `text` is the unit a consumer embeds
 (title, heading and body joined; the `bm25` index scores the same cut as three fields, title ×3,
 heading ×2, body ×1, so `chunks` pins the units, not the scores) and `sha256` is its hex SHA-256.
 The stderr summary is
