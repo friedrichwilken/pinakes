@@ -38,7 +38,7 @@ use pinakes::manifest::{
 };
 use pinakes::residue::excerpt;
 use pinakes::text::sha256_hex;
-use pinakes::trail::{Outcome, TrailEntry, TrailError, read_jsonl};
+use pinakes::trail::{Outcome, TRAIL_VERSION, TrailEntry, TrailError, read_jsonl};
 
 /// Reads each named field of `$t` at its exact type, through a closure that is never called:
 /// no value has to be built, and a field added to the struct does not fail it.
@@ -266,7 +266,8 @@ fn trail_text_and_layout() {
     // `kanon` does not use the trail items today; SPEC §20 offers them to a serving consumer.
     let _: fn(&Path) -> Result<Vec<TrailEntry>, TrailError> = read_jsonl;
     is_error::<TrailError>();
-    fields!(entry: TrailEntry => at: String, query: String, retrieved: Vec<String>,
+    let _: u32 = TRAIL_VERSION;
+    fields!(entry: TrailEntry => version: u32, at: String, query: String, retrieved: Vec<String>,
         ranks: Vec<u32>, cited: Vec<String>, outcome: Outcome, session: String);
     for outcome in [Outcome::Ok, Outcome::Bad, Outcome::Unknown] {
         let _: Outcome = outcome;

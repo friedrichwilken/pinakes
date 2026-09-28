@@ -1,18 +1,29 @@
 //! `trail.jsonl`: what a consumer served, read-only (SPEC §15.1).
 //!
 //! Consumers write this file; pinakes only reads it. One JSON object per line:
-//! `{"at", "query", "retrieved": [...], "ranks": [...], "cited": [...], "outcome", "session"}`.
-//! Every field but `at` and `query` is optional and defaults to empty/unknown, since consumers
-//! vary in how much they log. Every id in `retrieved` and `cited` must be `<source>::<path>`
-//! (SPEC §2.2); a line with a differently shaped id is rejected rather than silently accepted.
+//! `{"version", "at", "query", "retrieved": [...], "ranks": [...], "cited": [...], "outcome",
+//! "session"}`. Every field but `at` and `query` is optional and defaults to empty/unknown, since
+//! consumers vary in how much they log; a missing `version` means 1. The shape is the trail
+//! contract `kanon` publishes as a JSON Schema (SPEC §15.1), and the version rule is its: within
+//! a version changes are additive, a line of a newer version is rejected before anything else
+//! about it is read, with one line naming the file, the line and both versions. Every id in
+//! `retrieved` and `cited` must be `<source>::<path>` (SPEC §2.2); a line with a differently
+//! shaped id is rejected rather than silently accepted.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::jsonl;
 use crate::manifest::split_page_id;
+
+/// The `version` of the trail contract this build reads (SPEC §15.1); a line without one is
+/// version 1.
+pub const TRAIL_VERSION: u32 = 1;
+
+fn default_version() -> u32 {
+    1
+}
 
 /// Errors raised while reading `trail.jsonl`.
 #[derive(Debug, Error)]
@@ -36,6 +47,21 @@ pub enum TrailError {
         /// Underlying JSON error.
         #[source]
         source: serde_json::Error,
+    },
+    /// A line is of a newer trail version than this build reads.
+    #[error(
+        "{path}:{line}: version {found} is newer than the version {known} this pinakes reads; \
+         upgrade pinakes"
+    )]
+    NewerVersion {
+        /// The trail file path.
+        path: PathBuf,
+        /// One-based line number.
+        line: usize,
+        /// The line's `version`.
+        found: u32,
+        /// The version this build reads, [`TRAIL_VERSION`].
+        known: u32,
     },
     /// A line names an id that is not `<source>::<path>`.
     #[error("{path}:{line}: {field} contains {id:?}, which is not a <source>::<path> id")]
@@ -67,6 +93,9 @@ pub enum Outcome {
 /// One served query, as a consumer recorded it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrailEntry {
+    /// The trail contract version the line follows; missing means 1.
+    #[serde(default = "default_version")]
+    pub version: u32,
     /// RFC 3339 UTC time the query was served.
     pub at: String,
     /// The query text.
@@ -126,20 +155,45 @@ fn check_ids<'a>(
     Ok(())
 }
 
-/// Read entries from `path`; blank lines are skipped. Every `retrieved`/`cited` id is validated
-/// as `<source>::<path>`.
+/// The one field read before a line is parsed as a [`TrailEntry`].
+#[derive(Deserialize)]
+struct Versioned {
+    #[serde(default = "default_version")]
+    version: u32,
+}
+
+/// Read entries from `path`; blank lines are skipped. Each line's `version` is checked against
+/// [`TRAIL_VERSION`] before anything else about the line is read, so a newer line is reported as
+/// such and not as a parse error, and every `retrieved`/`cited` id is validated as
+/// `<source>::<path>`.
 pub fn read_jsonl(path: &Path) -> Result<Vec<TrailEntry>, TrailError> {
     let text = std::fs::read_to_string(path).map_err(|source| TrailError::Io {
         path: path.to_path_buf(),
         source,
     })?;
-    let mut entries = Vec::new();
-    for parsed in jsonl::parse_lines::<TrailEntry>(&text) {
-        let (line_no, entry) = parsed.map_err(|err| TrailError::Json {
+    let json_error = |line: usize| {
+        move |source| TrailError::Json {
             path: path.to_path_buf(),
-            line: err.line,
-            source: err.source,
-        })?;
+            line,
+            source,
+        }
+    };
+    let mut entries = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let line_no = index + 1;
+        let Versioned { version } = serde_json::from_str(line).map_err(json_error(line_no))?;
+        if version > TRAIL_VERSION {
+            return Err(TrailError::NewerVersion {
+                path: path.to_path_buf(),
+                line: line_no,
+                found: version,
+                known: TRAIL_VERSION,
+            });
+        }
+        let entry: TrailEntry = serde_json::from_str(line).map_err(json_error(line_no))?;
         check_ids(path, line_no, "retrieved", &entry.retrieved)?;
         check_ids(path, line_no, "cited", &entry.cited)?;
         entries.push(entry);
@@ -153,6 +207,7 @@ mod tests {
 
     fn entry(query: &str) -> TrailEntry {
         TrailEntry {
+            version: TRAIL_VERSION,
             at: "2026-09-16T12:00:00Z".to_string(),
             query: query.to_string(),
             retrieved: vec![
@@ -192,6 +247,7 @@ mod tests {
         assert!(e.retrieved.is_empty());
         assert!(e.ranks.is_empty());
         assert!(e.cited.is_empty());
+        assert_eq!(e.version, 1, "a missing version means 1");
         assert_eq!(e.outcome, Outcome::Unknown);
         assert_eq!(e.session, "");
         assert_eq!(e.top_retrieved(), None);
@@ -237,6 +293,75 @@ mod tests {
         assert_eq!(e.top_retrieved(), Some("handbook::docs/a.md"));
         e.ranks = vec![2, 1];
         assert_eq!(e.top_retrieved(), Some("handbook::docs/b.md"));
+    }
+
+    #[test]
+    fn an_explicit_version_1_line_and_unknown_fields_are_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.jsonl");
+        std::fs::write(
+            &path,
+            "{\"version\": 1, \"at\": \"t\", \"query\": \"q\", \"added_later\": [1]}\n",
+        )
+        .unwrap();
+        let entries = read_jsonl(&path).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].version, 1);
+    }
+
+    #[test]
+    fn a_newer_version_is_rejected_naming_the_line_and_both_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.jsonl");
+        let ok = serde_json::to_string(&entry("q")).unwrap();
+        std::fs::write(
+            &path,
+            format!("{ok}\n\n{{\"version\": 2, \"at\": \"t\", \"query\": \"q\"}}\n"),
+        )
+        .unwrap();
+        let err = read_jsonl(&path).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                TrailError::NewerVersion {
+                    line: 3,
+                    found: 2,
+                    known: 1,
+                    ..
+                }
+            ),
+            "{err}"
+        );
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "{}:3: version 2 is newer than the version 1 this pinakes reads; upgrade pinakes",
+                path.display()
+            )
+        );
+    }
+
+    #[test]
+    fn the_version_is_checked_before_the_rest_of_the_line_is_parsed() {
+        // A newer version may have renamed or removed `at` and `query`: it is still reported as
+        // newer, not as a missing field.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.jsonl");
+        std::fs::write(&path, "{\"version\": 7, \"served_at\": \"t\"}\n").unwrap();
+        let err = read_jsonl(&path).unwrap_err();
+        assert!(
+            matches!(err, TrailError::NewerVersion { found: 7, .. }),
+            "{err}"
+        );
+
+        // A version that is not an integer is an invalid line, at its line number.
+        std::fs::write(
+            &path,
+            "{\"version\": \"two\", \"at\": \"t\", \"query\": \"q\"}\n",
+        )
+        .unwrap();
+        let err = read_jsonl(&path).unwrap_err();
+        assert!(matches!(err, TrailError::Json { line: 1, .. }), "{err}");
     }
 
     #[test]

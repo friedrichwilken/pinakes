@@ -373,6 +373,7 @@ mod tests {
 
     fn entry(query: &str, retrieved: &[&str], cited: &[&str], at: &str) -> TrailEntry {
         TrailEntry {
+            version: crate::trail::TRAIL_VERSION,
             at: at.to_string(),
             query: query.to_string(),
             retrieved: retrieved.iter().map(|s| (*s).to_string()).collect(),
