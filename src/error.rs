@@ -97,9 +97,17 @@ pub enum CommandError {
     /// Bad or unreadable `duplicates.jsonl`.
     #[error(transparent)]
     Duplicates(#[from] DuplicatesError),
-    /// `derive` failed, including talking to the model.
-    #[error(transparent)]
-    Derive(#[from] DeriveError),
+    /// The endpoint `derive` asks failed on a page; pages before it were kept.
+    #[error("{page}: {source} ({saved} pages were saved before it)")]
+    DeriveFailed {
+        /// The page being asked about.
+        page: String,
+        /// Pages that got questions earlier in the run.
+        saved: usize,
+        /// What went wrong.
+        #[source]
+        source: DeriveError,
+    },
     /// `derive` found no source that configures `derive.questions`.
     #[error("no source configures derive.questions in the config")]
     NoDerive,

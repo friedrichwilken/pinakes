@@ -218,12 +218,12 @@ pub fn materialise(
 
 /// The text of `derived.jsonl` for `manifest`: `None` when nothing was derived, so an artifact
 /// without derived text has no such file.
-fn derived_text(manifest: &Manifest) -> Option<String> {
+fn derived_text(manifest: &Manifest) -> Result<Option<String>, serde_json::Error> {
     let lines = manifest.derived_lines();
     if lines.is_empty() {
-        return None;
+        return Ok(None);
     }
-    jsonl::to_string(&lines, KeyOrder::Sorted).ok()
+    jsonl::to_string(&lines, KeyOrder::Sorted).map(Some)
 }
 
 /// Write (or, when the manifest has no derived text, remove) `<dir>/derived.jsonl` from
@@ -231,7 +231,7 @@ fn derived_text(manifest: &Manifest) -> Option<String> {
 /// rebuilds it byte for byte without a model.
 pub fn write_derived(dir: &Path, manifest: &Manifest) -> Result<(), ArtifactError> {
     let path = dir.join(DERIVED_FILE);
-    match derived_text(manifest) {
+    match derived_text(manifest)? {
         Some(text) => std::fs::write(&path, text).map_err(io(&path)),
         None => match std::fs::remove_file(&path) {
             Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(io(&path)(err)),
@@ -295,7 +295,9 @@ pub fn check(dir: &Path, manifest: &Manifest) -> Vec<Problem> {
             problems.push(Problem::MetaDiffers(name.clone()));
         }
     }
-    if derived_text(manifest) != std::fs::read_to_string(dir.join(DERIVED_FILE)).ok() {
+    let expected_derived = derived_text(manifest).ok();
+    let actual_derived = std::fs::read_to_string(dir.join(DERIVED_FILE)).ok();
+    if expected_derived.is_none() || expected_derived != Some(actual_derived) {
         problems.push(Problem::DerivedDiffers);
     }
     problems

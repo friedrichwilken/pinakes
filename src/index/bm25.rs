@@ -613,6 +613,16 @@ mod tests {
             units_before,
             "units are untouched"
         );
+        // The question documents count as documents (N, the average length, document
+        // frequencies), so giving one page questions moves the scores of pages that have none
+        // (SPEC §5): "invoices" only ever matches the billing page.
+        let score_of = |index: &Index| index.search("invoices", 5, None).unwrap()[0].score;
+        assert!(
+            (score_of(&index) - score_of(&plain)).abs() > 1e-9,
+            "{} vs {}",
+            score_of(&index),
+            score_of(&plain)
+        );
         // Without derived text nothing else changes: same hits, same scores.
         let same = Index::from_pages_with_derived(pages, &BTreeMap::new()).unwrap();
         assert_eq!(

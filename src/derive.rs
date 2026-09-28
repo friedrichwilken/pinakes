@@ -35,12 +35,25 @@ const FORMAT: &str = "questions/1";
 /// The most page content, in characters, sent to the model.
 pub const MAX_CONTENT_CHARS: usize = 12_000;
 
+/// The longest question kept, in characters; a longer "question" is not one.
+pub const MAX_QUESTION_CHARS: usize = 300;
+
 /// Errors raised while deriving text.
 #[derive(Debug, Error)]
 pub enum DeriveError {
-    /// Talking to the model failed.
+    /// Talking to the model failed: no endpoint, an HTTP or transport error. Asking about the
+    /// next page would fail the same way.
     #[error(transparent)]
     Llm(#[from] ChatError),
+    /// The model answered, but not with the questions asked for. Only this page is affected.
+    #[error("the reply is not the expected JSON ({source}): {raw}")]
+    Reply {
+        /// The reply, cut for display.
+        raw: String,
+        /// Why it did not parse.
+        #[source]
+        source: serde_json::Error,
+    },
 }
 
 /// The system prompt for `settings`: the configured one, else the built-in, with `{n}` filled.
@@ -74,17 +87,38 @@ pub fn user_message(title: &str, content: &str) -> String {
     format!("Title: {title}\n\n{content}")
 }
 
+/// The reply the prompt asks for, `{"questions": [...]}`, or the bare array a model often
+/// writes instead.
 #[derive(Deserialize)]
-struct Reply {
-    questions: Vec<String>,
+#[serde(untagged)]
+enum Reply {
+    Object { questions: Vec<String> },
+    List(Vec<String>),
 }
 
-/// Trim, drop blanks and case-insensitive repeats, and keep at most `n`, in the model's order.
+/// The JSON of a reply that may be wrapped in a markdown code fence.
+fn unfenced(reply: &str) -> &str {
+    let text = reply.trim();
+    let Some(rest) = text.strip_prefix("```") else {
+        return text;
+    };
+    let body = rest.split_once('\n').map_or(rest, |(_, body)| body).trim();
+    body.strip_suffix("```").unwrap_or(body).trim()
+}
+
+/// Collapse each question to one line, drop blanks, control characters, questions longer than
+/// [`MAX_QUESTION_CHARS`] and case-insensitive repeats, and keep at most `n`, in the model's
+/// order.
 pub fn clean_questions(raw: Vec<String>, n: usize) -> Vec<String> {
     let mut seen = std::collections::BTreeSet::new();
     raw.into_iter()
-        .map(|question| question.trim().to_string())
-        .filter(|question| !question.is_empty() && seen.insert(question.to_lowercase()))
+        .map(|question| question.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|question| {
+            !question.is_empty()
+                && question.chars().count() <= MAX_QUESTION_CHARS
+                && !question.chars().any(char::is_control)
+                && seen.insert(question.to_lowercase())
+        })
         .take(n)
         .collect()
 }
@@ -97,13 +131,21 @@ pub fn questions(
     title: &str,
     content: &str,
 ) -> Result<Vec<String>, DeriveError> {
-    let reply: Reply = llm::chat(
+    let text = llm::chat_text(
         transport,
         config,
         &system_prompt(settings),
         &user_message(title, content),
     )?;
-    Ok(clean_questions(reply.questions, settings.n))
+    let reply: Reply =
+        serde_json::from_str(unfenced(&text)).map_err(|source| DeriveError::Reply {
+            raw: text.chars().take(200).collect(),
+            source,
+        })?;
+    let raw = match reply {
+        Reply::Object { questions } | Reply::List(questions) => questions,
+    };
+    Ok(clean_questions(raw, settings.n))
 }
 
 /// The questions settings that apply to a page of `section` in `source`, when the source
@@ -345,18 +387,73 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_reply_that_is_not_the_shape_is_the_models_error() {
-        let transport = ScriptedTransport::new(vec![Scripted::Ok(completion("[\"a\"]"))]);
-        let err = questions(&transport, &llm_config(), &settings(5, None), "T", "c").unwrap_err();
-        assert!(
-            matches!(err, DeriveError::Llm(ChatError::Json { .. })),
-            "{err}"
-        );
+    fn ask(reply: &str) -> Result<Vec<String>, DeriveError> {
+        let transport = ScriptedTransport::new(vec![Scripted::Ok(completion(reply))]);
+        questions(&transport, &llm_config(), &settings(5, None), "T", "c")
+    }
 
+    #[test]
+    fn a_bare_array_and_a_fenced_reply_are_read_like_the_object() {
+        let want = ["How do I cache uploads?", "Is caching on by default?"];
+        for reply in [
+            "{\"questions\": [\"How do I cache uploads?\", \"Is caching on by default?\"]}",
+            "[\"How do I cache uploads?\", \"Is caching on by default?\"]",
+            "```json\n{\"questions\": [\"How do I cache uploads?\", \"Is caching on by default?\"]}\n```",
+            "```\n[\"How do I cache uploads?\", \"Is caching on by default?\"]\n```",
+            "  {\"questions\": [\"How do I cache uploads?\", \"Is caching on by default?\"], \"note\": 1}  ",
+        ] {
+            assert_eq!(ask(reply).unwrap(), want, "{reply}");
+        }
+    }
+
+    #[test]
+    fn a_reply_that_is_not_the_shape_is_a_per_page_error_and_a_dead_endpoint_is_not() {
+        for reply in [
+            "{\"questions\": \"a string\"}",
+            "{\"questions\": null}",
+            "[1, {\"a\": 2}, null]",
+            "Sure! Here are some questions.",
+            "",
+        ] {
+            let err = ask(reply).unwrap_err();
+            assert!(matches!(err, DeriveError::Reply { .. }), "{reply}: {err}");
+        }
         let transport = ScriptedTransport::new(vec![Scripted::Err(TransportError::Transport(
             "down".to_string(),
         ))]);
-        assert!(questions(&transport, &llm_config(), &settings(5, None), "T", "c").is_err());
+        let err = questions(&transport, &llm_config(), &settings(5, None), "T", "c").unwrap_err();
+        assert!(
+            matches!(err, DeriveError::Llm(ChatError::Transport { .. })),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn questions_are_one_line_short_and_free_of_control_characters() {
+        let long = "x".repeat(MAX_QUESTION_CHARS + 1);
+        let fits = "y".repeat(MAX_QUESTION_CHARS);
+        let raw = vec![
+            "How do I\n  set   it up?".to_string(),
+            long,
+            fits.clone(),
+            "bell\u{7}".to_string(),
+            "tab\tseparated".to_string(),
+        ];
+        assert_eq!(
+            clean_questions(raw, 10),
+            [
+                "How do I set it up?".to_string(),
+                fits,
+                "tab separated".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn the_count_is_part_of_the_hash_even_when_the_prompt_never_mentions_it() {
+        assert_ne!(
+            input_sha256("aa", &settings(5, Some("a custom prompt"))),
+            input_sha256("aa", &settings(6, Some("a custom prompt")))
+        );
     }
 }
