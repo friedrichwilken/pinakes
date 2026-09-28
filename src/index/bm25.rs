@@ -34,6 +34,10 @@ const WRITER_BUDGET: usize = 64 << 20;
 /// a consumer embeds as `text` and `chunks` (SPEC §2.9) emits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unit {
+    /// The unit's own identity, `<page id>#<ordinal>` (see [`chunk_id`]): `ordinal` is the
+    /// unit's 0-based position within its page, in [`split_sections`](super::split_sections)
+    /// order. Deterministic, so a consumer can derive the same id from the splitting rules.
+    pub id: String,
     /// The page this unit belongs to.
     pub page_id: String,
     /// The page title, the index's `title` field.
@@ -47,6 +51,11 @@ pub struct Unit {
     pub text: String,
 }
 
+/// The id of the unit at `ordinal` within `page`: `<page>#<ordinal>`.
+pub fn chunk_id(page: &str, ordinal: usize) -> String {
+    format!("{page}#{ordinal}")
+}
+
 /// The retrieval units of the searchable (non-mirror) pages, in page then section order.
 ///
 /// `pages` must already have [`mark_mirrors`] applied; mirrors are skipped. This is the only
@@ -54,13 +63,17 @@ pub struct Unit {
 pub fn iter_units(pages: &[Page]) -> Vec<Unit> {
     let mut units = Vec::new();
     for page in pages.iter().filter(|p| p.mirror_of.is_none()) {
-        for section in split_sections(&index_text(&page.content)) {
+        for (ordinal, section) in split_sections(&index_text(&page.content))
+            .into_iter()
+            .enumerate()
+        {
             let text = if section.heading.is_empty() {
                 format!("{}\n\n{}", page.title, section.body)
             } else {
                 format!("{}\n{}\n\n{}", page.title, section.heading, section.body)
             };
             units.push(Unit {
+                id: chunk_id(&page.id, ordinal),
                 page_id: page.id.clone(),
                 title: page.title.clone(),
                 heading: section.heading,
@@ -663,6 +676,23 @@ mod tests {
         assert!(readme_units[1].text.contains("Storage Module"));
         assert!(readme_units[1].text.contains("Enable upload caching"));
         assert_eq!(readme_units[1].title, "Storage Module");
+        // Ids are `<page id>#<ordinal>`, and the ordinal restarts on every page.
+        let ids: Vec<&str> = readme_units.iter().map(|u| u.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "handbook::docs/user/README.md#0",
+                "handbook::docs/user/README.md#1"
+            ]
+        );
+        for page in units
+            .iter()
+            .map(|u| u.page_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            let first = units.iter().find(|u| u.page_id == page).unwrap();
+            assert_eq!(first.id, chunk_id(page, 0), "{page}");
+        }
         assert!(readme_units[1].body.starts_with("\nEnable upload caching"));
     }
 
@@ -691,5 +721,8 @@ mod tests {
             let page = &index.pages()[index.searchable[index.unit_page[dense]]];
             assert_eq!(page.id, unit.page_id, "unit {dense}");
         }
+        let distinct: std::collections::BTreeSet<&str> =
+            units.iter().map(|u| u.id.as_str()).collect();
+        assert_eq!(distinct.len(), units.len(), "every unit id is unique");
     }
 }

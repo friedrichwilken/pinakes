@@ -268,7 +268,8 @@ order. Written by `chunks` (§4) to `--out FILE` or stdout; keys sorted. Fields:
 
 - `page`: the page id, `<source>::<path>` (§2.2).
 - `ordinal`: the unit's 0-based position within its page.
-- `id`: `<page>#<ordinal>`, e.g. `handbook::docs/install.md#0` for the page intro.
+- `id`: `<page>#<ordinal>`, e.g. `handbook::docs/install.md#0` for the page intro; the same id
+  `index::Unit::id` carries (§5 step 5).
 - `heading`: the unit's H2 heading, `<H2> / <H3>` for a section split at H3, empty for the intro.
 - `text`: the unit text a consumer embeds, title, heading and body joined as §5 step 4
   shows. The built-in index scores the same cut as three fields (title ×3, heading ×2, body ×1),
@@ -475,6 +476,11 @@ fail on a flaky network.
      trailing newline is not kept). Lines are Rust's `str::lines`: split at `\n`, a trailing
      `\r` dropped from each line, so a CRLF page yields the same text and `sha256` as its
      LF-only twin, which a splitter that keeps `\r` would not. Mirror pages yield no units.
+  5. A unit's id is `<page id>#<ordinal>`, `ordinal` being the unit's 0-based position within
+     its page in the order steps 2 and 3 produce the units (ordinal 0 is the first unit: the intro, unless a
+     blank intro was dropped). It needs no state beyond the page, so a consumer can reimplement it from these
+     rules; `chunks` (§2.9) writes the same id, and the library's `Unit::id` and `chunk_id` are
+     its one implementation.
 - Page score = max unit score. Results are de-duplicated by tokenised title; when two sources carry
   the same title (nav title or H1), only the higher `priority` source's page is indexed (mirror rule).
   Priorities come from `pinakes.yaml` alone (`priority`, default 1): a source the config does not
@@ -803,7 +809,7 @@ with a new major.
 | module | what a consumer gets |
 |---|---|
 | `corpus` | `load_pages` (an artifact directory into `Page`s, with the source priorities and the mirror rule), `Page`, `Priorities`, `DEFAULT_PRIORITY`, `mark_mirrors`, `load_residue_page`, `CorpusError` |
-| `index` | the built-in BM25 index of §5: `Index`, `Hit`, `Unit`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
+| `index` | the built-in BM25 index of §5: `Index`, `Hit`, `Unit` (with its `id`), `chunk_id`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
 | `tokenizer` | the tokeniser of §5 and §10.3, so a consumer's own index cuts the same tokens |
 | `chunks` | `Chunk`, `chunks`, `chunk_id`: the retrieval units of §2.9, the same cut the index searches and a consumer embeds |
 | `manifest`, `layout` | `manifest.json`'s types and loader, the artifact's file and directory names |

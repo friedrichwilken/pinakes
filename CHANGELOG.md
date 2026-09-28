@@ -7,6 +7,9 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- `index::Unit` gains `id`, `<page id>#<ordinal>` (issue #58, SPEC §5 step 5), and `chunk_id`
+  moves to `index` (still re-exported as `chunks::chunk_id`); `chunks` writes `Unit::id`, so the
+  ids in `chunks.jsonl` are unchanged. A consumer that builds `Unit` by hand needs the new field.
 - `manifest.json` and every `<source>/meta.json` carry `artifact_version` (issue #49, SPEC
   §2.8): the artifact contract they follow (directory layout, `meta.json` fields, manifest
   fields), currently 1. Missing means 1; a newer major is rejected on read by the manifest reader

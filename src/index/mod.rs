@@ -38,7 +38,7 @@ pub use crate::tokenizer::{
     PinakesTokenStream, PinakesTokenizer, STOPWORDS, TOKENIZER_NAME, is_stopword, title_key,
     tokenize,
 };
-pub use bm25::{HEADING_BOOST, Hit, Index, TITLE_BOOST, Unit, iter_units};
+pub use bm25::{HEADING_BOOST, Hit, Index, TITLE_BOOST, Unit, chunk_id, iter_units};
 pub use sections::{
     SECTION_SPLIT_TOKENS, Section, clean_content, extract_title, index_text, split_sections,
 };

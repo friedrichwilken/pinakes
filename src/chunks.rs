@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::corpus::Page;
+pub use crate::index::chunk_id;
 use crate::index::iter_units;
 use crate::text::sha256_hex;
 
@@ -31,11 +32,6 @@ pub struct Chunk {
     pub sha256: String,
 }
 
-/// The id of the unit at `ordinal` within `page`: `<page>#<ordinal>`.
-pub fn chunk_id(page: &str, ordinal: usize) -> String {
-    format!("{page}#{ordinal}")
-}
-
 /// The chunks of the searchable pages, in page then unit order, cut by [`iter_units`].
 ///
 /// `pages` must already have [`crate::corpus::mark_mirrors`] applied: mirror pages yield no
@@ -48,7 +44,7 @@ pub fn chunks(pages: &[Page]) -> Vec<Chunk> {
             _ => 0,
         };
         out.push(Chunk {
-            id: chunk_id(&unit.page_id, ordinal),
+            id: unit.id,
             page: unit.page_id,
             heading: unit.heading,
             ordinal,
@@ -130,6 +126,7 @@ mod tests {
         let units = iter_units(&pages);
         assert_eq!(chunks.len(), units.len());
         for (chunk, unit) in chunks.iter().zip(&units) {
+            assert_eq!(chunk.id, unit.id);
             assert_eq!(chunk.text, unit.text);
             assert_eq!(chunk.sha256, sha256_hex(unit.text.as_bytes()));
             assert_eq!(chunk.sha256.len(), 64);
