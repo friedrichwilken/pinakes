@@ -23,6 +23,8 @@ jobs:
       config: pinakes.yaml
       queries: queries.jsonl
       baseline: eval-baseline.json
+      # derive: true                        # also refresh generated questions (SPEC §14.4) ...
+    # secrets: inherit                      # ... with the PINAKES_LLM_URL/KEY/MODEL secrets
     permissions:
       contents: write
       pull-requests: write

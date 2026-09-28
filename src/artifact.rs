@@ -3,6 +3,7 @@
 //! ```text
 //! <artifact>/
 //!   manifest.json
+//!   derived.jsonl                 # derived retrieval text (SPEC §14.4), only when there is some
 //!   <source>/…/<page>.md          # selected pages, original relative paths
 //!   <source>/meta.json            # {artifact_version, repo, module, base_url, commit, pages, …}
 //!   _residue/<source>/…/<page>.md # leftovers, for excerpts and measurement
@@ -19,12 +20,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::config::RepoSlug;
+use crate::jsonl::{self, KeyOrder};
 use crate::layout::ARTIFACT_VERSION;
 use crate::manifest::{Manifest, ManifestError, ManifestSource, page_id, to_sorted_json};
 use crate::sources::Checkout;
 use crate::text::sha256_hex;
 
-pub use crate::layout::{MANIFEST_FILE, META_FILE, RESIDUE_DIR};
+pub use crate::layout::{DERIVED_FILE, MANIFEST_FILE, META_FILE, RESIDUE_DIR};
 
 /// Errors raised while writing or checking an artifact.
 #[derive(Debug, Error)]
@@ -211,7 +213,31 @@ pub fn materialise(
         }
     }
     manifest.save(&dir.join(MANIFEST_FILE))?;
-    Ok(())
+    write_derived(dir, manifest)
+}
+
+/// The text of `derived.jsonl` for `manifest`: `None` when nothing was derived, so an artifact
+/// without derived text has no such file.
+fn derived_text(manifest: &Manifest) -> Option<String> {
+    let lines = manifest.derived_lines();
+    if lines.is_empty() {
+        return None;
+    }
+    jsonl::to_string(&lines, KeyOrder::Sorted).ok()
+}
+
+/// Write (or, when the manifest has no derived text, remove) `<dir>/derived.jsonl` from
+/// `manifest` (SPEC §14.4). It is a pure function of the manifest, so `resolve --from-manifest`
+/// rebuilds it byte for byte without a model.
+pub fn write_derived(dir: &Path, manifest: &Manifest) -> Result<(), ArtifactError> {
+    let path = dir.join(DERIVED_FILE);
+    match derived_text(manifest) {
+        Some(text) => std::fs::write(&path, text).map_err(io(&path)),
+        None => match std::fs::remove_file(&path) {
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(io(&path)(err)),
+            _ => Ok(()),
+        },
+    }
 }
 
 /// A discrepancy between an artifact directory and a manifest.
@@ -225,6 +251,9 @@ pub enum Problem {
     HashMismatch(String),
     /// A source's `meta.json` is missing or differs from what the manifest implies.
     MetaDiffers(String),
+    /// `derived.jsonl` is missing, present without derived text in the manifest, or differs
+    /// from what the manifest implies.
+    DerivedDiffers,
 }
 
 impl std::fmt::Display for Problem {
@@ -238,6 +267,7 @@ impl std::fmt::Display for Problem {
                 write!(f, "{id}: artifact bytes do not match the manifest")
             }
             Problem::MetaDiffers(name) => write!(f, "{name}/meta.json differs from the manifest"),
+            Problem::DerivedDiffers => write!(f, "derived.jsonl differs from the manifest"),
         }
     }
 }
@@ -264,6 +294,9 @@ pub fn check(dir: &Path, manifest: &Manifest) -> Vec<Problem> {
         if expected_meta != actual_meta {
             problems.push(Problem::MetaDiffers(name.clone()));
         }
+    }
+    if derived_text(manifest) != std::fs::read_to_string(dir.join(DERIVED_FILE)).ok() {
+        problems.push(Problem::DerivedDiffers);
     }
     problems
 }
@@ -404,6 +437,51 @@ mod tests {
         assert_eq!(
             problems[1].to_string(),
             "handbook::docs/user/README.md: missing from the artifact"
+        );
+    }
+
+    #[test]
+    fn derived_text_is_written_from_the_manifest_and_checked() {
+        let (dir, mut manifest, checkouts) = fixture();
+        let artifact = dir.path().join("artifact");
+        let file = artifact.join("derived.jsonl");
+
+        // No derived text: no file, and a stray one is a difference.
+        materialise(&artifact, &manifest, &checkouts).unwrap();
+        assert!(!file.exists());
+        fs::write(&file, "stray\n").unwrap();
+        assert_eq!(check(&artifact, &manifest), [Problem::DerivedDiffers]);
+        write_derived(&artifact, &manifest).unwrap();
+        assert!(!file.exists(), "removed when the manifest has none");
+        write_derived(&artifact, &manifest).unwrap();
+
+        // Derived text: the file follows the manifest, and a missing or edited one differs.
+        let mut kinds = BTreeMap::new();
+        kinds.insert(
+            crate::manifest::DERIVED_QUESTIONS.to_string(),
+            crate::manifest::DerivedEntry {
+                input_sha256: "aa".to_string(),
+                model: "m".to_string(),
+                text: vec!["How do I install it?".to_string()],
+            },
+        );
+        manifest
+            .derived
+            .insert("handbook::docs/user/README.md".to_string(), kinds);
+        materialise(&artifact, &manifest, &checkouts).unwrap();
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "{\"kind\":\"questions\",\"page\":\"handbook::docs/user/README.md\",\
+             \"text\":[\"How do I install it?\"]}\n"
+        );
+        assert!(check(&artifact, &manifest).is_empty());
+        fs::write(&file, "{}\n").unwrap();
+        assert_eq!(check(&artifact, &manifest), [Problem::DerivedDiffers]);
+        fs::remove_file(&file).unwrap();
+        assert_eq!(check(&artifact, &manifest), [Problem::DerivedDiffers]);
+        assert_eq!(
+            Problem::DerivedDiffers.to_string(),
+            "derived.jsonl differs from the manifest"
         );
     }
 

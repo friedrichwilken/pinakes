@@ -30,7 +30,8 @@
 //! corpus is not this crate's job: it moved to `kanon` (SPEC §21).
 //!
 //! [`duplicates`] finds near-duplicate and mirror pages; [`classify`] uses [`llm`] to judge
-//! undecided residue and near-duplicate candidates; [`usage`] turns a trail into
+//! undecided residue and near-duplicate candidates; [`mod@derive`] has a model write the questions
+//! each page answers, kept as search text (SPEC §14.4); [`usage`] turns a trail into
 //! pages-never-used and gap statistics; [`diff`] and [`report`] describe changes; [`artifact`]
 //! materialises a compiled corpus; [`render`] is the SPEC §10.1 render hook.
 //!
@@ -56,6 +57,7 @@ pub mod commands;
 pub mod config;
 pub mod corpus;
 pub mod decisions;
+pub mod derive;
 pub mod diff;
 pub mod duplicates;
 pub mod error;

@@ -2,6 +2,7 @@ pub(crate) mod check;
 pub(crate) mod chunks;
 pub(crate) mod classify;
 pub(crate) mod decide;
+pub(crate) mod derive;
 pub(crate) mod diff;
 pub(crate) mod duplicates;
 pub(crate) mod init;

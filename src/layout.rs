@@ -10,6 +10,9 @@ pub const RESIDUE_DIR: &str = "_residue";
 pub const META_FILE: &str = "meta.json";
 /// Name of the manifest at the artifact root.
 pub const MANIFEST_FILE: &str = "manifest.json";
+/// Name of the derived retrieval text at the artifact root (SPEC §14.4): written from the
+/// manifest, absent when the manifest has none.
+pub const DERIVED_FILE: &str = "derived.jsonl";
 
 /// The artifact contract version this build writes and the highest one it reads (SPEC §2.8):
 /// the directory layout, the `meta.json` fields and the `manifest.json` fields. A missing

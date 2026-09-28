@@ -4,7 +4,7 @@
 //! globs and invalid regexes are all rejected with a [`ConfigError`] so that mistakes surface
 //! before any network access happens.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -78,6 +78,24 @@ pub enum ConfigError {
         #[source]
         source: regex::Error,
     },
+    /// A `derive.questions` count is outside `1..=`[`MAX_QUESTIONS`].
+    #[error("source {name}: {context} must be between 1 and {MAX_QUESTIONS}, not {n}")]
+    QuestionsCount {
+        /// The source.
+        name: String,
+        /// The setting, e.g. `derive.questions.n`.
+        context: String,
+        /// The offending count.
+        n: usize,
+    },
+    /// A `derive.questions` prompt is blank.
+    #[error("source {name}: {context} must not be blank")]
+    QuestionsPrompt {
+        /// The source.
+        name: String,
+        /// The setting, e.g. `derive.questions.prompt`.
+        context: String,
+    },
     /// An external resolver has an empty command.
     #[error("source {0}: external resolver command must not be empty")]
     EmptyCommand(String),
@@ -135,6 +153,57 @@ pub struct Source {
     /// absent for sources whose selected files are already Markdown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub render: Option<Render>,
+    /// Derived retrieval text a model writes for the source's pages (SPEC §14.4); absent for a
+    /// source that has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derive: Option<Derive>,
+}
+
+/// Derived retrieval text for a source (SPEC §14.4): what `pinakes derive` asks the model for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Derive {
+    /// Questions each page answers, added to that page's index text only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub questions: Option<QuestionsDerive>,
+}
+
+/// The most questions a page may be asked for.
+pub const MAX_QUESTIONS: usize = 20;
+
+/// Questions per page when `n` is not given.
+pub const DEFAULT_QUESTIONS: usize = 5;
+
+fn default_questions() -> usize {
+    DEFAULT_QUESTIONS
+}
+
+/// The generated-questions settings of a source (SPEC §14.4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionsDerive {
+    /// Questions asked for per page, `1..=`[`MAX_QUESTIONS`]; default [`DEFAULT_QUESTIONS`].
+    #[serde(default = "default_questions")]
+    pub n: usize,
+    /// The system prompt; absent means the built-in one (`derive::DEFAULT_QUESTIONS_PROMPT`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// Overrides by the pages' navigation section (`meta.json`), for a source whose sections
+    /// want another prompt or count.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sections: BTreeMap<String, SectionQuestions>,
+}
+
+/// What a section overrides of its source's [`QuestionsDerive`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SectionQuestions {
+    /// Questions asked for per page of the section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n: Option<usize>,
+    /// The system prompt for the section's pages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
 }
 
 /// Priority of a source that does not set one.
@@ -473,6 +542,60 @@ impl fmt::Display for RepoSlug {
     }
 }
 
+impl QuestionsDerive {
+    /// The count and prompt that apply to a page of `section`: the section's override where it
+    /// has one, else the source's, else the built-in prompt.
+    pub fn settings_for(&self, section: &str) -> QuestionsSettings {
+        let over = self.sections.get(section);
+        QuestionsSettings {
+            n: over.and_then(|o| o.n).unwrap_or(self.n),
+            prompt: over
+                .and_then(|o| o.prompt.clone())
+                .or_else(|| self.prompt.clone()),
+        }
+    }
+
+    fn validate(&self, source: &str) -> Result<(), ConfigError> {
+        let count = |context: &str, n: usize| {
+            if (1..=MAX_QUESTIONS).contains(&n) {
+                Ok(())
+            } else {
+                Err(ConfigError::QuestionsCount {
+                    name: source.to_string(),
+                    context: context.to_string(),
+                    n,
+                })
+            }
+        };
+        let prompt = |context: &str, text: Option<&String>| match text {
+            Some(text) if text.trim().is_empty() => Err(ConfigError::QuestionsPrompt {
+                name: source.to_string(),
+                context: context.to_string(),
+            }),
+            _ => Ok(()),
+        };
+        count("derive.questions.n", self.n)?;
+        prompt("derive.questions.prompt", self.prompt.as_ref())?;
+        for (section, over) in &self.sections {
+            let context = format!("derive.questions.sections.{section}");
+            if let Some(n) = over.n {
+                count(&format!("{context}.n"), n)?;
+            }
+            prompt(&format!("{context}.prompt"), over.prompt.as_ref())?;
+        }
+        Ok(())
+    }
+}
+
+/// The questions settings that apply to one page: `prompt` is `None` for the built-in prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuestionsSettings {
+    /// Questions asked for.
+    pub n: usize,
+    /// The configured system prompt, if any.
+    pub prompt: Option<String>,
+}
+
 impl Source {
     /// The `owner/repo` slug of this source; validation guarantees it parses.
     pub fn slug(&self) -> RepoSlug {
@@ -494,6 +617,9 @@ impl Source {
         }
         if self.git_ref.trim().is_empty() {
             return Err(ConfigError::EmptyRef(self.name.clone()));
+        }
+        if let Some(questions) = self.derive.as_ref().and_then(|d| d.questions.as_ref()) {
+            questions.validate(&self.name)?;
         }
         let ctx = |field: &str| format!("source {}: resolver.{field}", self.name);
         match &self.resolver {
@@ -701,6 +827,90 @@ gates:
             "version: 1\nsources:\n  - name: {name}\n    repo: {repo}\n    ref: main\n    \
              resolver:\n      type: glob\n      include: ['**/*.md']\n"
         )
+    }
+
+    #[test]
+    fn parses_derive_questions_with_section_overrides() {
+        let yaml = "version: 1\nsources:\n  - name: handbook\n    \
+             repo: https://github.com/example-org/handbook.git\n    ref: main\n    \
+             derive:\n      questions:\n        n: 4\n        prompt: 'ask {n} things'\n        \
+             sections:\n          Tutorials: {n: 2}\n          Reference: {prompt: 'terse'}\n    \
+             resolver:\n      type: glob\n      include: ['**/*.md']\n";
+        let config = Config::from_yaml(yaml).expect("valid config");
+        let questions = config.sources[0]
+            .derive
+            .as_ref()
+            .and_then(|d| d.questions.as_ref())
+            .expect("derive.questions");
+        assert_eq!(
+            questions.settings_for("Guides"),
+            QuestionsSettings {
+                n: 4,
+                prompt: Some("ask {n} things".to_string())
+            }
+        );
+        assert_eq!(questions.settings_for("Tutorials").n, 2);
+        assert_eq!(
+            questions.settings_for("Tutorials").prompt.as_deref(),
+            Some("ask {n} things")
+        );
+        assert_eq!(questions.settings_for("Reference").n, 4);
+        assert_eq!(
+            questions.settings_for("Reference").prompt.as_deref(),
+            Some("terse")
+        );
+
+        // Defaults: five questions and the built-in prompt.
+        let bare = yaml.replace(
+            concat!(
+                "        n: 4\n        prompt: 'ask {n} things'\n        sections:\n",
+                "          Tutorials: {n: 2}\n          Reference: {prompt: 'terse'}\n"
+            ),
+            "        {}\n",
+        );
+        let config = Config::from_yaml(&bare).expect("valid config");
+        let settings = config.sources[0]
+            .derive
+            .as_ref()
+            .and_then(|d| d.questions.as_ref())
+            .map(|q| q.settings_for(""));
+        assert_eq!(
+            settings,
+            Some(QuestionsSettings {
+                n: DEFAULT_QUESTIONS,
+                prompt: None
+            })
+        );
+    }
+
+    #[test]
+    fn derive_questions_settings_are_validated() {
+        let yaml = |body: &str| {
+            format!(
+                "version: 1\nsources:\n  - name: handbook\n    \
+                 repo: https://github.com/example-org/handbook.git\n    ref: main\n    \
+                 derive:\n      questions:\n{body}    resolver:\n      type: glob\n      \
+                 include: ['**/*.md']\n"
+            )
+        };
+        for (body, want) in [
+            ("        n: 0\n", "derive.questions.n"),
+            ("        n: 21\n", "derive.questions.n"),
+            ("        prompt: '  '\n", "derive.questions.prompt"),
+            (
+                "        sections:\n          Tutorials: {n: 0}\n",
+                "derive.questions.sections.Tutorials.n",
+            ),
+            (
+                "        sections:\n          Tutorials: {prompt: ''}\n",
+                "derive.questions.sections.Tutorials.prompt",
+            ),
+        ] {
+            let err = Config::from_yaml(&yaml(body)).unwrap_err().to_string();
+            assert!(err.contains(want), "{body:?}: {err}");
+        }
+        // A typo is an error, not a silently ignored setting.
+        assert!(Config::from_yaml(&yaml("        count: 3\n")).is_err());
     }
 
     #[test]

@@ -1,5 +1,31 @@
 {
   "$defs": {
+    "DerivedEntry": {
+      "description": "One piece of derived retrieval text for a page (SPEC §14.4). It is a search target, never a\nread target: the page it was derived from stays the thing a consumer reads.",
+      "properties": {
+        "input_sha256": {
+          "description": "Hash of everything the text was derived from (the page's `sha256`, the prompt and the\ncount); the entry is stale as soon as it no longer equals the current hash.",
+          "type": "string"
+        },
+        "model": {
+          "description": "The model that wrote it.",
+          "type": "string"
+        },
+        "text": {
+          "description": "The text: for `questions`, one question per element.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "input_sha256",
+        "model",
+        "text"
+      ],
+      "type": "object"
+    },
     "ManifestSource": {
       "description": "One source as recorded in the manifest.",
       "properties": {
@@ -203,6 +229,16 @@
       "format": "uint32",
       "minimum": 0,
       "type": "integer"
+    },
+    "derived": {
+      "additionalProperties": {
+        "additionalProperties": {
+          "$ref": "#/$defs/DerivedEntry"
+        },
+        "type": "object"
+      },
+      "description": "Derived retrieval text (SPEC §14.4): per page id, per kind (`questions`), what a model\nwrote and the hash of what it was given. Absent when nothing was derived.",
+      "type": "object"
     },
     "generated_at": {
       "description": "RFC 3339 UTC time the manifest was generated.",

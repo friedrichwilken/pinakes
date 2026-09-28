@@ -1,6 +1,6 @@
 //! The in-memory BM25 index over the searchable pages of an artifact, and its scoring.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use tantivy::postings::Postings;
@@ -12,7 +12,7 @@ use tantivy::{DocAddress, DocSet, IndexWriter, Searcher, TERMINATED, Term};
 
 use super::IndexError;
 use super::sections::{index_text, split_sections};
-use crate::corpus::{Page, Priorities, load_pages, mark_mirrors};
+use crate::corpus::{Page, Priorities, load_derived, load_pages, mark_mirrors};
 use crate::num::float;
 use crate::tokenizer::{PinakesTokenizer, TOKENIZER_NAME, title_key, tokenize};
 
@@ -223,13 +223,30 @@ impl std::fmt::Debug for Index {
 }
 
 impl Index {
-    /// Load every page of `artifact` and index the searchable ones.
+    /// Load every page of `artifact` and index the searchable ones, with the generated
+    /// questions of its `derived.jsonl` (SPEC §14.4) when it has one.
     pub fn build(artifact: &Path, priorities: &Priorities) -> Result<Index, IndexError> {
-        Index::from_pages(load_pages(artifact, priorities)?)
+        let pages = load_pages(artifact, priorities)?;
+        Index::from_pages_with_derived(pages, &load_derived(artifact)?)
     }
 
     /// Apply the mirror rule to `pages` and index the searchable ones.
-    pub fn from_pages(mut pages: Vec<Page>) -> Result<Index, IndexError> {
+    pub fn from_pages(pages: Vec<Page>) -> Result<Index, IndexError> {
+        Index::from_pages_with_derived(pages, &BTreeMap::new())
+    }
+
+    /// Like [`Index::from_pages`], and index `derived` (page id to generated questions) as
+    /// well (SPEC §14.4).
+    ///
+    /// The questions of a page are one extra document in the index, matched through the body
+    /// field and attributed to that page, so a hit on them is a hit on the page and the page
+    /// itself is unchanged. They are not a retrieval unit: [`iter_units`] and the `chunks` it
+    /// feeds do not know them. Questions for a page that is missing or not searchable (a
+    /// mirror) are ignored.
+    pub fn from_pages_with_derived(
+        mut pages: Vec<Page>,
+        derived: &BTreeMap<String, Vec<String>>,
+    ) -> Result<Index, IndexError> {
         mark_mirrors(&mut pages);
         let searchable: Vec<usize> = (0..pages.len())
             .filter(|&i| pages[i].mirror_of.is_none())
@@ -262,6 +279,28 @@ impl Index {
             doc.add_text(fields.heading, &unit.heading);
             doc.add_text(fields.body, &unit.body);
             doc.add_text(fields.page_id, &unit.page_id);
+            doc.add_text(fields.source, &page.source);
+            doc.add_text(fields.doc_type, &page.doc_type);
+            doc.add_u64(fields.page, position as u64);
+            doc.add_u64(fields.len, len as u64);
+            writer.add_document(doc)?;
+        }
+        for (id, questions) in derived {
+            let Some(&position) = position_of.get(id.as_str()) else {
+                continue;
+            };
+            let page = &pages[searchable[position]];
+            let body = questions.join("\n");
+            let body_tokens = tokenize(&body);
+            if body_tokens.is_empty() {
+                continue;
+            }
+            let len = stats.add_unit(&[], &[], &body_tokens);
+            let mut doc = TantivyDocument::default();
+            doc.add_text(fields.title, "");
+            doc.add_text(fields.heading, "");
+            doc.add_text(fields.body, &body);
+            doc.add_text(fields.page_id, id);
             doc.add_text(fields.source, &page.source);
             doc.add_text(fields.doc_type, &page.doc_type);
             doc.add_u64(fields.page, position as u64);
@@ -530,6 +569,95 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("_scratch")).unwrap();
         std::fs::write(dir.path().join("_scratch/x.md"), "# ignored\n").unwrap();
         dir
+    }
+
+    fn ids(hits: &[Hit]) -> Vec<&str> {
+        hits.iter().map(|h| h.page_id.as_str()).collect()
+    }
+
+    /// Generated questions are one extra document per page, attributed to that page: a query in
+    /// the questions' words finds a page whose own text never uses them, the units and the
+    /// page count do not change, and questions for a mirror or an unknown page are ignored.
+    #[test]
+    fn derived_questions_find_a_page_by_words_it_does_not_use() {
+        let dir = artifact();
+        let mut pages = load_pages(dir.path(), &priorities()).unwrap();
+        mark_mirrors(&mut pages);
+        let units_before = iter_units(&pages).len();
+
+        let plain = Index::build(dir.path(), &priorities()).unwrap();
+        let query = "preinstalled on my cluster";
+        assert!(plain.search(query, 5, None).unwrap().is_empty());
+
+        let derived: BTreeMap<String, Vec<String>> = [
+            (
+                "handbook::docs/user/README.md",
+                vec!["Is the storage module preinstalled on my cluster?"],
+            ),
+            ("guides::docs/storage.md", vec!["preinstalled cluster"]),
+            ("nobody::gone.md", vec!["preinstalled cluster"]),
+            ("guides::docs/billing.md", vec!["   "]),
+        ]
+        .into_iter()
+        .map(|(id, q)| (id.to_string(), q.into_iter().map(str::to_string).collect()))
+        .collect();
+        let index = Index::from_pages_with_derived(pages.clone(), &derived).unwrap();
+        let hits = index.search(query, 5, None).unwrap();
+        assert_eq!(ids(&hits), ["handbook::docs/user/README.md"], "{hits:?}");
+        assert_eq!(hits[0].heading, "", "the questions are not a section");
+
+        assert_eq!(index.page_count(), plain.page_count());
+        assert_eq!(index.searchable_count(), plain.searchable_count());
+        assert_eq!(
+            iter_units(index.pages()).len(),
+            units_before,
+            "units are untouched"
+        );
+        // Without derived text nothing else changes: same hits, same scores.
+        let same = Index::from_pages_with_derived(pages, &BTreeMap::new()).unwrap();
+        assert_eq!(
+            same.search("upload caching", 5, None).unwrap(),
+            plain.search("upload caching", 5, None).unwrap()
+        );
+    }
+
+    #[test]
+    fn build_reads_derived_jsonl_from_the_artifact() {
+        let dir = artifact();
+        let query = "preinstalled on my cluster";
+        assert!(
+            Index::build(dir.path(), &priorities())
+                .unwrap()
+                .search(query, 5, None)
+                .unwrap()
+                .is_empty()
+        );
+        std::fs::write(
+            dir.path().join("derived.jsonl"),
+            concat!(
+                "{\"kind\":\"questions\",\"page\":\"handbook::docs/user/README.md\",",
+                "\"text\":[\"Is the storage module preinstalled on my cluster?\"]}\n",
+                "{\"kind\":\"summary\",\"page\":\"handbook::docs/user/tutorials/quotas.md\",",
+                "\"text\":[\"a kind this build does not know\"]}\n",
+            ),
+        )
+        .unwrap();
+        let index = Index::build(dir.path(), &priorities()).unwrap();
+        let hits = index.search(query, 5, None).unwrap();
+        assert_eq!(ids(&hits), ["handbook::docs/user/README.md"], "{hits:?}");
+        assert!(
+            index
+                .search("a kind this build does not know", 5, None)
+                .unwrap()
+                .is_empty(),
+            "an unknown kind is ignored"
+        );
+
+        std::fs::write(dir.path().join("derived.jsonl"), "{not json}\n").unwrap();
+        assert!(matches!(
+            Index::build(dir.path(), &priorities()).unwrap_err(),
+            IndexError::Corpus(CorpusError::Derived(_))
+        ));
     }
 
     #[test]

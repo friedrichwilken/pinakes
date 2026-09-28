@@ -16,6 +16,7 @@ the [tutorial](../tutorials/curate-a-corpus.md).
   and how the corpus hands over.
 - [Classifying residue with a model](classify.md) — an LLM proposes include/exclude/unsure at
   scale.
+- [Derived retrieval text](derived-text.md) — generated questions per page, kept as search text.
 - [Curating with an agent](curating-with-an-agent.md) — a Claude Code skill that runs a curation
   session through the CLI.
 - [Weekly curation workflow](weekly-workflow.md) — the reusable GitHub Actions workflow that

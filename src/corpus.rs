@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::config::Config;
-use crate::layout::{ARTIFACT_VERSION, META_FILE, NewerArtifactVersion, RESIDUE_DIR};
-use crate::manifest::page_id;
+use crate::jsonl::{self, JsonlError};
+use crate::layout::{ARTIFACT_VERSION, DERIVED_FILE, META_FILE, NewerArtifactVersion, RESIDUE_DIR};
+use crate::manifest::{DERIVED_QUESTIONS, DerivedLine, page_id};
 use crate::text::{clean_content, extract_title};
 use crate::tokenizer::title_key;
 
@@ -46,6 +47,9 @@ pub enum CorpusError {
         /// The JSON value found.
         value: String,
     },
+    /// `derived.jsonl` could not be read.
+    #[error(transparent)]
+    Derived(#[from] JsonlError),
     /// A `meta.json` was written under a newer artifact contract (SPEC §2.8) than this build
     /// reads.
     #[error("{path}: {source}")]
@@ -261,6 +265,22 @@ pub(crate) fn make_page(
 fn read_lossy(path: &Path) -> Result<String, CorpusError> {
     let bytes = std::fs::read(path).map_err(io(path))?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The generated questions of an artifact (SPEC §14.4): page id to questions, from
+/// `derived.jsonl` at the artifact root. Empty when there is no such file; a `kind` other than
+/// `questions` is ignored, since a newer writer may add kinds.
+pub fn load_derived(artifact: &Path) -> Result<BTreeMap<String, Vec<String>>, CorpusError> {
+    let path = artifact.join(DERIVED_FILE);
+    if !path.is_file() {
+        return Ok(BTreeMap::new());
+    }
+    let lines: Vec<DerivedLine> = jsonl::read(&path)?;
+    Ok(lines
+        .into_iter()
+        .filter(|line| line.kind == DERIVED_QUESTIONS)
+        .map(|line| (line.page, line.text))
+        .collect())
 }
 
 /// Read every page of an artifact directory, in source and path order, mirrors not yet marked.

@@ -69,6 +69,27 @@ pub struct Manifest {
     pub generated_at: String,
     /// Sources by name.
     pub sources: BTreeMap<String, ManifestSource>,
+    /// Derived retrieval text (SPEC §14.4): per page id, per kind (`questions`), what a model
+    /// wrote and the hash of what it was given. Absent when nothing was derived.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub derived: BTreeMap<String, BTreeMap<String, DerivedEntry>>,
+}
+
+/// The kind of derived text generated questions are, the key under a page id in
+/// [`Manifest::derived`].
+pub const DERIVED_QUESTIONS: &str = "questions";
+
+/// One piece of derived retrieval text for a page (SPEC §14.4). It is a search target, never a
+/// read target: the page it was derived from stays the thing a consumer reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DerivedEntry {
+    /// Hash of everything the text was derived from (the page's `sha256`, the prompt and the
+    /// count); the entry is stale as soon as it no longer equals the current hash.
+    pub input_sha256: String,
+    /// The model that wrote it.
+    pub model: String,
+    /// The text: for `questions`, one question per element.
+    pub text: Vec<String>,
 }
 
 /// One source as recorded in the manifest.
@@ -141,6 +162,18 @@ pub enum SelectedBy {
     Decision,
 }
 
+/// One line of the artifact's `derived.jsonl` (SPEC §14.4): the derived text of one kind for
+/// one page. Readers ignore a `kind` they do not know.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DerivedLine {
+    /// The kind of derived text, [`DERIVED_QUESTIONS`] today.
+    pub kind: String,
+    /// The page id the text was derived from.
+    pub page: String,
+    /// The text: for `questions`, one question per element.
+    pub text: Vec<String>,
+}
+
 /// Build the page id `<source>::<path>`.
 pub fn page_id(source: &str, path: &str) -> String {
     format!("{source}::{path}")
@@ -177,7 +210,32 @@ impl Manifest {
             artifact_version: ARTIFACT_VERSION,
             generated_at,
             sources: BTreeMap::new(),
+            derived: BTreeMap::new(),
         }
+    }
+
+    /// The lines of the artifact's `derived.jsonl`: every derived entry whose page is in the
+    /// manifest, by page id then kind. Empty when nothing was derived.
+    pub fn derived_lines(&self) -> Vec<DerivedLine> {
+        let mut lines = Vec::new();
+        for (page, kinds) in &self.derived {
+            let in_manifest = split_page_id(page).is_some_and(|(source, path)| {
+                self.sources
+                    .get(source)
+                    .is_some_and(|s| s.pages.contains_key(path))
+            });
+            if !in_manifest {
+                continue;
+            }
+            for (kind, entry) in kinds {
+                lines.push(DerivedLine {
+                    kind: kind.clone(),
+                    page: page.clone(),
+                    text: entry.text.clone(),
+                });
+            }
+        }
+        lines
     }
 
     /// Read a manifest file.
@@ -306,6 +364,49 @@ mod tests {
             },
         );
         manifest
+    }
+
+    fn entry(input: &str, text: &[&str]) -> DerivedEntry {
+        DerivedEntry {
+            input_sha256: input.to_string(),
+            model: "m".to_string(),
+            text: text.iter().map(|q| (*q).to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn derived_text_is_omitted_when_empty_and_round_trips_when_there_is_some() {
+        let mut manifest = sample();
+        assert!(!manifest.to_json().unwrap().contains("derived"));
+        assert!(manifest.derived_lines().is_empty());
+
+        manifest
+            .derived
+            .entry("handbook::docs/user/README.md".to_string())
+            .or_default()
+            .insert(
+                DERIVED_QUESTIONS.to_string(),
+                entry("aa", &["How?", "Why?"]),
+            );
+        manifest
+            .derived
+            .entry("handbook::docs/gone.md".to_string())
+            .or_default()
+            .insert(DERIVED_QUESTIONS.to_string(), entry("bb", &["Orphan?"]));
+        let json = manifest.to_json().unwrap();
+        assert!(json.contains("\"derived\": {"), "{json}");
+        let back: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, manifest);
+
+        // Only pages that are in the manifest reach `derived.jsonl`.
+        assert_eq!(
+            manifest.derived_lines(),
+            [DerivedLine {
+                kind: DERIVED_QUESTIONS.to_string(),
+                page: "handbook::docs/user/README.md".to_string(),
+                text: vec!["How?".to_string(), "Why?".to_string()],
+            }]
+        );
     }
 
     #[test]

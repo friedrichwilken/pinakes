@@ -30,6 +30,12 @@ title and labels are the plain ones. The step's outputs are `gate` (`passed`, `f
 `skipped` for a binary whose `report` has no `--json`, or `error`) and `violations` (the
 violated gates' names, comma separated).
 
+With `derive: true` (and the `PINAKES_LLM_URL`, `PINAKES_LLM_KEY` and `PINAKES_LLM_MODEL`
+secrets, passed with `secrets: inherit` or by name) it also runs [`pinakes
+derive`](derived-text.md) after it finds a change and before the "after" measurement, so the
+generated questions of changed pages are refreshed in the same pull request. A change of prompt
+or count alone does not open one: nothing else changed.
+
 A consumer calls it from its own repository, on whatever schedule it likes:
 
 ```yaml

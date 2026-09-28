@@ -34,6 +34,12 @@ sources:
       include: ["docs/user/**/*.md"]
       exclude: ["**/_sidebar.md"]
       extensions: ["md"]             # default; [] means every file regardless of extension
+    derive:                          # derived retrieval text a model writes (§14.4); absent = none
+      questions:
+        n: 5                         # questions per page, 1..=20; default 5
+        # prompt: "Write {n} questions …"   # system prompt, {n} = the count; default built in
+        # sections:                  # overrides by the pages' navigation section (meta.json)
+        #   Tutorials: {n: 3}
   - name: guides
     repo: https://github.com/example-org/guides.git
     ref: main
@@ -113,6 +119,11 @@ loading, and `kanon` acts on it.
       "unresolved": [],
       "render": {"type": "openapi"}          // absent when the source has no render step (§10.1)
     }
+  },
+  "derived": {                               // absent when nothing was derived (§14.4)
+    "handbook::docs/user/README.md": {
+      "questions": {"input_sha256": "…", "model": "…", "text": ["How do I install it?"]}
+    }
   }
 }
 ```
@@ -129,17 +140,25 @@ external command's `command`/`args` are recorded as they were actually run — a
 against the config file at resolve time — so reproduction finds the same program regardless of
 where the manifest is later reproduced from.
 
+`derived` holds the text `pinakes derive` (§14.4) had a model write for a page, per page id and
+kind, with the hash of what it was derived from. It is committed with the rest of the manifest,
+so it is reviewed in the same pull request and `resolve --from-manifest` reproduces it without a
+model. It is additive: `artifact_version` (§2.8) and `version` stay 1, and a manifest without
+it is unchanged byte for byte.
+
 ### 2.3 The artifact directory (materialised, not committed)
 
 ```
 <artifact>/
   manifest.json
+  derived.jsonl                 # derived retrieval text (§14.4); present only when there is some
   <source>/…/<page>.md          # selected pages, original relative paths
   <source>/meta.json            # {artifact_version, repo, module: <source name>, base_url, commit, pages: {path: {title, doc_type, section}}, residue, unresolved, unrendered}
   _residue/<source>/…/<page>.md # leftovers, for excerpts and measurement
 ```
 
-This layout is a stable contract that consumers rely on; keep it exact.
+This layout is a stable contract that consumers rely on; keep it exact. `derived.jsonl` is a
+later, additive file: a reader that does not know it ignores it.
 `base_url` is `https://github.com/<owner>/<repo>/blob/<commit>`. `meta.json` carries the same
 `artifact_version` as the manifest (§2.8), so a consumer reading one source directory can check
 it without the manifest.
@@ -408,6 +427,7 @@ All commands take `--config pinakes.yaml` (default) and print human output to st
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME]` | residue + manifest for the hash | appends to `decisions.jsonl` | 0; 1 unknown id |
 | `report [--old M] [--new M] [--json OUT]` | manifests, residue, decisions | `report.md` on stdout; `report.json` (§2.10) in `OUT` | 0 |
 | `check [--report FILE]` | config `gates`, `report.json` (§2.11) | violated gates on stderr, JSON summary on stdout | 0 ok; 2 gate violated; 1 error (e.g. no report) |
+| `derive [--model NAME] [--dry-run]` | config, manifest, artifact, an OpenAI-compatible endpoint | `derived` in `manifest.json` and `derived.jsonl` in the artifact (§14.4) | 0 ok; 1 error (including no endpoint when there is something to ask) |
 | `verify [--artifact DIR]` | config, committed manifest | nothing | 0; 3 manifest stale; 4 policy violation |
 | `init [REPO_URL…] [--workflow] [--dir DIR]` | nothing; each URL is fetched once to detect its layout | `pinakes.yaml`, empty `decisions.jsonl` and `queries.jsonl`, `.gitignore` entries; with `--workflow`, `.github/workflows/curate.yml` | 0; 1 bad URL or I/O error |
 | `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` (§2.9) in `FILE` or on stdout, a summary on stderr | 0; 1 error |
@@ -482,6 +502,9 @@ fail on a flaky network.
      consumer can reimplement it from these rules; `chunks` (§2.9) writes the same id and
      ordinal, and the library's `Unit::id`, `Unit::ordinal` and `chunk_id` are their one
      implementation.
+- Generated questions (§14.4) are indexed as one extra document per page, matched through the
+  body field and attributed to that page. They are not a retrieval unit: the cut above, and
+  `chunks`, do not include them, and the page a consumer reads is unchanged.
 - Page score = max unit score. Results are de-duplicated by tokenised title; when two sources carry
   the same title (nav title or H1), only the higher `priority` source's page is indexed (mirror rule).
   Priorities come from `pinakes.yaml` alone (`priority`, default 1): a source the config does not
@@ -721,6 +744,53 @@ A missing endpoint is an error, not a silent skip.
 `queries.jsonl` (§2.6) and the commands that grow and check it (`queries add`, `check`,
 `import`) moved to `kanon` (§21).
 
+### 14.4 Derived retrieval text: generated questions
+
+Documentation is written for people: the words a user types and the words a page uses differ,
+and no amount of curation closes that gap for a lexical index. `pinakes derive [--model NAME]
+[--dry-run]` asks a model, through the endpoint of §14.2, for the questions each page answers,
+and keeps them as search text. It is the first of three forms of derived text (questions here;
+contextual prefixes and fact sheets are separate issues), so that a measurement shows which one
+moved recall.
+
+For each selected page that is not a mirror (§5) in a source with `derive.questions` (§2.1),
+the model is asked for `n` different questions a user who does not know the page would type
+and the page answers, in everyday words, not copied from the page; the reply is JSON
+`{"questions": [...]}`, trimmed, deduplicated case-insensitively and cut to `n`. The system
+prompt is the configured `prompt` of the source (or of the page's navigation section), else a
+built-in one; `{n}` is the count. The page's title and cleaned content (at most 12,000
+characters) are the user message. Temperature 0.
+
+- **A search target, never a read target.** The questions are added to the page's index text
+  (§5), never to the page and never to a unit: a hit on them is a hit on the page, which is
+  what the consumer reads. `Unit::text`, `chunks.jsonl` and the page files are untouched, so
+  the unit contract (§2.9) does not change.
+- **Recorded in the manifest.** `derived` (§2.2) holds, per page id and kind `questions`,
+  `{input_sha256, model, text}`. `input_sha256` is the SHA-256 of the format tag, the page's
+  `sha256`, the count and the effective prompt; the model is not part of it, so a new model
+  does not regenerate the corpus. An entry is stale as soon as that hash differs, which is
+  exactly when the page, the count or the prompt changed.
+- **Reproducible and reviewable.** Model output is not reproducible, so it is committed in
+  `manifest.json` and never regenerated by `resolve`: a fresh `resolve` calls no model, keeps
+  every entry that is still fresh and drops the rest, and `resolve --from-manifest` rebuilds
+  the artifact's `derived.jsonl` from the manifest byte for byte. `derive` asks only about
+  pages with no fresh entry (a second run asks nothing and needs no endpoint), drops entries
+  whose page is gone or whose source stopped deriving, and keeps what earlier pages earned
+  when the model fails on a later one. The weekly workflow (§17.1) runs it when its `derive`
+  input is set.
+- **The artifact.** `derived.jsonl` at the artifact root has one line per page and kind,
+  `{"kind": "questions", "page": "<id>", "text": [...]}`, sorted keys, in page id order; it is
+  absent when there is no derived text. A reader ignores a `kind` it does not know. `verify`
+  reports a `derived.jsonl` that differs from the manifest as stale. `Index::build` reads it.
+- **Evaluation must not measure its own homework.** `kanon queries suggest`
+  (friedrichwilken/kanon#1) also has a model write questions from pages, for the *query set*.
+  The two share neither a prompt nor an output: the prompt here asks for many plain-worded
+  retrieval questions, kanon's for a few labelled test queries. The query set is committed
+  before derived text is generated, and no query is ever taken from `derived`.
+- **Measuring it.** One `kanon eval` run on the artifact without `derived.jsonl` and one with
+  it, on the same query set, comparing recall@5 and MRR; `derive` reports how many pages got
+  questions.
+
 ## 15. The loop from serving
 
 ### 15.1 Trail format (`trail.jsonl`, written by consumers)
@@ -769,10 +839,14 @@ Schema each; the unit cut they refer to is §5 and §2.9 here.
 `examples/curate-weekly.yml` showing how a consumer calls it: resolve, diff against the
 committed manifest, stop when empty, `kanon eval` before and after (§21), duplicates, report
 (Markdown, with `kanon report`'s evaluation sections appended, and `report.json`), `check`
-against the config's `gates` (§2.11), then open or update one PR on branch `pinakes/weekly` with the manifest, residue, duplicates and report committed
-(`report.json` is not committed). A violated gate never fails the job: it puts `(gates failed:
-<names>)` in the PR title and the label `gate-failed` next to the label `pinakes`. Inputs:
-config path, queries path, gate baseline path (for `kanon eval --gate`). Uses
+against the config's `gates` (§2.11), then open or update one PR on branch `pinakes/weekly`
+with the manifest, residue, duplicates and report committed (`report.json` is not committed).
+When the `derive` input is set, `pinakes derive` (§14.4) runs after the diff shows a change and
+before the "after" measurement, with the `PINAKES_LLM_*` secrets the caller passes, so the
+questions of changed pages are refreshed in the same pull request. A violated gate never fails
+the job: it puts `(gates failed: <names>)` in the PR title and the label `gate-failed` next to
+the label `pinakes`. Inputs:
+config path, queries path, gate baseline path (for `kanon eval --gate`), and `derive`. Uses
 `peter-evans/create-pull-request`.
 
 `action.yml` at the repository root, "Set up pinakes", is a composite action that downloads a
@@ -822,11 +896,11 @@ with a new major.
 
 | module | what a consumer gets |
 |---|---|
-| `corpus` | `load_pages` (an artifact directory into `Page`s, with the source priorities and the mirror rule), `Page` (every field), `Priorities` (`Default`, `of`, and its public `explicit` map, which a consumer fills itself), `DEFAULT_PRIORITY`, `mark_mirrors`, `load_residue_page`, `CorpusError` |
-| `index` | the built-in BM25 index of §5: `Index` (`build`, `from_pages`, `search`, `page`, `pages`, `page_count`, `searchable_count`), `Hit`, `Unit` (with its `id` and `ordinal`), `chunk_id`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
+| `corpus` | `load_pages` (an artifact directory into `Page`s, with the source priorities and the mirror rule), `load_derived` (the generated questions of §14.4, by page id), `Page` (every field), `Priorities` (`Default`, `of`, and its public `explicit` map, which a consumer fills itself), `DEFAULT_PRIORITY`, `mark_mirrors`, `load_residue_page`, `CorpusError` |
+| `index` | the built-in BM25 index of §5: `Index` (`build`, `from_pages`, `from_pages_with_derived`, `search`, `page`, `pages`, `page_count`, `searchable_count`), `Hit`, `Unit` (with its `id` and `ordinal`), `chunk_id`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
 | `tokenizer` | the tokeniser of §5 and §10.3, so a consumer's own index cuts the same tokens: `PinakesTokenizer`, `TOKENIZER_NAME`, `tokenize`, `title_key` |
 | `chunks` | `Chunk`, `chunks`, `chunk_id`: the retrieval units of §2.9, the same cut the index searches and a consumer embeds |
-| `manifest`, `layout` | `manifest.json`'s types and loader (`Manifest` with `new`, `load`, `save`, `pages`, `page` and its `sources`; `ManifestSource`, `PageEntry`, `SelectedBy`, `page_id`, `split_page_id`, `now_rfc3339`, `ManifestError` with its `Io`, `Json` and `ArtifactVersion` variants), the artifact's file and directory names (`MANIFEST_FILE` and the rest) |
+| `manifest`, `layout` | `manifest.json`'s types and loader (`Manifest` with `new`, `load`, `save`, `pages`, `page` and its `sources`; `ManifestSource`, `PageEntry`, `SelectedBy`, `DerivedEntry`, `DerivedLine`, `DERIVED_QUESTIONS` (§14.4), `page_id`, `split_page_id`, `now_rfc3339`, `ManifestError` with its `Io`, `Json` and `ArtifactVersion` variants), the artifact's file and directory names (`MANIFEST_FILE`, `DERIVED_FILE` and the rest) |
 | `text`, `jsonl`, `num` | content hashing and cleaning (`sha256_hex`), JSON Lines reading and writing (`read`, `write`, `parse`, `parse_lines`, `append`, `to_string`, `KeyOrder`, `JsonlError`, `LineError`), the one `usize -> f64` cast |
 | `trail` | `trail.jsonl`'s types and reader (§15.1: `read_jsonl`, `TrailEntry` with its `version`, `TRAIL_VERSION`, `Outcome`, `TrailError`); written by a serving consumer, read by `usage` here; `kanon` keeps its own reading of the same contract |
 | `residue` | `excerpt`: the leading words of a page's text, as residue entries and `kanon`'s grader show them |
@@ -835,6 +909,11 @@ with a new major.
 
 Everything else in the crate is an implementation detail of the pinakes commands and may change
 in a minor release.
+
+The derived-text items of §14.4 (`load_derived`, `Index::from_pages_with_derived`, `DerivedEntry`,
+`DerivedLine`, `DERIVED_QUESTIONS`, `DERIVED_FILE`) are offered to a consumer but not pinned
+below, because `kanon` does not use them yet; `Index::build` already reads `derived.jsonl`, so
+`kanon` measures with it without a change.
 
 The items `kanon` imports, checked against its source, are pinned by
 `tests/library_surface.rs` (issue #56): a function or method it names is bound to a function

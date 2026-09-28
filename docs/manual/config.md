@@ -39,6 +39,7 @@ gates:                               # optional; each key is a maximum `pinakes 
 | `sources[].ref` | Branch or tag to resolve. |
 | `sources[].priority` | Default `1`. Breaks ties when two sources carry a page with the same title (see [near-duplicate detection](duplicates.md) and the index's [mirror rule](measuring-retrieval.md#how-the-built-in-index-scores-a-page)). |
 | `sources[].resolver` | Which files are selected; see [Resolvers](resolvers.md). |
+| `sources[].derive` | Optional; `questions: {n, prompt, sections}` asks a model for the questions each page answers, kept as search text; see [Derived retrieval text](derived-text.md). |
 | `sources[].render` | Optional; turns non-Markdown files into pages; see [Rendering](rendering.md). |
 | `policy.deny` | Glob list. A matching page is always excluded, ahead of everything else. |
 | `policy.archived` | `warn` (default) or `drop` for a source whose GitHub repo is archived. |
@@ -84,7 +85,7 @@ decision (`decide` or `classify`) > the resolver's own selection.
 |---|---|---|---|
 | `pinakes.yaml` | you | yes | Sources, policy, and the `eval` settings `kanon` reads (above). |
 | `manifest.json` | `resolve` | yes | Per source: resolved commit, archived flag, every selected page with its sha256, title, doc type, section and what selected it, plus residue and unresolved paths. `artifact_version` names the artifact contract the file and its artifact follow (missing means 1; a newer one is rejected). Sorted keys, two-space indent. Full schema: [`docs/schemas/manifest.schema.json`](../schemas/manifest.schema.json). |
-| `<artifact>/` | `resolve` | no | `manifest.json`, `<source>/<original path>.md`, `<source>/meta.json` and `_residue/<source>/…` for the leftovers. A stable layout consumers rely on. |
+| `<artifact>/` | `resolve` | no | `manifest.json`, `<source>/<original path>.md`, `<source>/meta.json` and `_residue/<source>/…` for the leftovers, and `derived.jsonl` when the manifest has derived text (see [Derived retrieval text](derived-text.md)). A stable layout consumers rely on. |
 | `residue.jsonl` | `resolve` | yes | What was left out and why (`not_selected`, `unresolved_link`, `new_source`, `excluded`) with title, excerpt, upstream url and the rule (`{key, text}`) that decided it. |
 | `duplicates.jsonl` | `resolve` | yes | Exact, mirror and near-duplicate page pairs, canonical first, each with its upstream url and a `suggested` verdict for `decide`. See [Near-duplicate detection](duplicates.md). |
 | `decisions.jsonl` | you or an agent | yes | Append-only verdicts on residue or a duplicate: `include`, `exclude` or `unsure`, tied to the page hash. Later lines win; a changed page expires the decision. |
