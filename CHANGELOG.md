@@ -7,6 +7,11 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- `tests/library_surface.rs` pins the library items `kanon` imports (issue #56, SPEC §20) at
+  compile time, by exact signature and field type, so a rename or removal fails here before it
+  breaks `kanon`. SPEC §20 names those items, says which are not depended on
+  (`config::Config`, `index::testing`) and how a change to the surface is made; the `lib.rs`
+  docs point at the test.
 - `index::Unit` gains `id`, `<page id>#<ordinal>`, and `ordinal` (issue #58, SPEC §5 step 5),
   and `chunk_id` moves to `index` (still re-exported as `chunks::chunk_id`). `chunks` writes
   `Unit::id` and `Unit::ordinal` instead of counting its own, so the ids in `chunks.jsonl` are

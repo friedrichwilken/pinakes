@@ -809,19 +809,29 @@ with a new major.
 
 | module | what a consumer gets |
 |---|---|
-| `corpus` | `load_pages` (an artifact directory into `Page`s, with the source priorities and the mirror rule), `Page`, `Priorities`, `DEFAULT_PRIORITY`, `mark_mirrors`, `load_residue_page`, `CorpusError` |
-| `index` | the built-in BM25 index of §5: `Index`, `Hit`, `Unit` (with its `id` and `ordinal`), `chunk_id`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
-| `tokenizer` | the tokeniser of §5 and §10.3, so a consumer's own index cuts the same tokens |
+| `corpus` | `load_pages` (an artifact directory into `Page`s, with the source priorities and the mirror rule), `Page` (every field), `Priorities` (its public `explicit` map, which a consumer fills itself), `DEFAULT_PRIORITY`, `mark_mirrors`, `load_residue_page`, `CorpusError` |
+| `index` | the built-in BM25 index of §5: `Index` (`build`, `from_pages`, `search`, `page`, `pages`, `page_count`, `searchable_count`), `Hit`, `Unit` (with its `id` and `ordinal`), `chunk_id`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
+| `tokenizer` | the tokeniser of §5 and §10.3, so a consumer's own index cuts the same tokens: `PinakesTokenizer`, `TOKENIZER_NAME`, `tokenize`, `title_key` |
 | `chunks` | `Chunk`, `chunks`, `chunk_id`: the retrieval units of §2.9, the same cut the index searches and a consumer embeds |
-| `manifest`, `layout` | `manifest.json`'s types and loader, the artifact's file and directory names |
-| `text`, `jsonl`, `num` | content hashing and cleaning, JSON Lines reading and writing, the one `usize -> f64` cast |
-| `trail` | `trail.jsonl`'s types (§15.1); written by a serving consumer, read by `usage` here and by `kanon` |
+| `manifest`, `layout` | `manifest.json`'s types and loader (`Manifest` with `new`, `load`, `save`, `pages`, `page` and its `sources`; `ManifestSource`, `PageEntry`, `SelectedBy`, `page_id`, `split_page_id`, `now_rfc3339`, `ManifestError`), the artifact's file and directory names (`MANIFEST_FILE` and the rest) |
+| `text`, `jsonl`, `num` | content hashing and cleaning (`sha256_hex`), JSON Lines reading and writing (`read`, `parse`, `parse_lines`, `append`, `to_string`, `KeyOrder`, `JsonlError`), the one `usize -> f64` cast |
+| `trail` | `trail.jsonl`'s types and reader (§15.1: `read_jsonl`, `TrailEntry`, `Outcome`, `TrailError`); written by a serving consumer, read by `usage` here and by `kanon` |
 | `residue` | `excerpt`: the leading words of a page's text, as residue entries and `kanon`'s grader show them |
 | `config` | `pinakes.yaml`'s schema, for a consumer that reads the `eval:` block or the source priorities |
 | `llm` | the OpenAI-compatible chat client (`chat`, `ChatTransport`, `LlmConfig`, `UreqChatTransport`, `TransportError`, `ChatError`) and its `testing` transport, shared by `classify` here and by `kanon`'s grader |
 
 Everything else in the crate is an implementation detail of the pinakes commands and may change
-in a minor release.
+in a minor release. That includes `config::Config` and `index::testing`: `kanon` reads
+`sources[].name` and `priority` from `pinakes.yaml` with its own lenient parser and carries its
+own artifact writer for tests, so neither is depended on today.
+
+The items `kanon` imports are pinned one by one by `tests/library_surface.rs` (issue #56): each
+function and method is bound to a function pointer of its exact signature, each struct field is
+read at its exact type, and `Priorities` and `LlmConfig`, which `kanon` builds itself, are built
+by literal. A rename, a removal or a changed signature fails that test before `kanon`'s next
+`pinakes` bump does; an addition does not. Editing the test is editing this contract, so a
+commit that does says why in its body, and a removal waits for a new major version. After a
+change to the surface lands, `kanon` bumps the `pinakes` rev in its `Cargo.toml`.
 
 ## 21. What moves to kanon
 

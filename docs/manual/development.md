@@ -17,7 +17,8 @@ cargo test
 Library crate `pinakes` (modules per `SPEC.md` §9), binary `pinakes` (`src/main.rs`, clap
 only). Errors are `thiserror` types in the library and `anyhow` at the CLI edge.
 
-Four suites pin behaviour rather than assert it, each with its own refresh flag:
+Five suites pin behaviour rather than assert it, each with its own refresh flag (the last has
+none):
 
 - `tests/golden.rs` and `tests/golden_mdbook.rs` compare the built-in index over a fixture
   corpus with `expected.json`: the ids of the top ten pages for each query. Refresh with
@@ -28,6 +29,9 @@ Four suites pin behaviour rather than assert it, each with its own refresh flag:
   `--from-manifest` one. Refresh with `UPDATE_SNAPSHOTS=1 cargo test --test pipeline_pin`.
 - `tests/schema.rs` pins the JSON Schema of `manifest.json` at `docs/schemas/manifest.schema.json`
   byte for byte. Refresh with `UPDATE_SCHEMAS=1 cargo test --test schema`.
+- `tests/library_surface.rs` pins every library item `kanon` imports (`SPEC.md` §20) at compile
+  time: exact signatures and field types. Changing it changes the contract, so say why in the
+  commit body.
 
 Refresh only when the change is intended, and say why in the commit body.
 
