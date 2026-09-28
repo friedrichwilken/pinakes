@@ -7,6 +7,11 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- `index::Unit` gains `id`, `<page id>#<ordinal>`, and `ordinal` (issue #58, SPEC §5 step 5),
+  and `chunk_id` moves to `index` (still re-exported as `chunks::chunk_id`). `chunks` writes
+  `Unit::id` and `Unit::ordinal` instead of counting its own, so the ids in `chunks.jsonl` are
+  unchanged. The new fields are source-breaking for a Rust consumer that builds `Unit` by hand
+  (`Unit` is not `#[non_exhaustive]`); kanon does not.
 - `manifest.json` and every `<source>/meta.json` carry `artifact_version` (issue #49, SPEC
   §2.8): the artifact contract they follow (directory layout, `meta.json` fields, manifest
   fields), currently 1. Missing means 1; a newer major is rejected on read by the manifest reader
