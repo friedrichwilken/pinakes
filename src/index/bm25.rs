@@ -38,6 +38,8 @@ pub struct Unit {
     /// unit's 0-based position within its page, in [`split_sections`](super::split_sections)
     /// order. Deterministic, so a consumer can derive the same id from the splitting rules.
     pub id: String,
+    /// The unit's 0-based position within its page: the number in [`Unit::id`].
+    pub ordinal: usize,
     /// The page this unit belongs to.
     pub page_id: String,
     /// The page title, the index's `title` field.
@@ -74,6 +76,7 @@ pub fn iter_units(pages: &[Page]) -> Vec<Unit> {
             };
             units.push(Unit {
                 id: chunk_id(&page.id, ordinal),
+                ordinal,
                 page_id: page.id.clone(),
                 title: page.title.clone(),
                 heading: section.heading,
@@ -694,6 +697,54 @@ mod tests {
             assert_eq!(first.id, chunk_id(page, 0), "{page}");
         }
         assert!(readme_units[1].body.starts_with("\nEnable upload caching"));
+    }
+
+    fn hand_page(id: &str, content: &str) -> Page {
+        Page {
+            id: id.to_string(),
+            source: "s".to_string(),
+            path: "p.md".to_string(),
+            repo: "s".to_string(),
+            module: "s".to_string(),
+            title: "T".to_string(),
+            heading: String::new(),
+            doc_type: String::new(),
+            section: String::new(),
+            priority: 1,
+            content: content.to_string(),
+            mirror_of: None,
+        }
+    }
+
+    /// The ordinal counts the units that exist: a blank intro that is dropped leaves the first
+    /// H2 unit at 0, an H2 split at H3 numbers its parts consecutively, and both restart on the
+    /// next page.
+    #[test]
+    fn unit_ids_count_the_units_after_a_dropped_intro_and_an_h3_split() {
+        let big = format!(
+            "intro\n\n## Big\n\nlead\n\n### P\n\n{p}\n\n### Q\n\n{p}\n",
+            p = "alpha ".repeat(700)
+        );
+        let pages = [
+            hand_page("s::blank-intro.md", "\n\n## A\n\nx\n\n## B\n\ny\n"),
+            hand_page("s::big.md", &big),
+            hand_page("s::plain.md", "just an intro\n"),
+        ];
+        let got: Vec<(String, usize, String)> = iter_units(&pages)
+            .into_iter()
+            .map(|u| (u.id, u.ordinal, u.heading))
+            .collect();
+        let want = [
+            ("s::blank-intro.md#0", 0, "A"),
+            ("s::blank-intro.md#1", 1, "B"),
+            ("s::big.md#0", 0, ""),
+            ("s::big.md#1", 1, "Big"),
+            ("s::big.md#2", 2, "Big / P"),
+            ("s::big.md#3", 3, "Big / Q"),
+            ("s::plain.md#0", 0, ""),
+        ]
+        .map(|(id, ordinal, heading)| (id.to_string(), ordinal, heading.to_string()));
+        assert_eq!(got, want);
     }
 
     /// The index holds exactly the units `iter_units` cuts: same count, same page per unit,
