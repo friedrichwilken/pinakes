@@ -5,8 +5,8 @@
 //! "session"}`. Every field but `at` and `query` is optional and defaults to empty/unknown, since
 //! consumers vary in how much they log; a missing `version` means 1. The shape is the trail
 //! contract `kanon` publishes as a JSON Schema (SPEC §15.1), and the version rule is its: within
-//! a version changes are additive, a line of a newer version is rejected before anything else
-//! about it is read, with one line naming the file, the line and both versions. Every id in
+//! a version changes are additive, a line of a newer version is rejected before the rest of the
+//! line is read, with one line naming the file, the line and both versions. Every id in
 //! `retrieved` and `cited` must be `<source>::<path>` (SPEC §2.2); a line with a differently
 //! shaped id is rejected rather than silently accepted.
 
@@ -163,8 +163,8 @@ struct Versioned {
 }
 
 /// Read entries from `path`; blank lines are skipped. Each line's `version` is checked against
-/// [`TRAIL_VERSION`] before anything else about the line is read, so a newer line is reported as
-/// such and not as a parse error, and every `retrieved`/`cited` id is validated as
+/// [`TRAIL_VERSION`] before the rest of the line is read, so a newer line is reported as such
+/// and not as a parse error, and every `retrieved`/`cited` id is validated as
 /// `<source>::<path>`.
 pub fn read_jsonl(path: &Path) -> Result<Vec<TrailEntry>, TrailError> {
     let text = std::fs::read_to_string(path).map_err(|source| TrailError::Io {
@@ -353,8 +353,12 @@ mod tests {
             matches!(err, TrailError::NewerVersion { found: 7, .. }),
             "{err}"
         );
+    }
 
-        // A version that is not an integer is an invalid line, at its line number.
+    #[test]
+    fn a_version_that_is_not_an_integer_is_an_invalid_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.jsonl");
         std::fs::write(
             &path,
             "{\"version\": \"two\", \"at\": \"t\", \"query\": \"q\"}\n",
@@ -362,6 +366,38 @@ mod tests {
         .unwrap();
         let err = read_jsonl(&path).unwrap_err();
         assert!(matches!(err, TrailError::Json { line: 1, .. }), "{err}");
+    }
+
+    #[test]
+    fn line_numbers_count_blank_whitespace_and_crlf_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.jsonl");
+        let ok = serde_json::to_string(&entry("q")).unwrap();
+        // Line 1 is an entry ending in CRLF, 2 is blank, 3 whitespace only, 4 is newer.
+        let newer = "{\"version\": 2, \"at\": \"t\", \"query\": \"q\"}";
+        std::fs::write(&path, format!("{ok}\r\n\r\n \t \r\n{newer}\r\n")).unwrap();
+        let err = read_jsonl(&path).unwrap_err();
+        assert!(
+            matches!(err, TrailError::NewerVersion { line: 4, .. }),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn the_first_problem_in_file_order_wins_and_a_newer_line_beats_its_own_bad_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.jsonl");
+        let bad_id = "{\"at\": \"t\", \"query\": \"q\", \"cited\": [\"nope\"]}";
+        let newer = "{\"version\": 2, \"at\": \"t\", \"query\": \"q\", \"cited\": [\"nope\"]}";
+        std::fs::write(&path, format!("{bad_id}\n{newer}\n")).unwrap();
+        let err = read_jsonl(&path).unwrap_err();
+        assert!(matches!(err, TrailError::BadId { line: 1, .. }), "{err}");
+        std::fs::write(&path, format!("{newer}\n{bad_id}\n")).unwrap();
+        let err = read_jsonl(&path).unwrap_err();
+        assert!(
+            matches!(err, TrailError::NewerVersion { line: 1, .. }),
+            "{err}"
+        );
     }
 
     #[test]

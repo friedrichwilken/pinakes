@@ -33,7 +33,7 @@ OpenAI-compatible chat client).
 **Sources and their recorded history:** `sources` (fetch a checkout) and `manifest`
 (`manifest.json`'s schema) depend on `config`; `decisions` (`decisions.jsonl`) depends on
 `jsonl`; `residue` (`residue.jsonl`, `Rule`, `residue list`'s filter) depends on `decisions` and
-`jsonl`; `trail` (`trail.jsonl`) depends on `jsonl` and `manifest`. `page` (`PageRecord` /
+`jsonl`; `trail` (`trail.jsonl`) depends on `manifest`. `page` (`PageRecord` /
 `PageStatus` / `PageRegistry`, the one description of a page, built once per run) depends on
 `manifest` and `residue` — a deliberate exception to "depends on nothing": a page record has to
 read both files' shapes to describe a page either way.

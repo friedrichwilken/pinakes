@@ -9,7 +9,8 @@ All notable changes to this project are documented in this file. The format is b
 
 - `trail.jsonl` honours the trail contract's `version` field (issue #57, SPEC §15.1):
   `TrailEntry` gains `version` (missing means 1) and `trail::TRAIL_VERSION` is 1. `read_jsonl`,
-  and so `usage`, checks each line's version first and rejects a newer one with
+  and so `usage`, checks each line's version before the rest of the line is read and rejects a
+  newer one with
   `<path>:<line>: version 2 is newer than the version 1 this pinakes reads; upgrade pinakes`
   (`TrailError::NewerVersion`), instead of a parse error about a field a newer version changed.
   SPEC §15.1 points at the JSON Schema `kanon` publishes instead of restating the fields.

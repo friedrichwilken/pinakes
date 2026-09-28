@@ -14,7 +14,7 @@ Every field but `at` and `query` is optional — a consumer that only logs the q
 what it retrieved still gets useful output. `version` is the trail contract's version, which
 [`kanon`](https://github.com/friedrichwilken/kanon) defines and publishes as a JSON Schema
 (`docs/schemas/trail-entry.schema.json`); a missing one means 1, and a line of a newer version
-is rejected before anything else about it is read, with one line naming the file, the line and
+is rejected before the rest of the line is read, with one line naming the file, the line and
 both versions, so upgrade pinakes. See
 [`examples/trail.jsonl`](../../examples/trail.jsonl) for a dozen realistic lines against the
 example corpus; because it only reads the committed `manifest.json`,

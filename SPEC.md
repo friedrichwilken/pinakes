@@ -732,8 +732,9 @@ this crate adds is the following.
 
 - `version` is an integer, and a missing one means 1. Within a version changes are additive
   (a reader ignores fields it does not know); a removal, rename or change of meaning is a new
-  version. `trail::read_jsonl`, and so `usage`, checks each line's version before anything else
-  about it and rejects a newer one with one line naming the file, the line and both versions:
+  version. `trail::read_jsonl`, and so `usage`, checks each line's version before the rest of
+  the line is read and rejects a newer one with one line naming the file, the line and both
+  versions:
   `trail.jsonl:3: version 2 is newer than the version 1 this pinakes reads; upgrade pinakes`.
   The version this build reads is `trail::TRAIL_VERSION`, 1.
 - Ids in `retrieved` and `cited` are `<source>::<path>` (§2.2); a line with a differently
@@ -844,6 +845,13 @@ additive rule above has one exception: a new field on one of those four structs 
 `JsonlError` variant breaks `kanon`, and is made together with a `kanon` release. A new
 function, method, item, or variant of any other enum is additive and fails nothing. The `trail`
 items are pinned too, for the serving consumer; `kanon` does not use them today.
+
+The additive rule is source-level only for what a consumer reads. A struct a consumer builds by
+literal (a serving consumer writing `TrailEntry`, say) cannot gain a field without breaking that
+consumer, and none of these structs is `#[non_exhaustive]`, because that would forbid the
+literal outright. Such a field is added only when a contract requires it, in a minor release,
+and the CHANGELOG says so: `TrailEntry` gained `version` this way (issue #57), the trail
+contract's version field.
 
 Editing the test is editing this contract, so a commit that does says why in its body, and a
 removal waits for a new major version. After a change to the surface lands, `kanon` bumps the
