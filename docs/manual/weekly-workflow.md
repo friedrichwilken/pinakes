@@ -5,12 +5,15 @@ reusable [`workflow_call`](https://docs.github.com/actions/using-workflows/reusi
 workflow that runs the curate-then-review sequence on a schedule. It installs the `pinakes`
 binary (the latest matching release asset in a consumer repository; `cargo install --path .`
 when it runs inside this repository's own CI, detected from `github.workflow_ref` rather than
-an extra input), reproduces the committed manifest with `resolve --from-manifest` to measure
+an extra input) and `kanon` through kanon's own setup action (a source build while kanon has no
+release), reproduces the committed manifest with `resolve --from-manifest` to measure
 "before", resolves fresh sources, diffs the two manifests and stops early once nothing changed,
-measures "after" (gated against a baseline only when one is already committed, and never
-failing the job on a drop — the point is a reviewable PR, not a silently skipped one), runs
+measures "after" with [`kanon eval`](measuring-retrieval.md) (gated against a baseline only when
+one is already committed, and never failing the job on a drop — the point is a reviewable PR,
+not a silently skipped one), runs
 `duplicates` when the installed binary has that subcommand (checked with `--help` first),
-renders `report` (the Markdown, and `report.json` into the runner's temp directory), runs
+renders `report` (the Markdown, with `kanon report`'s evaluation sections appended, and
+`report.json` into the runner's temp directory), runs
 [`check`](commands.md#check) against the config's [`gates`](config.md#gates), and opens or
 updates one pull request on branch `pinakes/weekly` with the manifest, residue, duplicates and
 `report.md` committed (never `report.json`), using the report as the PR body via

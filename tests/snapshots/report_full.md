@@ -8,22 +8,6 @@
 - Decisions: 4
 - Changes since 2026-09-01T00:00:00Z: 1 added, 3 removed, 1 changed
 
-## Eval before/after
-
-### Tuning queries
-
-| kind | recall@5 | recall@10 | MRR | n |
-|---|---|---|---|---|
-| overall | 0.800 → 0.850 | 0.850 → 0.900 | 0.660 → 0.700 | 40 |
-| concept | – → 0.700 | – → 0.700 | – → 0.500 | 5 |
-| howto | 0.900 → 0.900 | 0.950 → 1.000 | 0.800 → 0.850 | 10 |
-
-### Held-out queries
-
-| kind | recall@5 | recall@10 | MRR | n |
-|---|---|---|---|---|
-| overall | 0.500 → 0.750 | 0.500 → 0.750 | 0.400 → 0.600 | 4 |
-
 ## Added pages
 
 - [New Page](https://github.com/example-org/handbook/blob/2222222222222222222222222222222222222222/docs/new.md)

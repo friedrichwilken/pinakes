@@ -275,7 +275,7 @@ file at the fetched commit, so a reviewer can decide about it without a checkout
 ```
 
 `pinakes residue list` groups them by rule, `pinakes decide` records a verdict per page, and
-`pinakes eval --with ID` measures what admitting one would do. For a case like this one, where
+`kanon eval --with ID` measures what admitting one would do. For a case like this one, where
 the answer is known in advance, a single line on the source keeps the fixtures out for good:
 `exclude: ["tests/**"]` turns them into `excluded` residue that `residue list` hides by default
 and `report.md` only counts.

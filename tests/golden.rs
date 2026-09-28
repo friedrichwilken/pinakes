@@ -1,57 +1,56 @@
-//! The golden corpus check (SPEC §7.3): `eval` on the synthetic artifact under
-//! `tests/fixtures/golden` must yield exactly the pinned result.
+//! The golden corpus check (SPEC §7.3): the built-in index over the synthetic artifact under
+//! `tests/fixtures/golden` must return exactly the pinned pages for every query.
 //!
 //! The fixture is thirty small pages across three sources with different priorities, sidebar
 //! titles in each `meta.json`, mirrored pages across sources, one frontmatter-only title, one
 //! page with H2/H3 sections and a `_residue` directory, plus a fourth source (`schemas`) whose
 //! one page is a CRD rendered through the built-in `openapi` renderer (SPEC §10.2), pinning the
 //! identifier-compound tokeniser rule (SPEC §10.3), and a near-duplicate pair (SPEC §11) for
-//! `tests/duplicates.rs`; `queries.jsonl` holds fourteen queries, two of them held out. The
-//! expected metrics are whatever the implementation yields, pinned in
-//! `expected.json`. After an intended change to the index, refresh the file with
-//! `UPDATE_GOLDEN=1 cargo test --test golden` and review the diff.
+//! `tests/duplicates.rs`. `queries.jsonl` holds fourteen queries; their expected pages and the
+//! metrics computed from them belong to `kanon`, so this test pins only what the index
+//! returns: the ids of the top ten pages per query, in `expected.json`. After an intended change
+//! to the index, refresh the file with `UPDATE_GOLDEN=1 cargo test --test golden` and review
+//! the diff.
 
 use std::path::{Path, PathBuf};
 
-use pinakes::commands::{EvalOptions, EvalOutcome, Paths, eval};
+use pinakes::config::Config;
+use pinakes::index::{Index, Priorities};
 use serde_json::{Value, json};
+
+/// Result list length the pin records.
+const K: usize = 10;
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/golden")
 }
 
-/// The residue page `--with` adds in the second run.
-const WITH_RESIDUE: &str = "cookbook::docs/recipes/draft-plugin.md";
-
-fn outcome_json(outcome: &EvalOutcome) -> Value {
-    json!({
-        "pages": outcome.page_count,
-        "searchable": outcome.searchable_count,
-        "k": outcome.k,
-        "eval": serde_json::to_value(&outcome.summary).unwrap(),
-    })
-}
-
 #[test]
-fn golden_corpus_metrics_are_pinned() {
-    let paths = Paths::for_config(&fixture().join("pinakes.yaml"));
-    let plain = eval(&paths, &EvalOptions::default()).expect("eval runs on the fixture");
-    let with = eval(
-        &paths,
-        &EvalOptions {
-            with: vec![WITH_RESIDUE.to_string()],
-            ..EvalOptions::default()
-        },
+fn golden_corpus_results_are_pinned() {
+    let config = Config::load(&fixture().join("pinakes.yaml")).expect("the fixture config loads");
+    let index = Index::build(
+        &fixture().join("artifact"),
+        &Priorities::from_config(&config),
     )
-    .expect("eval --with runs on the fixture");
-    let delta = with.delta.as_ref().expect("--with yields a delta");
+    .expect("the fixture artifact indexes");
+    let queries = std::fs::read_to_string(fixture().join("queries.jsonl")).unwrap();
+    let mut results = Vec::new();
+    for line in queries.lines().filter(|l| !l.trim().is_empty()) {
+        let query: Value = serde_json::from_str(line).unwrap();
+        let text = query["query"].as_str().expect("every query has a text");
+        let top: Vec<String> = index
+            .search(text, K, None)
+            .unwrap()
+            .into_iter()
+            .map(|hit| hit.page_id)
+            .collect();
+        results.push(json!({ "id": query["id"], "top": top }));
+    }
     let actual = json!({
-        "plain": outcome_json(&plain),
-        "with_residue": {
-            "page": WITH_RESIDUE,
-            "changed_queries": delta.changed.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
-            "result": outcome_json(&with),
-        },
+        "pages": index.page_count(),
+        "searchable": index.searchable_count(),
+        "k": K,
+        "queries": results,
     });
     let mut text = serde_json::to_string_pretty(&actual).unwrap();
     text.push('\n');
@@ -66,21 +65,18 @@ fn golden_corpus_metrics_are_pinned() {
         "golden result changed; run `UPDATE_GOLDEN=1 cargo test --test golden` if intended"
     );
 
-    // Structural facts about the fixture that the pinned numbers rest on. Iteration 2 added a
-    // near-duplicate pair (SPEC §11) for `tests/duplicates.rs` to find: a distinctly titled copy
-    // of `handbook::docs/concepts/notifications.md` in the lower-priority `cookbook` source, so
-    // it is a normal extra page here, not a title mirror.
+    // Structural facts about the fixture that the pinned lists rest on: a near-duplicate pair
+    // (SPEC §11) for `tests/duplicates.rs` to find is a normal extra page here, not a title
+    // mirror.
     assert_eq!(
-        plain.page_count, 33,
+        index.page_count(),
+        33,
         "thirty pages, one rendered CRD page, and the near-duplicate pair"
     );
     assert_eq!(
-        plain.searchable_count, 30,
+        index.searchable_count(),
+        30,
         "three mirrored pages in lower-priority sources are left out"
     );
-    assert_eq!(plain.summary.tuning.overall.n, 12);
-    assert_eq!(plain.summary.holdout.as_ref().map(|h| h.overall.n), Some(2));
-    assert_eq!(with.page_count, 34);
-    assert_eq!(delta.changed.len(), 1, "only the plugin query changes rank");
-    assert_eq!(delta.changed[0].id, "plugin");
+    assert_eq!(results.len(), 14);
 }

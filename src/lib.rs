@@ -26,20 +26,19 @@
 //! [`corpus`] loads an artifact directory into pages (source priorities, the mirror rule);
 //! [`index`] builds the built-in BM25 index on top of it and re-exports its items, so
 //! `pinakes::index::...` paths did not move; [`chunks`] emits those units as `chunks.jsonl`, the
-//! contract a consumer's own index can be checked against; [`backend`] / [`embed`] give [`eval`]
-//! a choice of retriever shapes (SPEC §16) beyond that built-in index.
+//! contract a consumer's own index can be checked against. Measuring a retriever against that
+//! corpus is not this crate's job: it moved to `kanon` (SPEC §21).
 //!
 //! [`duplicates`] finds near-duplicate and mirror pages; [`classify`] uses [`llm`] to judge
-//! undecided residue and near-duplicate candidates; [`grade`] uses the judge to grade what a
-//! trail retrieved; [`usage`] turns a trail into pages-never-used and gap statistics; [`queries`]
-//! grows and validates the judge (`queries.jsonl`); [`diff`] and [`report`] describe changes;
-//! [`artifact`] materialises a compiled corpus; [`render`] is the SPEC §10.1 render hook.
+//! undecided residue and near-duplicate candidates; [`usage`] turns a trail into
+//! pages-never-used and gap statistics; [`diff`] and [`report`] describe changes; [`artifact`]
+//! materialises a compiled corpus; [`render`] is the SPEC §10.1 render hook.
 //!
 //! Consumers of an artifact (an evaluation tool, a serving system) depend on the modules SPEC
 //! §20 lists — [`corpus`], [`index`], [`chunks`], [`tokenizer`], [`manifest`], [`layout`],
 //! [`text`], [`jsonl`], [`num`], [`trail`], [`config`] and [`llm`] — and those follow the
 //! compatibility rule stated there; every other module is an implementation detail of the
-//! commands. SPEC §21 says which commands are moving out to a separate evaluation tool.
+//! commands. SPEC §21 records which commands moved out to the separate evaluation tool.
 //!
 //! [`error`] holds [`error::CommandError`], the error type every command returns. [`commands`]
 //! is one file per subcommand, each owning its options and outcome, re-exported by name from
@@ -49,7 +48,6 @@
 //! and printing) is not part of this library.
 
 pub mod artifact;
-pub mod backend;
 pub mod chunks;
 pub mod classify;
 pub mod commands;
@@ -58,10 +56,7 @@ pub mod corpus;
 pub mod decisions;
 pub mod diff;
 pub mod duplicates;
-pub mod embed;
 pub mod error;
-pub mod eval;
-pub mod grade;
 pub mod index;
 pub mod jsonl;
 pub mod layout;
@@ -70,7 +65,6 @@ pub mod manifest;
 pub mod num;
 pub mod page;
 pub mod pipeline;
-pub mod queries;
 pub mod render;
 pub mod report;
 pub mod residue;

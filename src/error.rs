@@ -5,19 +5,14 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::artifact::ArtifactError;
-use crate::backend::BackendError;
 use crate::classify::ClassifyError;
 use crate::config::ConfigError;
 use crate::corpus::CorpusError;
 use crate::decisions::DecisionError;
 use crate::duplicates::DuplicatesError;
-use crate::embed::EmbedError;
-use crate::eval::EvalError;
-use crate::grade::GradeError;
 use crate::index::IndexError;
 use crate::llm::ChatError;
 use crate::manifest::ManifestError;
-use crate::queries::QueriesError;
 use crate::render::RenderError;
 use crate::report::ReportError;
 use crate::residue::ResidueError;
@@ -95,30 +90,12 @@ pub enum CommandError {
     /// A JSON value could not be produced.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
-    /// Bad or unreadable eval result.
-    #[error(transparent)]
-    Eval(#[from] EvalError),
     /// The artifact could not be indexed.
     #[error(transparent)]
     Index(#[from] IndexError),
-    /// `eval` has no query file: none given and no `eval.queries` in the config.
-    #[error("no query file: pass --queries or set eval.queries in the config")]
-    NoQueries,
-    /// `queries add` or `queries check` failed.
-    #[error(transparent)]
-    Queries(#[from] QueriesError),
     /// Bad or unreadable `duplicates.jsonl`.
     #[error(transparent)]
     Duplicates(#[from] DuplicatesError),
-    /// A retriever backend (SPEC §16) failed to build or search.
-    #[error(transparent)]
-    Backend(#[from] BackendError),
-    /// Embedding, or reading/writing the embeddings file pair, failed.
-    #[error(transparent)]
-    Embed(#[from] EmbedError),
-    /// `eval --compare` was given no backend names.
-    #[error("--compare needs at least one backend name")]
-    EmptyCompare,
     /// `classify` failed, including talking to the model.
     #[error(transparent)]
     Classify(#[from] ClassifyError),
@@ -128,9 +105,6 @@ pub enum CommandError {
     /// Bad or unreadable `trail.jsonl`.
     #[error(transparent)]
     Trail(#[from] TrailError),
-    /// `grade` failed, including talking to the model or the backend.
-    #[error(transparent)]
-    Grade(#[from] GradeError),
     /// Bad or unreadable usage report, or an invalid `--since`.
     #[error(transparent)]
     Usage(#[from] UsageError),

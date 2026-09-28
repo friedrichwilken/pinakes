@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "summary": {
     "sources": 1,
     "pages": 3,
@@ -12,68 +12,6 @@
       "added": 1,
       "removed": 3,
       "changed": 1
-    }
-  },
-  "eval": {
-    "before": {
-      "tuning": {
-        "overall": {
-          "recall@5": 0.8,
-          "recall@10": 0.85,
-          "mrr": 0.66,
-          "n": 40
-        },
-        "per_kind": {
-          "howto": {
-            "recall@5": 0.9,
-            "recall@10": 0.95,
-            "mrr": 0.8,
-            "n": 10
-          }
-        }
-      },
-      "holdout": {
-        "overall": {
-          "recall@5": 0.5,
-          "recall@10": 0.5,
-          "mrr": 0.4,
-          "n": 4
-        },
-        "per_kind": {}
-      }
-    },
-    "after": {
-      "tuning": {
-        "overall": {
-          "recall@5": 0.85,
-          "recall@10": 0.9,
-          "mrr": 0.7,
-          "n": 40
-        },
-        "per_kind": {
-          "concept": {
-            "recall@5": 0.7,
-            "recall@10": 0.7,
-            "mrr": 0.5,
-            "n": 5
-          },
-          "howto": {
-            "recall@5": 0.9,
-            "recall@10": 1.0,
-            "mrr": 0.85,
-            "n": 10
-          }
-        }
-      },
-      "holdout": {
-        "overall": {
-          "recall@5": 0.75,
-          "recall@10": 0.75,
-          "mrr": 0.6,
-          "n": 4
-        },
-        "per_kind": {}
-      }
     }
   },
   "pages": {

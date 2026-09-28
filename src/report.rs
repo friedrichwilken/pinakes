@@ -1,7 +1,6 @@
 //! `report.md`: the rendered PR body (SPEC §2.7), and `report.json`, its facts (SPEC §2.10).
 //!
-//! Sections, in order: summary counts; eval before/after (overall and per kind, held-out
-//! separately); added pages; removed pages (with reason); changed pages (with line counts and
+//! Sections, in order: summary counts; added pages; removed pages (with reason); changed pages (with line counts and
 //! an upstream compare link, SPEC §13); new residue grouped by reason with excerpt; expired
 //! decisions; unresolved links; archived sources; duplicates (SPEC §11); usage (SPEC §15.3),
 //! only when a usage report is given.
@@ -21,7 +20,6 @@ use thiserror::Error;
 use crate::decisions::{self, Decision, Expired, Verdict};
 use crate::diff::{Diff, RemovalReason, RemovedPage, SourceDiff};
 use crate::duplicates::{DuplicateKind, DuplicatePair, Suggested};
-use crate::eval::{EvalSummary, Metrics, Split};
 use crate::manifest::Manifest;
 use crate::page::PageRegistry;
 use crate::residue::{Reason, ResidueEntry};
@@ -30,8 +28,9 @@ use crate::usage::{UncitedQuery, Usage};
 /// Words of excerpt shown per residue entry.
 const EXCERPT_WORDS: usize = 60;
 
-/// The `version` of the `report.json` document this code writes (SPEC §2.10).
-pub const FACTS_VERSION: u32 = 1;
+/// The `version` of the `report.json` document this code writes (SPEC §2.10). Version 2 dropped
+/// the `eval` key when evaluation moved to `kanon` (SPEC §21); version 1 documents still load.
+pub const FACTS_VERSION: u32 = 2;
 
 /// Errors raised while reading or writing `report.json`.
 #[derive(Debug, Error)]
@@ -73,10 +72,6 @@ pub struct ReportInput<'a> {
     pub registry: &'a PageRegistry,
     /// Every decision line, in file order.
     pub decisions: &'a [Decision],
-    /// Evaluation on the previous corpus.
-    pub eval_before: Option<&'a EvalSummary>,
-    /// Evaluation on the current corpus.
-    pub eval_after: Option<&'a EvalSummary>,
     /// Current duplicate pairs (SPEC §11), empty when `duplicates.jsonl` was not supplied.
     pub duplicates: &'a [DuplicatePair],
     /// Usage statistics (SPEC §15.3); the "Usage" section is rendered only when this is given.
@@ -322,7 +317,6 @@ impl Prepared<'_> {
     pub fn markdown(&self) -> String {
         let mut out = String::from("# Corpus report\n\n");
         summary(&mut out, self);
-        eval_section(&mut out, self.input.eval_before, self.input.eval_after);
         pages_section(&mut out, self);
         residue_section(&mut out, self);
         expired_section(&mut out, &self.expired);
@@ -344,10 +338,6 @@ impl Prepared<'_> {
     #[must_use]
     pub fn facts(&self) -> ReportFacts {
         let input = self.input;
-        let eval_side = |summary: &EvalSummary| EvalSideFacts {
-            tuning: summary.tuning.clone(),
-            holdout: summary.holdout.clone(),
-        };
         let mut unresolved_links: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for entry in self.entries(&self.unresolved) {
             unresolved_links
@@ -358,10 +348,6 @@ impl Prepared<'_> {
         ReportFacts {
             version: FACTS_VERSION,
             summary: self.summary_facts(),
-            eval: (input.eval_before.is_some() || input.eval_after.is_some()).then(|| EvalFacts {
-                before: input.eval_before.map(eval_side),
-                after: input.eval_after.map(eval_side),
-            }),
             pages: self.pages_facts(),
             residue: self.residue_facts(),
             expired_decisions: self
@@ -473,9 +459,6 @@ pub struct ReportFacts {
     pub version: u32,
     /// The "Summary" counts.
     pub summary: SummaryFacts,
-    /// The "Eval before/after" numbers; `None` when no eval result was given.
-    #[serde(default)]
-    pub eval: Option<EvalFacts>,
     /// The "Added pages", "Removed pages" and "Changed pages" sections.
     pub pages: PagesFacts,
     /// The "New residue" section and the undecided residue behind it.
@@ -496,8 +479,9 @@ pub struct ReportFacts {
     pub usage: Option<Usage>,
 }
 
+/// A document without a `version` is version 1 (SPEC §2.10), whatever this build writes.
 fn default_version() -> u32 {
-    FACTS_VERSION
+    1
 }
 
 impl ReportFacts {
@@ -565,28 +549,6 @@ pub struct ChangesFacts {
     pub removed: usize,
     /// Pages whose hash changed since then.
     pub changed: usize,
-}
-
-/// The "Eval before/after" numbers: each side as `eval --json` writes its splits.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EvalFacts {
-    /// The previous corpus's result, when given.
-    #[serde(default)]
-    pub before: Option<EvalSideFacts>,
-    /// The current corpus's result, when given.
-    #[serde(default)]
-    pub after: Option<EvalSideFacts>,
-}
-
-/// One side of the eval table: the tuning split and, when there are held-out queries, the
-/// held-out split (SPEC §2.6).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct EvalSideFacts {
-    /// Queries with `holdout: false`.
-    pub tuning: Split,
-    /// Queries with `holdout: true`, when there are any.
-    #[serde(default)]
-    pub holdout: Option<Split>,
 }
 
 /// The page-diff sections; all empty without a previous manifest.
@@ -710,64 +672,6 @@ fn summary(out: &mut String, prepared: &Prepared<'_>) {
         None => out.push_str("- Changes: no previous manifest to compare with\n"),
     }
     out.push('\n');
-}
-
-fn eval_section(out: &mut String, before: Option<&EvalSummary>, after: Option<&EvalSummary>) {
-    out.push_str("## Eval before/after\n\n");
-    if before.is_none() && after.is_none() {
-        out.push_str("_No evaluation results supplied._\n\n");
-        return;
-    }
-    out.push_str("### Tuning queries\n\n");
-    eval_table(out, before.map(|e| &e.tuning), after.map(|e| &e.tuning));
-    let holdout_before = before.and_then(|e| e.holdout.as_ref());
-    let holdout_after = after.and_then(|e| e.holdout.as_ref());
-    if holdout_before.is_some() || holdout_after.is_some() {
-        out.push_str("### Held-out queries\n\n");
-        eval_table(out, holdout_before, holdout_after);
-    }
-}
-
-fn eval_table(out: &mut String, before: Option<&Split>, after: Option<&Split>) {
-    out.push_str("| kind | recall@5 | recall@10 | MRR | n |\n|---|---|---|---|---|\n");
-    let mut kinds: BTreeSet<&str> = BTreeSet::new();
-    for split in [before, after].into_iter().flatten() {
-        kinds.extend(split.per_kind.keys().map(String::as_str));
-    }
-    eval_row(
-        out,
-        "overall",
-        before.map(|s| &s.overall),
-        after.map(|s| &s.overall),
-    );
-    for kind in kinds {
-        eval_row(
-            out,
-            kind,
-            before.and_then(|s| s.per_kind.get(kind)),
-            after.and_then(|s| s.per_kind.get(kind)),
-        );
-    }
-    out.push('\n');
-}
-
-fn eval_row(out: &mut String, label: &str, before: Option<&Metrics>, after: Option<&Metrics>) {
-    let cell = |f: fn(&Metrics) -> f64| match (before, after) {
-        (Some(b), Some(a)) => format!("{:.3} → {:.3}", f(b), f(a)),
-        (Some(b), None) => format!("{:.3} → –", f(b)),
-        (None, Some(a)) => format!("– → {:.3}", f(a)),
-        (None, None) => "–".to_string(),
-    };
-    let n = after
-        .or(before)
-        .map_or_else(|| "–".to_string(), |m| m.n.to_string());
-    let _ = writeln!(
-        out,
-        "| {label} | {} | {} | {} | {n} |",
-        cell(|m| m.recall5),
-        cell(|m| m.recall10),
-        cell(|m| m.mrr)
-    );
 }
 
 /// Render one page mention as a Markdown link `[title](url)`, or `` `id` `` when there is no
@@ -1180,15 +1084,6 @@ mod tests {
         }
     }
 
-    fn metrics(r5: f64, r10: f64, mrr: f64, n: usize) -> Metrics {
-        Metrics {
-            recall5: r5,
-            recall10: r10,
-            mrr,
-            n,
-        }
-    }
-
     fn manifests() -> (Manifest, Manifest, Vec<ResidueEntry>, Vec<Decision>) {
         let mut old = Manifest::new("2026-09-01T00:00:00Z".to_string());
         old.sources.insert(
@@ -1282,38 +1177,6 @@ mod tests {
         (old, new, residue, decisions)
     }
 
-    fn evals() -> (EvalSummary, EvalSummary) {
-        let before = EvalSummary {
-            tuning: Split {
-                overall: metrics(0.80, 0.85, 0.66, 40),
-                per_kind: [("howto".to_string(), metrics(0.9, 0.95, 0.8, 10))].into(),
-            },
-            holdout: Some(Split {
-                overall: metrics(0.5, 0.5, 0.4, 4),
-                per_kind: BTreeMap::new(),
-            }),
-            queries: vec![],
-            backend: String::new(),
-        };
-        let after = EvalSummary {
-            tuning: Split {
-                overall: metrics(0.85, 0.9, 0.7, 40),
-                per_kind: [
-                    ("howto".to_string(), metrics(0.9, 1.0, 0.85, 10)),
-                    ("concept".to_string(), metrics(0.7, 0.7, 0.5, 5)),
-                ]
-                .into(),
-            },
-            holdout: Some(Split {
-                overall: metrics(0.75, 0.75, 0.6, 4),
-                per_kind: BTreeMap::new(),
-            }),
-            queries: vec![],
-            backend: String::new(),
-        };
-        (before, after)
-    }
-
     /// Write `rendered` over the snapshot when `UPDATE_SNAPSHOTS` is set, then return the
     /// expected text so a refreshed snapshot passes in the same run.
     fn snapshot(name: &str, rendered: &str, expected: &'static str) -> String {
@@ -1351,22 +1214,19 @@ mod tests {
         ]
     }
 
-    /// The full fixture: an old manifest, an annotated diff, both eval sides and duplicates.
+    /// The full fixture: an old manifest, an annotated diff and duplicates.
     struct FullFixture {
         old: Manifest,
         new: Manifest,
         diff: Diff,
         registry: PageRegistry,
         decisions: Vec<Decision>,
-        before: EvalSummary,
-        after: EvalSummary,
         duplicates: Vec<DuplicatePair>,
     }
 
     impl FullFixture {
         fn new() -> FullFixture {
             let (old, new, residue, decisions) = manifests();
-            let (before, after) = evals();
             let diff = annotated_diff(&old, &new);
             let registry = PageRegistry::load(Some(&new), &residue);
             FullFixture {
@@ -1375,8 +1235,6 @@ mod tests {
                 diff,
                 registry,
                 decisions,
-                before,
-                after,
                 duplicates: sample_duplicates(),
             }
         }
@@ -1388,8 +1246,6 @@ mod tests {
                 diff: Some(&self.diff),
                 registry: &self.registry,
                 decisions: &self.decisions,
-                eval_before: Some(&self.before),
-                eval_after: Some(&self.after),
                 duplicates: &self.duplicates,
                 usage: None,
             }
@@ -1414,7 +1270,6 @@ mod tests {
     #[test]
     fn full_report_matches_snapshot() {
         let (old, new, residue, decisions) = manifests();
-        let (before, after) = evals();
         let mut diff = Diff::compute(&old, &new);
         crate::diff::annotate_line_counts(&mut diff, |id| {
             if id == "handbook::docs/changed.md" {
@@ -1434,8 +1289,6 @@ mod tests {
             diff: Some(&diff),
             registry: &registry,
             decisions: &decisions,
-            eval_before: Some(&before),
-            eval_after: Some(&after),
             duplicates: &duplicates,
             usage: None,
         });
@@ -1445,7 +1298,7 @@ mod tests {
     }
 
     #[test]
-    fn minimal_report_without_old_manifest_or_eval() {
+    fn minimal_report_without_old_manifest() {
         let (_, new, residue, decisions) = manifests();
         let registry = PageRegistry::load(Some(&new), &residue);
         let rendered = render(ReportInput {
@@ -1454,34 +1307,12 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &decisions,
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: None,
         });
         let expected = include_str!("../tests/snapshots/report_minimal.md");
         let expected = snapshot("report_minimal.md", &rendered, expected);
         assert_eq!(rendered, expected, "rendered report:\n{rendered}");
-    }
-
-    #[test]
-    fn eval_with_only_after_side() {
-        let (_, new, _, _) = manifests();
-        let (_, after) = evals();
-        let registry = PageRegistry::load(Some(&new), &[]);
-        let rendered = render(ReportInput {
-            old: None,
-            new: &new,
-            diff: None,
-            registry: &registry,
-            decisions: &[],
-            eval_before: None,
-            eval_after: Some(&after),
-            duplicates: &[],
-            usage: None,
-        });
-        assert!(rendered.contains("| overall | – → 0.850 | – → 0.900 | – → 0.700 | 40 |"));
-        assert!(rendered.contains("### Held-out queries"));
     }
 
     #[test]
@@ -1508,8 +1339,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &decisions,
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: None,
         });
@@ -1539,8 +1368,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &decisions,
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: None,
         });
@@ -1558,8 +1385,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &[],
-            eval_before: None,
-            eval_after: None,
             duplicates: &duplicates,
             usage: None,
         });
@@ -1578,8 +1403,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &[],
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: None,
         });
@@ -1614,8 +1437,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &[],
-            eval_before: None,
-            eval_after: None,
             duplicates: &duplicates,
             usage: None,
         });
@@ -1663,8 +1484,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &decisions,
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: Some(&usage),
         });
@@ -1679,8 +1498,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &decisions,
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: None,
         });
@@ -1758,10 +1575,6 @@ mod tests {
         assert_eq!(facts.duplicates.count, 2);
         assert_eq!(facts.duplicates.pairs[0].kind, DuplicateKind::Mirror);
         assert!(facts.usage.is_none());
-        assert_eq!(
-            facts.eval.as_ref().unwrap().after.as_ref().unwrap().tuning,
-            fixture.after.tuning
-        );
     }
 
     #[test]
@@ -1774,8 +1587,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &decisions,
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: None,
         });
@@ -1790,7 +1601,6 @@ mod tests {
             include_str!("../tests/snapshots/report_minimal.json"),
         );
         assert!(facts.summary.changes.is_none());
-        assert!(facts.eval.is_none());
         assert_eq!(facts.pages, PagesFacts::default());
         assert_eq!(facts.duplicates.count, 0);
     }
@@ -1806,8 +1616,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &decisions,
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: Some(&usage),
         });
@@ -1841,8 +1649,6 @@ mod tests {
             diff: None,
             registry: &registry,
             decisions: &decisions,
-            eval_before: None,
-            eval_after: None,
             duplicates: &[],
             usage: None,
         })
@@ -1865,6 +1671,22 @@ mod tests {
     }
 
     #[test]
+    fn a_version_1_document_with_its_eval_key_still_loads() {
+        let fixture = FullFixture::new();
+        let facts = prepare(fixture.input()).facts();
+        let mut document: serde_json::Value =
+            serde_json::from_str(&facts.to_json().unwrap()).unwrap();
+        document["version"] = 1.into();
+        document["eval"] = serde_json::json!({
+            "after": {"tuning": {"overall": {"recall@5": 0.85, "recall@10": 0.9, "mrr": 0.7, "n": 40},
+                                 "per_kind": {}}}
+        });
+        let back: ReportFacts = serde_json::from_value(document).unwrap();
+        assert_eq!(back.version, 1);
+        assert_eq!(back.summary, facts.summary);
+    }
+
+    #[test]
     fn facts_round_trip_through_serde_and_default_the_version() {
         let fixture = FullFixture::new();
         let facts = prepare(fixture.input()).facts();
@@ -1874,10 +1696,11 @@ mod tests {
         assert_eq!(back, facts);
 
         // `version` defaults to 1 when missing (SPEC §2.10), and `load` reads what `save` wrote.
-        let without_version = json.replacen("  \"version\": 1,\n", "", 1);
+        let without_version = json.replacen("  \"version\": 2,\n", "", 1);
         assert_ne!(without_version, json);
-        let back: ReportFacts = serde_json::from_str(&without_version).unwrap();
-        assert_eq!(back.version, FACTS_VERSION);
+        let mut back: ReportFacts = serde_json::from_str(&without_version).unwrap();
+        assert_eq!(back.version, 1);
+        back.version = FACTS_VERSION;
         assert_eq!(back, facts);
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("report.json");

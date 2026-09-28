@@ -128,7 +128,7 @@ What you should see: the verdict appended to `decisions.jsonl`, keyed to the pag
 expires automatically if the page ever changes. Residue and duplicates work the same way; see
 [Near-duplicate detection](../manual/duplicates.md) for the latter.
 
-## 4. Write a query set and measure retrieval
+## 4. Write a query set and measure retrieval with kanon
 
 Create `queries.jsonl`, one question per line, a mix of things a reader of these two books might
 ask:
@@ -138,9 +138,11 @@ ask:
 {"id": "naming-conventions", "kind": "reference", "query": "rust naming conventions for getters", "expected": ["api-guidelines::src/naming.md"], "holdout": true}
 ```
 
-Or grow it with `pinakes queries add` instead of writing JSON by hand — see
-[Evaluation](../manual/eval.md#the-judge-queriesjsonl). Point `pinakes.yaml` at it, so a bare
-`pinakes eval` knows where to look:
+Measuring is [`kanon`](https://github.com/friedrichwilken/kanon)'s job, and it can grow the file
+with `kanon queries add` instead of writing JSON by hand (see
+[Measuring retrieval](../manual/measuring-retrieval.md)). Install it with
+`cargo install --git https://github.com/friedrichwilken/kanon --locked`. Point `pinakes.yaml` at
+the queries, so a bare `kanon eval` knows where to look:
 
 ```yaml
 version: 1
@@ -162,31 +164,25 @@ sources:
       command: ["python3", "resolvers/frontmatter_title.py"]
       args: ["src"]
 eval:
-  queries: queries.jsonl                                # <- without this, `eval` needs `--queries` every time
+  queries: queries.jsonl                                # <- without this, `kanon eval` needs `--queries` every time
 ```
 
 Then measure:
 
 ```sh
-pinakes eval
+kanon eval        # <- kanon reads the eval: block of pinakes.yaml when there is no kanon.yaml
 ```
 
-```text
-artifact: 77 pages, 77 searchable, k = 10
-| split    | kind      | n | recall@5 | recall@10 | MRR   |
-|----------|-----------|---|----------|-----------|-------|
-| tuning   | overall   | 5 | 1.000    | 1.000     | 0.900 |
-| held-out | overall   | 1 | 1.000    | 1.000     | 1.000 |
-```
-
-What you should see: recall@5 and MRR for the tuning split and, separately, for the held-out row
-that never feeds a gate (see [Evaluation](../manual/eval.md) for what each column means).
+What you should see: one table on stderr with recall@5, recall@10 and MRR for the tuning split
+and, separately, for the held-out rows that never feed a gate, and the result as JSON on stdout
+(the [kanon README](https://github.com/friedrichwilken/kanon#quick-start) shows the table and
+what each column means).
 
 ## 5. Guard the corpus and render a report
 
 ```sh
 pinakes verify                              # <- exits non-zero if the manifest is stale or violates policy
-pinakes report --old manifest.json > report.md   # <- the PR body: counts, eval, residue, duplicates
+pinakes report --old manifest.json > report.md   # <- the PR body: counts, pages, residue, duplicates
 ```
 
 What you should see: `verify` exits 0 (nothing to fix); `report.md` is empty of changes the
@@ -195,7 +191,7 @@ source has moved on — which is exactly what the workflow below runs on a sched
 
 ## 6. Turn it into a weekly workflow
 
-Everything above — reproduce, resolve, diff, eval, verify, report — is exactly what
+Everything above — reproduce, resolve, diff, measure, verify, report — is exactly what
 [`.github/workflows/curate.yml`](../../.github/workflows/curate.yml) in the pinakes repository
 runs as a reusable workflow. Call it from your own repository:
 
@@ -240,4 +236,4 @@ that materialises the corpus — needs it on `PATH` directly. That is the
 - [Handlers](../manual/handlers.md) — rendering CRDs and OpenAPI schemas into pages, and a
   second worked external resolver.
 - [Learning from serving](../manual/serving-feedback.md) — once this is live, feed real queries
-  back in with the trail, grade and usage commands.
+  back in with the trail and the usage command.

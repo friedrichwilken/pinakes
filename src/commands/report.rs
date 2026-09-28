@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use crate::decisions;
 use crate::duplicates;
 use crate::error::CommandError;
-use crate::eval::EvalSummary;
 use crate::manifest::Manifest;
 use crate::page::PageRegistry;
 use crate::report::{self, ReportInput};
@@ -21,10 +20,6 @@ pub struct ReportOptions {
     pub old: Option<PathBuf>,
     /// The current manifest (default: the committed one).
     pub new: Option<PathBuf>,
-    /// Eval result on the previous corpus.
-    pub eval_before: Option<PathBuf>,
-    /// Eval result on the current corpus.
-    pub eval_after: Option<PathBuf>,
     /// Read new page content from here for changed-page line counts (SPEC §13); typically the
     /// artifact next to the config.
     pub new_artifact: Option<PathBuf>,
@@ -37,7 +32,7 @@ pub struct ReportOptions {
 }
 
 /// Run `report`: render the Markdown PR body from manifests, residue, decisions, duplicates,
-/// eval and usage files, and write the same facts as JSON to `options.json` when it is set
+/// usage files, and write the same facts as JSON to `options.json` when it is set
 /// (SPEC §2.10). `fetcher` is only used, per [`diff()`], to re-fetch a changed page's old text
 /// when `options.old_artifact` does not already have it.
 pub fn report(
@@ -54,16 +49,6 @@ pub fn report(
     };
     let decisions = decisions::read_jsonl(&paths.decisions)?;
     let duplicate_pairs = duplicates::read_jsonl(&paths.duplicates)?;
-    let eval_before = options
-        .eval_before
-        .as_deref()
-        .map(EvalSummary::load)
-        .transpose()?;
-    let eval_after = options
-        .eval_after
-        .as_deref()
-        .map(EvalSummary::load)
-        .transpose()?;
     let usage = options.usage.as_deref().map(Usage::load).transpose()?;
     let computed_diff = old
         .as_ref()
@@ -82,8 +67,6 @@ pub fn report(
         diff: computed_diff.as_ref(),
         registry: &registry,
         decisions: &decisions,
-        eval_before: eval_before.as_ref(),
-        eval_after: eval_after.as_ref(),
         duplicates: &duplicate_pairs,
         usage: usage.as_ref(),
     });
@@ -109,13 +92,12 @@ mod tests {
         assert!(text.contains("- Pages: 2\n"));
         assert!(text.contains("## Duplicates\n\n_none_\n"));
         let options = ReportOptions {
-            old: Some(paths.manifest.clone()),
-            eval_after: Some(paths.config_dir().join("missing-eval.json")),
+            usage: Some(paths.config_dir().join("missing-usage.json")),
             ..ReportOptions::default()
         };
         assert!(matches!(
             report(&paths, &options, &fetcher()).unwrap_err(),
-            CommandError::Eval(_)
+            CommandError::Usage(_)
         ));
     }
 
@@ -136,7 +118,7 @@ mod tests {
         assert_eq!(facts.duplicates.count, 0);
         assert!(facts.summary.changes.is_none());
         let written = std::fs::read_to_string(&json).unwrap();
-        assert!(written.starts_with("{\n  \"version\": 1,\n"), "{written}");
+        assert!(written.starts_with("{\n  \"version\": 2,\n"), "{written}");
         assert!(written.ends_with("}\n"));
 
         // An unwritable path is the command's error, not a panic.

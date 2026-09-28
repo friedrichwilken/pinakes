@@ -12,7 +12,7 @@ Three stages exist around it. pinakes is stage **a**:
 
 - **a. compile** — sources → curated corpus (artifact + manifest + residue). *This tool.*
 - **b. build** — corpus → an index (in-process BM25, a vector store, …). *A consumer's job.*
-  pinakes contains one built-in BM25 backend, used only for measurement.
+  pinakes contains one built-in BM25 index, the reference `kanon` measures by default (§5).
 - **c. serve** — the index behind an agent or API. *A consumer's job.*
 
 Everything the tool reads and writes is a plain file that belongs in git. No database, no daemon,
@@ -50,8 +50,8 @@ policy:
 eval:
   queries: queries.jsonl
   k: 10
-  max_recall_drop: 0.05              # eval --gate exits 2 beyond this
-  backend: bm25                      # what a bare `eval` measures (§16.1); --backend overrides
+  max_recall_drop: 0.05              # kanon eval --gate exits 2 beyond this
+  backend: bm25                      # what a bare `kanon eval` measures; --backend overrides
   # backend_url: http://localhost:8080   # for backend: external
   # embeddings: embeddings.bin       # for backend: dense | hybrid, relative to this file
   # compare: [bm25, dense, hybrid]   # one table per backend; wins over `backend` for a bare eval
@@ -81,6 +81,9 @@ plain `include: ["docs/**/*"]` still only selects Markdown; an empty list select
 regardless of extension. When the source has a `render` step (§10.1) and `extensions` is not
 given explicitly, the default becomes `[]` (every file) instead, since a renderer typically
 consumes YAML or JSON rather than Markdown.
+
+The `eval:` block is `kanon`'s (§21): this crate parses it so an existing `pinakes.yaml` keeps
+loading, and `kanon` acts on it.
 
 ### 2.2 `manifest.json` — curated references (machine-written, committed)
 
@@ -206,6 +209,9 @@ and the page is residue again. Later lines override earlier ones for the same id
 
 ### 2.6 `queries.jsonl` — the judge (human- or grader-written, committed)
 
+The file `kanon` scores a retriever against (§21); this crate no longer reads it. Its format is
+unchanged:
+
 `{"id": "howto-enable-caching", "query": "How do I enable caching?", "expected": ["handbook::docs/user/tutorials/01-40-enable-caching.md", "handbook::docs/user/"], "kind": "howto", "holdout": false}`
 
 `expected` entries are page ids or id prefixes (a trailing `/` means "any page under").
@@ -213,8 +219,7 @@ and the page is residue again. Later lines override earlier ones for the same id
 
 ### 2.7 `report.md` — rendered PR body
 
-Sections, in order: summary counts; eval before/after (overall and per kind, held-out separately);
-added pages; removed pages (with reason: gone upstream, dropped by resolver, excluded by decision);
+Sections, in order: summary counts; added pages; removed pages (with reason: gone upstream, dropped by resolver, excluded by decision);
 changed pages (hash changed; link to upstream compare when both commits known); new residue grouped
 by rule with excerpt; expired decisions; unresolved links; archived sources.
 
@@ -264,17 +269,14 @@ order. Written by `chunks` (§4) to `--out FILE` or stdout; keys sorted. Fields:
 - `ordinal`: the unit's 0-based position within its page.
 - `id`: `<page>#<ordinal>`, e.g. `handbook::docs/install.md#0` for the page intro.
 - `heading`: the unit's H2 heading, `<H2> / <H3>` for a section split at H3, empty for the intro.
-- `text`: the unit text `embed` (§16.2) embeds, title, heading and body joined as §5 step 4
+- `text`: the unit text a consumer embeds, title, heading and body joined as §5 step 4
   shows. The built-in index scores the same cut as three fields (title ×3, heading ×2, body ×1),
   so `chunks` pins the units, not their scores.
 - `sha256`: lowercase hex SHA-256 of `text`'s UTF-8 bytes.
 
-Mirror pages (§5) yield no lines, matching what `eval` indexes. `embeddings.bin` (§16.2) rows
-align with these lines positionally: row `i` is the embedding of chunk line `i` (its
-`unit_ids` name page ids today, not chunk ids). A consumer building its own
-index (stage b) can index these lines, or reimplement §5 and check its cut against them, so a
-recall number from `eval` describes the units it actually serves. An external backend (§16.4)
-may report these ids as the unit a hit refers to; that contract is not defined here yet.
+Mirror pages (§5) yield no lines, matching what the built-in index searches. A consumer building
+its own index (stage b) can index these lines, or reimplement §5 and check its cut against them,
+so a recall number from `kanon` describes the units it actually serves.
 ### 2.10 `report.json` — the report's facts (machine-readable)
 
 `report --json OUT` writes the facts behind `report.md` as one JSON document. The Markdown and
@@ -282,7 +284,7 @@ the JSON are rendered from the same prepared structure (the effective decisions,
 its undecided subset, the diff, the expired decisions, and so on, computed once), so they
 cannot drift: every count or id the Markdown shows is in the JSON, and every list keeps the
 Markdown's order. The JSON additionally carries the id lists and counts a CI gate needs (the
-undecided ids, the eval `n` per row, the duplicate count); titles, URLs, excerpts and prose
+undecided ids, the duplicate count); titles, URLs, excerpts and prose
 stay in the Markdown. The file is pretty-printed with a two-space indent and a trailing
 newline. Shown here compacted, this is the document for the report the test fixture
 `tests/snapshots/report_full.md` renders (`tests/snapshots/report_full.json` is the file):
@@ -291,12 +293,6 @@ newline. Shown here compacted, this is the document for the report the test fixt
 {
   "version": 1,
   "summary": {"sources": 1, "pages": 3, "residue": 5, "undecided": 3, "excluded": 0, "decisions": 4, "changes": {"since": "2026-09-01T00:00:00Z", "added": 1, "removed": 3, "changed": 1}},
-  "eval": {
-    "before": {"tuning": {"overall": {"recall@5": 0.8, "recall@10": 0.85, "mrr": 0.66, "n": 40}, "per_kind": {"howto": {"recall@5": 0.9, "recall@10": 0.95, "mrr": 0.8, "n": 10}}},
-               "holdout": {"overall": {"recall@5": 0.5, "recall@10": 0.5, "mrr": 0.4, "n": 4}, "per_kind": {}}},
-    "after": {"tuning": {"overall": {"recall@5": 0.85, "recall@10": 0.9, "mrr": 0.7, "n": 40}, "per_kind": {"concept": {"recall@5": 0.7, "recall@10": 0.7, "mrr": 0.5, "n": 5}, "howto": {"recall@5": 0.9, "recall@10": 1.0, "mrr": 0.85, "n": 10}}},
-              "holdout": {"overall": {"recall@5": 0.75, "recall@10": 0.75, "mrr": 0.6, "n": 4}, "per_kind": {}}}
-  },
   "pages": {
     "added": ["handbook::docs/new.md"],
     "removed": [{"id": "handbook::docs/dropped.md", "reason": "excluded_by_decision"}, {"id": "handbook::docs/old.md", "reason": "gone_upstream"}, {"id": "removed-src::docs/x.md", "reason": "source_removed"}],
@@ -320,18 +316,16 @@ newline. Shown here compacted, this is the document for the report the test fixt
 
 Fields, one per report section, in the section order of §2.7:
 
-- `version` — the document's major version. `1` today; a missing field means `1`. Within a
+- `version` — the document's major version. `2` today; a missing field means `1`. Within a
   major version changes are additive only (new fields may appear, none is removed or changes
-  meaning); a field removal or a change of meaning bumps it.
+  meaning); a field removal or a change of meaning bumps it. Version 2 dropped the `eval` key
+  (the before/after numbers, §21); a version 1 document, which may carry it, still reads, and
+  the key is ignored.
 - `summary` — the Summary counts: `sources` and `pages` in the current manifest; `residue`
   entries, of which `undecided` have no decision that applies to their current hash and
   `excluded` carry reason `excluded` (§2.4); `decisions` in effect (the last line per id);
   `changes` is `null` without a previous manifest, else `since` (the previous manifest's
   `generated_at`) and the diff's `added`, `removed` and `changed` counts.
-- `eval` — `null` when no eval result was given; else `before` and `after` (each `null` when
-  not given), each with the `tuning` split and the `holdout` split (`null` when there are no
-  held-out queries), in the shape `eval --json` writes (`overall` and `per_kind`, each
-  `recall@5`, `recall@10`, `mrr`, `n`): the same numbers the before/after table prints.
 - `pages` — `added` page ids; `removed` pages with their `reason`, one of `gone_upstream`,
   `dropped_by_resolver`, `source_removed` or `excluded_by_decision` (the wording the Markdown
   prints, as identifiers); `changed` pages with `lines_added` and `lines_removed` (§13). All
@@ -355,7 +349,7 @@ Fields, one per report section, in the section order of §2.7:
 
 `check [--report FILE]` reads a `report.json` (default: `report.json` next to the config) and
 compares each maximum set under `gates:` in `pinakes.yaml` (§2.1) with the corresponding count in
-it. Recall is not gated here; that stays with `eval --gate`. The gates, and the fact each one
+it. Recall is not gated here; that stays with `kanon eval --gate`. The gates, and the fact each one
 reads:
 
 | gate | count in `report.json` |
@@ -410,13 +404,15 @@ All commands take `--config pinakes.yaml` (default) and print human output to st
 | `diff OLD.json NEW.json` | two manifests | JSON on stdout (added/removed/changed/sources) and a human summary on stderr | 0 same; 3 differences |
 | `residue list [--source S] [--reason R] [--include-excluded]` | `residue.jsonl` (+ decisions to hide decided ones) | JSONL | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME]` | residue + manifest for the hash | appends to `decisions.jsonl` | 0; 1 unknown id |
-| `report [--old M] [--new M] [--eval-before E] [--eval-after E] [--json OUT]` | manifests, residue, decisions, eval json | `report.md` on stdout; `report.json` (§2.10) in `OUT` | 0 |
+| `report [--old M] [--new M] [--json OUT]` | manifests, residue, decisions | `report.md` on stdout; `report.json` (§2.10) in `OUT` | 0 |
 | `check [--report FILE]` | config `gates`, `report.json` (§2.11) | violated gates on stderr, JSON summary on stdout | 0 ok; 2 gate violated; 1 error (e.g. no report) |
-| `eval [--artifact DIR] [--json OUT] [--gate BASELINE.json]` | artifact, queries | table on stderr, json on stdout | 0; 2 gate failed |
-| `eval --with ID… / --without ID…` | as above | delta for adding/removing pages | 0 |
 | `verify [--artifact DIR]` | config, committed manifest | nothing | 0; 3 manifest stale; 4 policy violation |
 | `init [REPO_URL…] [--workflow] [--dir DIR]` | nothing; each URL is fetched once to detect its layout | `pinakes.yaml`, empty `decisions.jsonl` and `queries.jsonl`, `.gitignore` entries; with `--workflow`, `.github/workflows/curate.yml` | 0; 1 bad URL or I/O error |
 | `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` (§2.9) in `FILE` or on stdout, a summary on stderr | 0; 1 error |
+
+`eval`, `embed`, `grade` and `queries` moved to `kanon` (§21). For one minor release each stays
+as a stub that prints one line naming the `kanon` command to run instead, accepts and ignores
+any arguments, and exits 1.
 
 `resolve` downloads codeload tarballs (no git needed), reads the resolved commit from the tarball's
 pax `comment` header, falls back to the wrapper directory suffix; unauthenticated, `GITHUB_TOKEN`
@@ -447,13 +443,14 @@ an explicit `path`. When the fetch fails, the source is still written — `glob`
 a comment saying that detection failed and why — and `init` still exits 0: a scaffold must not
 fail on a flaky network.
 
-## 5. Built-in BM25 backend (measurement only)
+## 5. Built-in BM25 index (the reference for measurement)
 
-- tantivy, in-memory index built from the artifact at `eval` time.
+- tantivy, in-memory index built from the artifact by whoever measures: `kanon eval` by default
+  (§21), a consumer through the library surface (§20).
 - Units: the page intro (text before the first H2) and one unit per H2 section; H2 sections over
   1200 tokens are split at H3. Fields: `title` (boost 3), `heading` (boost 2), `body`, plus
-  stored `page_id`, `source`, `doc_type`. The exact cut, which `chunks` (§2.9) emits, `embed`
-  (§16.2) embeds and this index scores as those three fields:
+  stored `page_id`, `source`, `doc_type`. The exact cut, which `chunks` (§2.9) emits, a
+  consumer's embedder can embed and this index scores as those three fields:
   1. Start from the page's cleaned content (frontmatter and HTML comments removed, §2.3) and
      reduce it to index text, in this order: images `!\[([^\]]*)\]\([^)]*\)` become their
      label (`$1`), then links `\[([^\]]*)\]\([^)]*\)` become their label, then every HTML tag
@@ -481,7 +478,7 @@ fail on a flaky network.
   the same title (nav title or H1), only the higher `priority` source's page is indexed (mirror rule).
   Priorities come from `pinakes.yaml` alone (`priority`, default 1): a source the config does not
   list, and every source when there is no config, has priority 1, and equal priorities never
-  collapse a page, so a manifest-less artifact is measured with no mirrors at all. The same-title
+  collapse a page, so a manifest-less artifact is indexed with no mirrors at all. The same-title
   de-duplication at search time still applies.
 - Scoring is Okapi BM25 with `k1` 1.5, `b` 0.75 and negative IDFs floored at a quarter of the
   average IDF; field boosts multiply the term frequency and the unit length. This is the common
@@ -494,29 +491,27 @@ the pinned result.
 
 ## 6. Metrics
 
-`eval` reports, overall and per `kind`, for tuning rows and held-out rows separately:
-recall@5, recall@10, MRR (rank of the first expected hit), n. Per-query rows in the JSON:
-`{id, kind, holdout, hit5, hit10, rr, top: [page ids]}`.
-
-`--with`/`--without` re-index with the page(s) added from `_residue` or removed, and print the
-per-metric delta and the queries whose reciprocal rank changed.
+Recall@5, recall@10, MRR and the rest of the scoring rules are `kanon`'s (§21); see its manual
+for the metrics, the query file's judgement rules and the run files. This crate no longer
+computes them.
 
 ## 7. Definition of done for v1
 
 1. `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` green; docs on every public item.
 2. Unit tests for: config parsing and precedence; manifest read/write round trip and sorted output;
    external resolver contract (a fake script); glob resolver; residue reasons; decisions expiry;
-   diff; report rendering (snapshot); tokeniser and section splitting; eval metrics on a tiny corpus.
+   diff; report rendering (snapshot); tokeniser and section splitting.
 3. Golden corpus: `tests/fixtures/golden` holds a synthetic artifact of about thirty small
    Markdown pages across three sources with different priorities, sidebar-like titles in each
    `meta.json`, deliberate mirrors across sources, one frontmatter-only title, one page with H2/H3
    sections and a `_residue` directory, plus a `queries.jsonl` of twelve queries of which two are
    held out. `expected` entries may be `<source>::<path>`, `<source>::<dir>/` or the legacy
-   `<source>/<path>` prefix form. `eval` on it (plain, and `--with` one residue page) must yield
-   exactly the result pinned in `expected.json`; the expected metrics are whatever the
+   `<source>/<path>` prefix form. The built-in index over it must return exactly the pages
+   pinned in `expected.json` (the top ten for each query); the pin is whatever the
    implementation yields, refreshed with `UPDATE_GOLDEN=1 cargo test --test golden` after an
-   intended change and reviewed in the diff. `eval` accepts a manifest-less artifact (it reads
-   `meta.json` per source), so the fixture carries no manifest.
+   intended change and reviewed in the diff. The index accepts a manifest-less artifact (it
+   reads `meta.json` per source), so the fixture carries no manifest. The recall numbers the
+   queries produce are `kanon`'s to pin (§21).
 4. `resolve` on a two-source config (a small public repo with a glob resolver, and one with an
    external resolver script in `examples/`) produces the artifact layout of §2.3 and a manifest that
    `verify` accepts; `resolve --from-manifest` reproduces it byte for byte.
@@ -533,7 +528,7 @@ itself (only a sketch in the README).
 
 - Crate layout: `src/lib.rs` with modules `config`, `sources` (download, archived check), `resolve`
   (glob, external), `artifact`, `manifest`, `residue`, `decisions`, `diff`, `report`, `index`
-  (tokeniser, sections, tantivy), `eval`; `src/main.rs` with clap subcommands only.
+  (tokeniser, sections, tantivy); `src/main.rs` with clap subcommands only.
 - Errors: `anyhow` at the CLI edge, `thiserror` types in the library. No panics on user input.
 - Serialisation: `serde` + `serde_json` (`to_writer_pretty` with sorted maps: use `BTreeMap`),
   `serde_yaml` for the config.
@@ -715,10 +710,8 @@ A missing endpoint is an error, not a silent skip.
 
 ### 14.3 Queries
 
-`pinakes queries add --id ID --query TEXT --expected ID… [--kind K] [--holdout]` appends to
-`queries.jsonl` after checking that expected ids exist in the manifest (prefix form allowed).
-`pinakes queries check` fails on unknown ids and on a held-out share below `eval.holdout_min`
-(default 0.2, config). `eval --gate` uses tuning rows only, as before; held-out is reported.
+`queries.jsonl` (§2.6) and the commands that grow and check it (`queries add`, `check`,
+`import`) moved to `kanon` (§21).
 
 ## 15. The loop from serving
 
@@ -730,12 +723,8 @@ Consumers write this; pinakes only reads it. Ids are `<source>::<path>`.
 
 ### 15.2 Grader
 
-`pinakes grade --trail trail.jsonl [--backend NAME] [--k 20] [--model NAME] [--out graded.jsonl]`
-replays each distinct query, fetches k candidates from the chosen backend, asks the model
-(§14.2 endpoint) to grade each candidate 0–3 for relevance, and writes
-`{"query", "id", "grade", "model", "at"}`. `pinakes queries import graded.jsonl --min-grade 2`
-turns grades into query rows (expected = ids at or above the grade; `holdout` chosen at random
-to keep the held-out share), with `"by": "grader:<model>"` on the row. Provenance is kept.
+`grade`, which replays a trail against a backend and has a model grade each candidate, moved to
+`kanon` (§21), as did `queries import`, which turns its output into query rows.
 
 ### 15.3 Usage statistics
 
@@ -746,36 +735,10 @@ by BM25 score (gap candidates). `report` gets a "Usage" section when a usage JSO
 
 ## 16. Retriever shapes
 
-### 16.1 Backend interface
-
-`trait Backend { fn build(artifact, config) -> Self; fn search(query, k, module) -> Vec<Hit> }`
-with implementations selected by `--backend`: `bm25` (default, §5), `bm25-tantivy` (tantivy's
-own scorer, k1 1.2, b 0.75), `dense`, `hybrid`, `external`. `eval` accepts `--backend` and
-reports the backend in its JSON; `eval --compare bm25,dense,hybrid` prints one table per backend
-on the same query set.
-The `eval` section of `pinakes.yaml` may fix `backend`, `backend_url`, `embeddings` (relative to
-the config file) and `compare` for a bare `eval`; the flags override them, and a configured
-`compare` applies only when no `--backend` is given.
-
-### 16.2 Dense backend (embeddings file)
-
-`pinakes embed [--artifact DIR] [--model NAME] [--out embeddings.bin]` computes one embedding per
-retrieval unit (§5 units) through an OpenAI-compatible embeddings endpoint (`PINAKES_EMBED_URL`,
-`PINAKES_EMBED_KEY`, `PINAKES_EMBED_MODEL`), batching 64 texts per request, and writes
-`embeddings.bin` (little-endian f32 rows) plus `embeddings.json` (model, dimension, unit ids in
-row order, artifact manifest hash). The dense backend loads both, embeds the query, scores by
-cosine, page score = max unit. Stale embeddings (manifest hash mismatch) are an error unless
-`--allow-stale`.
-
-### 16.3 Hybrid
-
-Reciprocal rank fusion of `bm25` and `dense` page rankings, `k = 60`, over the top 50 of each.
-
-### 16.4 External backend
-
-`--backend external --backend-url URL`: `POST <URL>/search` with `{"query", "k", "module"}`,
-expecting `{"hits": [{"page_id", "score", "heading"}]}`. Used to evaluate a store a consumer
-already runs. Timeouts 30 s; errors fail the eval.
+The retriever backends (`bm25`, `bm25-tantivy`, `dense`, `hybrid`, `external`), the embeddings
+file that `embed` writes for the dense one and `--compare` moved to `kanon` (§21). Its contracts
+(the backend request and response, the unit id, the trail) are versioned there, with a JSON
+Schema each; the unit cut they refer to is §5 and §2.9 here.
 
 ## 17. Delivery
 
@@ -783,12 +746,13 @@ already runs. Timeouts 30 s; errors fail the eval.
 
 `.github/workflows/curate.yml` in this repository as a reusable workflow (`workflow_call`) plus
 `examples/curate-weekly.yml` showing how a consumer calls it: resolve, diff against the
-committed manifest, stop when empty, eval before and after, duplicates, report (Markdown and
-`report.json`), `check` against the config's `gates` (§2.11), then open or update one PR on
+committed manifest, stop when empty, `kanon eval` before and after (§21), duplicates, report
+(Markdown, with `kanon report`'s evaluation sections appended, and `report.json`), `check` against the config's `gates` (§2.11), then open or update one PR on
 branch `pinakes/weekly` with the manifest, residue, duplicates and report committed
 (`report.json` is not committed). A violated gate never fails the job: it puts `(gates failed:
 <names>)` in the PR title and the label `gate-failed` next to the label `pinakes`. Inputs:
-config path, queries path, gate baseline path. Uses `peter-evans/create-pull-request`.
+config path, queries path, gate baseline path (for `kanon eval --gate`). Uses
+`peter-evans/create-pull-request`.
 
 `action.yml` at the repository root, "Set up pinakes", is a composite action that downloads a
 released binary for the runner's platform (`version`, default `latest`, resolved through the
@@ -840,7 +804,7 @@ with a new major.
 | `corpus` | `load_pages` (an artifact directory into `Page`s, with the source priorities and the mirror rule), `Page`, `Priorities`, `DEFAULT_PRIORITY`, `mark_mirrors`, `load_residue_page`, `CorpusError` |
 | `index` | the built-in BM25 index of §5: `Index`, `Hit`, `Unit`, `iter_units`, `split_sections`, `Section`, `index_text`, `SECTION_SPLIT_TOKENS`, `TITLE_BOOST`, `HEADING_BOOST`, `IndexError`, and its re-exports of the `corpus`, `tokenizer` and `text` items, so `pinakes::index::…` paths stay |
 | `tokenizer` | the tokeniser of §5 and §10.3, so a consumer's own index cuts the same tokens |
-| `chunks` | `Chunk`, `chunks`, `chunk_id`: the retrieval units of §2.9, the same cut the index and `embed` use |
+| `chunks` | `Chunk`, `chunks`, `chunk_id`: the retrieval units of §2.9, the same cut the index searches and a consumer embeds |
 | `manifest`, `layout` | `manifest.json`'s types and loader, the artifact's file and directory names |
 | `text`, `jsonl`, `num` | content hashing and cleaning, JSON Lines reading and writing, the one `usize -> f64` cast |
 | `trail` | `trail.jsonl`'s types (§15.1); written by a serving consumer, read by `usage` here and by `kanon` |
@@ -863,9 +827,10 @@ this order, so both repositories stay green at every step:
    `kanon` carries as its own helper.
 2. This crate deletes the moved commands, `src/backend/`, `report`'s `--eval-before` /
    `--eval-after` flags and `ReportInput`'s eval fields (§2.7's before/after tables are then
-   `kanon`'s), and the matching `CommandError` variants. For one minor release the deleted
-   subcommands remain as stubs that print one line naming the `kanon` command to run instead and
-   exit 1; the release after removes the stubs.
+   `kanon`'s), and the matching `CommandError` variants. `report.json` (§2.10) loses its `eval`
+   key, which bumps its `version` to 2. For one minor release the deleted subcommands remain as
+   stubs that print one line naming the `kanon` command to run instead and exit 1; the release
+   after removes the stubs.
 3. §5 and §9 are reworded (no `eval` in the crate layout; the index is built by whoever measures);
    §6 and §16 shrink to a pointer at `kanon`'s contracts; the README, manual and tutorial drop
    the evaluation sections and link across; the reusable curate workflow (§17.1) calls `kanon
@@ -873,5 +838,6 @@ this order, so both repositories stay green at every step:
 
 `usage` (§15.3) stays: it reads the trail, but its output is residue-side. `llm` and `classify`
 (§14.2) stay. The index (§5) stays as the reference measurement index that `kanon` uses by
-default. Until step 2 lands, §6 and §16 describe what this crate ships, and `pinakes eval` and
-friends keep working as documented.
+default. The three steps have landed: `pinakes eval` and friends are the stubs of step 2, and the
+release after the first one that ships them removes those. The `eval:` block of `pinakes.yaml`
+(§2.1) and `queries.jsonl` (§2.6) keep their formats; `kanon` reads both.

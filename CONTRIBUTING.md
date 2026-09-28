@@ -34,7 +34,6 @@ cargo build --release
 cd examples
 ../target/release/pinakes resolve --artifact /tmp/pinakes-artifact
 ../target/release/pinakes verify --artifact /tmp/pinakes-artifact
-../target/release/pinakes eval --artifact /tmp/pinakes-artifact
 ```
 
 This fetches two public repositories, so it needs the network. CI runs the same sequence as

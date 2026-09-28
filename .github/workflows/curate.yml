@@ -1,8 +1,8 @@
 name: curate
 
 # The weekly curation workflow (SPEC §17.1): a reusable workflow a consumer calls on a schedule
-# (see examples/curate-weekly.yml) to re-resolve its corpus, measure the effect, and open one PR
-# with the result for a human (or the `curate` skill) to review. `workflow_dispatch` lets it be
+# (see examples/curate-weekly.yml) to re-resolve its corpus, measure the effect with `kanon`, and
+# open one PR with the result for a human (or the `curate` skill) to review. `workflow_dispatch` lets it be
 # run by hand, including inside this repository's own CI to exercise it end to end.
 
 on:
@@ -14,13 +14,13 @@ on:
         type: string
         default: pinakes.yaml
       queries:
-        description: Path to queries.jsonl, passed to `pinakes eval --queries`.
+        description: Path to queries.jsonl, passed to `kanon eval --queries`.
         required: false
         type: string
         default: queries.jsonl
       baseline:
         description: >
-          Path to the `eval --gate` baseline JSON. Missing is fine (e.g. the first ever run);
+          Path to the `kanon eval --gate` baseline JSON. Missing is fine (e.g. the first ever run);
           the gate is then skipped and only the plain "after" measurement is reported.
         required: false
         type: string
@@ -38,7 +38,7 @@ on:
         type: string
         default: queries.jsonl
       baseline:
-        description: Path to the eval --gate baseline JSON (optional).
+        description: Path to the kanon eval --gate baseline JSON (optional).
         required: false
         type: string
         default: eval-baseline.json
@@ -89,7 +89,16 @@ jobs:
         with:
           github-token: ${{ github.token }}
 
-      - run: pinakes --version
+      # Evaluation is `kanon`'s job (SPEC §21). kanon has no release yet, so its action builds it
+      # from source; pin a tag here once one exists.
+      - name: Set up kanon
+        uses: friedrichwilken/kanon@main
+        with:
+          github-token: ${{ github.token }}
+
+      - run: |
+          pinakes --version
+          kanon --version
 
       - name: Resolve the workspace paths
         id: paths
@@ -112,7 +121,7 @@ jobs:
 
       - name: eval (before)
         run: |
-          pinakes --config "${{ inputs.config }}" eval \
+          kanon --config "${{ inputs.config }}" eval \
             --artifact "$RUNNER_TEMP/before-artifact" \
             --queries "${{ inputs.queries }}" \
             --json "$RUNNER_TEMP/eval-before.json"
@@ -148,7 +157,7 @@ jobs:
           if [ -f "${{ inputs.baseline }}" ]; then
             gate_args+=(--gate "${{ inputs.baseline }}")
           fi
-          pinakes --config "${{ inputs.config }}" eval \
+          kanon --config "${{ inputs.config }}" eval \
             --queries "${{ inputs.queries }}" \
             --json "$RUNNER_TEMP/eval-after.json" \
             "${gate_args[@]}"
@@ -182,13 +191,19 @@ jobs:
             echo "pinakes report --json: not in this build; the gates are skipped"
             echo "json=false" >> "$GITHUB_OUTPUT"
           fi
+          report="${{ steps.paths.outputs.config_dir }}/report.md"
           pinakes --config "${{ inputs.config }}" report \
             --old "$RUNNER_TEMP/old-manifest.json" \
             --new "${{ steps.paths.outputs.config_dir }}/manifest.json" \
+            "${json_args[@]}" \
+            > "$report"
+          # The evaluation sections are kanon's; they follow the corpus sections, without
+          # kanon's own title line.
+          kanon report \
             --eval-before "$RUNNER_TEMP/eval-before.json" \
             --eval-after "$RUNNER_TEMP/eval-after.json" \
-            "${json_args[@]}" \
-            > "${{ steps.paths.outputs.config_dir }}/report.md"
+            > "$RUNNER_TEMP/eval-report.md"
+          tail -n +2 "$RUNNER_TEMP/eval-report.md" >> "$report"
 
       # The gates from `pinakes.yaml` (SPEC §2.11) are reported, not fatal, for the same reason
       # as the eval gate above: a violation belongs in the PR's title and labels, where a

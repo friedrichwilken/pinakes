@@ -1,12 +1,9 @@
 //! Test fixtures shared by more than one command's tests.
 
-use std::fs;
-
-use crate::embed::Embedder;
 use crate::workspace::Paths;
 
-/// A workspace with a synthetic artifact, a query file and no config.
-pub(super) fn eval_workspace() -> (tempfile::TempDir, Paths) {
+/// A workspace with a synthetic artifact and no config.
+pub(super) fn artifact_workspace() -> (tempfile::TempDir, Paths) {
     use crate::index::testing::{SourceSpec, write_artifact};
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::for_config(&dir.path().join("pinakes.yaml"));
@@ -26,19 +23,7 @@ pub(super) fn eval_workspace() -> (tempfile::TempDir, Paths) {
             )],
         }],
     );
-    fs::write(
-        dir.path().join("queries.jsonl"),
-        concat!(
-            "{\"id\": \"caching\", \"kind\": \"howto\", \"query\": \"enable upload caching\", \"expected\": [\"handbook/docs/user\"]}\n",
-            "{\"id\": \"quotas\", \"kind\": \"howto\", \"query\": \"quotas rate limits\", \"expected\": [\"handbook::docs/user/quotas.md\"]}\n",
-        ),
-    )
-    .unwrap();
     (dir, paths)
-}
-
-pub(super) fn fake_embedder() -> std::rc::Rc<dyn Embedder> {
-    std::rc::Rc::new(crate::embed::testing::FakeEmbedder)
 }
 
 /// Set `PINAKES_LLM_URL` for the duration of `body`, serialised against every other test that

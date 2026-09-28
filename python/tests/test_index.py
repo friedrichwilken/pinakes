@@ -79,7 +79,7 @@ def test_read_missing_page_returns_none(index: Index) -> None:
     assert index.read("handbook::docs/does-not-exist.md") is None
 
 
-def test_chunks_are_the_units_eval_measures(index: Index) -> None:
+def test_chunks_are_the_units_the_index_searches(index: Index) -> None:
     # Pinned by tests/chunks_cli.rs: 52 units over the 30 searchable pages.
     chunks = index.chunks()
     assert len(chunks) == 52

@@ -18,11 +18,8 @@ use cli::classify::{ClassifyArgs, run_classify};
 use cli::decide::{DecideArgs, run_decide};
 use cli::diff::run_diff;
 use cli::duplicates::{DuplicatesArgs, run_duplicates};
-use cli::embed::{EmbedArgs, run_embed};
-use cli::eval::{EvalArgs, run_eval};
-use cli::grade::{GradeArgs, run_grade};
 use cli::init::{InitArgs, run_init};
-use cli::queries::{QueriesCommand, run_queries};
+use cli::moved::{MovedArgs, run_moved};
 use cli::report::{ReportArgs, run_report};
 use cli::residue::{ResidueCommand, run_residue_list};
 use cli::resolve::{ResolveArgs, run_resolve};
@@ -76,23 +73,20 @@ enum Command {
     Report(ReportArgs),
     /// Compare report.json with the config's `gates`: exit 2 when a gate is violated.
     Check(CheckArgs),
-    /// Measure retrieval quality: table on stderr, JSON on stdout, exit 2 when the gate fails.
-    Eval(EvalArgs),
-    /// Grow and validate the judge, `queries.jsonl`.
-    Queries {
-        #[command(subcommand)]
-        command: QueriesCommand,
-    },
+    /// Moved to `kanon eval` (SPEC §21): prints where to go and exits 1.
+    Eval(MovedArgs),
+    /// Moved to `kanon queries` (SPEC §21): prints where to go and exits 1.
+    Queries(MovedArgs),
     /// Find exact, mirror and near-duplicate pages: JSONL on stdout, a summary on stderr.
     Duplicates(DuplicatesArgs),
-    /// Embed every retrieval unit through an OpenAI-compatible endpoint (SPEC §16.2).
-    Embed(EmbedArgs),
-    /// Emit the retrieval units `eval` measures, one JSON object per line (SPEC §2.9).
+    /// Moved to `kanon embed` (SPEC §21): prints where to go and exits 1.
+    Embed(MovedArgs),
+    /// Emit the retrieval units of the built-in index, one JSON object per line (SPEC §2.9).
     Chunks(ChunksArgs),
     /// Ask a model to judge undecided residue and near-duplicate candidates.
     Classify(ClassifyArgs),
-    /// Replay a served-query trail against a backend and grade each candidate with a model.
-    Grade(GradeArgs),
+    /// Moved to `kanon grade` (SPEC §21): prints where to go and exits 1.
+    Grade(MovedArgs),
     /// Report on a served-query trail: unused pages, uncited queries and gap candidates.
     Usage(UsageArgs),
 }
@@ -136,13 +130,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         } => run_diff(&paths, &old, &new, new_artifact, old_artifact),
         Command::Report(args) => run_report(&paths, args),
         Command::Check(args) => run_check(&paths, args),
-        Command::Eval(args) => run_eval(paths, args),
+        Command::Eval(_) => Ok(run_moved("eval")),
         Command::Duplicates(args) => run_duplicates(paths, args),
-        Command::Queries { command } => run_queries(&paths, command),
-        Command::Embed(args) => run_embed(paths, args),
+        Command::Queries(_) => Ok(run_moved("queries")),
+        Command::Embed(_) => Ok(run_moved("embed")),
         Command::Chunks(args) => run_chunks(&paths, args),
         Command::Classify(args) => run_classify(&paths, args),
-        Command::Grade(args) => run_grade(&paths, args),
+        Command::Grade(_) => Ok(run_moved("grade")),
         Command::Usage(args) => run_usage(&paths, args),
     }
 }

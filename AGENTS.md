@@ -13,10 +13,11 @@ queries and a report.
 
 - **a. compile** — sources → curated corpus (artifact + manifest + residue). *This tool.*
 - **b. build** — corpus → an index (BM25, a vector store, …). *A consumer's job.* pinakes
-  ships one in-memory BM25 backend, used only by `eval` to measure a corpus.
+  ships one in-memory BM25 index, the reference `kanon` measures by default.
 - **c. serve** — the index behind an agent or API. *A consumer's job.*
 
-Do not pull stage b or c into this tool.
+Do not pull stage b or c into this tool. Measuring a retriever is not stage a either: it lives in
+`kanon` (SPEC §21), which depends on this crate for the artifact reader (SPEC §20).
 
 ## Layout
 
@@ -52,20 +53,14 @@ shim so paths used before the split (`pinakes::resolve::precedence`, and so on) 
 **Corpus and retrieval:** `corpus` loads an artifact directory into pages (source priorities, the
 mirror rule); `index` (`tokenizer.rs`... `index/bm25.rs`, `index/sections.rs`) builds the BM25
 index on it and re-exports its and `tokenizer`'s items, so `pinakes::index::...` paths did not
-move; `backend` (`bm25`, `tantivy`, `dense`, `hybrid`, `external`) depends on `corpus`, `index`
-and `embed`; `chunks` (`Chunk`, `chunks.jsonl`'s schema, built on `index::iter_units`) depends
-on `corpus`, `index` and `text`; `eval` measures a `Backend` and depends only on `index`,
-`jsonl`, `num` (not `backend` itself — the code that picks a backend for `eval` lives in
-`commands::eval`).
+move; `chunks` (`Chunk`, `chunks.jsonl`'s schema, built on `index::iter_units`) depends on
+`corpus`, `index` and `text`.
 
 **Everything else that reports on the corpus** (peers; each may use the others): `duplicates`
 and `classify` (`ClassifyItem`, LLM judging of undecided residue/near-duplicates) both read a
 `&PageRegistry`; `report` (`ReportInput`, also `&PageRegistry`) depends on `page`, `duplicates`,
-`usage`, `eval`, `diff`, `decisions`, `manifest`, `residue`; `grade` and `usage` read a trail;
-`diff` compares two manifests; `artifact` writes the artifact directory; `queries` grows and
-validates `queries.jsonl` — and is the one **known exception** left over: it depends on `eval`
-and `grade` for their types, where the target layout has it as their peer instead. That
-direction was never revisited in this series.
+`usage`, `diff`, `decisions`, `manifest`, `residue`; `usage` reads a trail; `diff` compares two
+manifests; `artifact` writes the artifact directory.
 
 **Command layer:** `error` holds `CommandError`, the error type every command returns (it wraps
 nearly every module's error type — by design, not by drift). `commands/` is one file per
@@ -95,9 +90,6 @@ grep -rho 'crate::[a-z_]*' src/<module>.rs src/<module>/ 2>/dev/null | sort -u
   `src/resolve/` implementing `Resolver`, one arm in `resolver_for`. The four navigation
   resolvers share their scanning code in `resolve/navigation.rs`. Name every mechanism a
   resolver reports as a `Mechanism { key, text }`; `select` turns that into a stored `Rule`.
-- **Adding a backend:** one file under `src/backend/`, a `BackendKind` variant plus its
-  `name()`/`FromStr` arms, one arm in `backend::build`, `needs_embedder()` if it embeds, and
-  the list of valid names in `BackendError::UnknownBackend`'s message.
 - **Adding a command:** library side, `src/commands/<name>.rs` plus a named re-export in
   `commands/mod.rs`; binary side, `src/cli/<name>.rs` plus its `mod` line in
   `src/cli/mod.rs`, a `Command` variant and a dispatch arm in `main.rs`'s `run`. Write the
@@ -142,12 +134,12 @@ cargo test                                            # unit, integration, golde
 CI runs the same plus `cargo doc --no-deps` with `RUSTDOCFLAGS=-D warnings`, a build on the
 `rust-version` from `Cargo.toml`, the end-to-end example against the network, and `cargo audit`.
 
-Five suites pin behaviour rather than assert it:
+Four suites pin behaviour rather than assert it:
 
-- `tests/golden.rs` compares `eval` on `tests/fixtures/golden` with `expected.json`. Refresh
-  with `UPDATE_GOLDEN=1 cargo test --test golden`. The other golden suites
-  (`tests/golden_mdbook.rs`, `tests/backend_tantivy_golden.rs`,
-  `tests/backend_dense_hybrid_golden.rs`) follow the same rule.
+- `tests/golden.rs` compares the built-in index over `tests/fixtures/golden` with
+  `expected.json`: the ids of the top ten pages for each query in its `queries.jsonl`. Refresh
+  with `UPDATE_GOLDEN=1 cargo test --test golden`. The other golden suite
+  (`tests/golden_mdbook.rs`) follows the same rule.
 - `tests/snapshots/` holds rendered reports. Refresh with `UPDATE_SNAPSHOTS=1 cargo test`.
 - `tests/pipeline_pin.rs` pins the bytes of `manifest.json`, `residue.jsonl`,
   `duplicates.jsonl`, `report.md` and `residue list` written by a fresh resolve and a
@@ -156,15 +148,12 @@ Five suites pin behaviour rather than assert it:
 - `tests/schema.rs` pins the JSON Schema of `manifest.json`, generated from the `manifest`
   types, at `docs/schemas/manifest.schema.json`. Refresh with
   `UPDATE_SCHEMAS=1 cargo test --test schema`.
-- `tests/eval_cli.rs` and `tests/eval_compare_cli.rs` pin the CLI's JSON and table output for
-  `eval` through the binary. They have no refresh flag; update the hand-written assertions
-  directly when a change is intended.
 
-Refresh only when the change is intended. The commit that updates a golden or snapshot file, or
-the assertions in the two eval CLI pin tests, must say, in its body, which rule changed and why
-the new numbers or text are the right ones (for example: "the tokeniser now keeps digits, so
-recall@5 on `vec-alloc` rises from 0.5 to 1.0"). Never refresh, or edit a pinned assertion, just
-to make a red test green without that justification.
+Refresh only when the change is intended. The commit that updates a golden or snapshot file must
+say, in its body, which rule changed and why
+the new results or text are the right ones (for example: "the tokeniser now keeps digits, so
+the `vec-alloc` query now ranks its page first"). Never refresh, or edit a pinned
+assertion, just to make a red test green without that justification.
 
 ## Code rules
 
@@ -182,7 +171,7 @@ pinakes must not know about any particular product, company, documentation site 
 No product names in code, prompts, fixtures, examples or docs; no behaviour that exists only
 because one consumer wants it. Anything consumer-specific goes behind the two extension
 points the spec defines: the **resolver contract** (SPEC §3, an external command that selects
-pages) and the **backend contract** (a consumer's own stage-b index over the artifact
+pages) and the **backend contract** (`kanon`'s: a consumer's own stage-b index over the artifact
 layout of SPEC §2.3). If a feature cannot be expressed through those, it does not belong here.
 
 ## Commit messages
@@ -201,7 +190,6 @@ cargo build --release
 cd examples
 ../target/release/pinakes resolve --artifact /tmp/pinakes-artifact   # needs the network
 ../target/release/pinakes verify --artifact /tmp/pinakes-artifact
-../target/release/pinakes eval --artifact /tmp/pinakes-artifact
 ../target/release/pinakes report --old manifest.json > /tmp/report.md
 ```
 

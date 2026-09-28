@@ -8,10 +8,6 @@
 - Decisions: 5
 - Changes since 2026-09-16T12:00:00Z: 4 added, 1 removed, 1 changed
 
-## Eval before/after
-
-_No evaluation results supplied._
-
 ## Added pages
 
 - [Subscription (messaging.example.com/v1)](https://github.com/acme/crds/blob/c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5/reference/messaging.example.com/subscription-v1.md)

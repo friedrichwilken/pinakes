@@ -472,10 +472,10 @@ fn render_config(drafts: &[SourceDraft]) -> Result<String, CommandError> {
          \x20 deny: [\"**/CLAUDE.md\", \"**/adr/**\", \"**/CHANGELOG.md\"]  # beats everything\n\
          \x20 archived: warn  # warn | drop\n\
          \x20 min_pages_per_source: 1  # verify fails below this\n\
-         # eval:  # enable once queries.jsonl has entries\n\
+         # eval:  # read by kanon; enable once queries.jsonl has entries\n\
          #   queries: queries.jsonl\n\
          #   k: 10\n\
-         #   max_recall_drop: 0.05  # eval --gate exits 2 beyond this\n",
+         #   max_recall_drop: 0.05  # kanon eval --gate exits 2 beyond this\n",
     );
     Ok(out)
 }

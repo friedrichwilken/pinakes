@@ -33,10 +33,10 @@ pub struct ChunksOutcome {
     pub jsonl: Option<String>,
 }
 
-/// Run `chunks`: every retrieval unit of the artifact (SPEC §2.9), cut exactly as `eval`
-/// indexes and `embed` embeds them.
+/// Run `chunks`: every retrieval unit of the artifact (SPEC §2.9), cut exactly as the
+/// built-in index searches them and as a consumer embeds them.
 ///
-/// The config is optional, exactly as for `eval`: priorities default to
+/// The config is optional: priorities default to
 /// [`Priorities::default`] without one, so nothing is a mirror.
 pub fn chunks(paths: &Paths, options: &ChunksOptions) -> Result<ChunksOutcome, CommandError> {
     let priorities = if paths.config.is_file() {
@@ -72,11 +72,11 @@ pub fn chunks(paths: &Paths, options: &ChunksOptions) -> Result<ChunksOutcome, C
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::testing::eval_workspace;
+    use crate::commands::testing::artifact_workspace;
 
     #[test]
     fn chunks_returns_jsonl_for_stdout_or_writes_the_file() {
-        let (dir, paths) = eval_workspace();
+        let (dir, paths) = artifact_workspace();
         let outcome = chunks(&paths, &ChunksOptions::default()).unwrap();
         assert_eq!(
             (outcome.chunks, outcome.pages, outcome.page_count),
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn a_missing_artifact_is_an_error() {
-        let (_dir, paths) = eval_workspace();
+        let (_dir, paths) = artifact_workspace();
         let options = ChunksOptions {
             artifact: Some(paths.artifact.join("absent")),
             out: None,

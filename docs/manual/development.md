@@ -17,20 +17,17 @@ cargo test
 Library crate `pinakes` (modules per `SPEC.md` §9), binary `pinakes` (`src/main.rs`, clap
 only). Errors are `thiserror` types in the library and `anyhow` at the CLI edge.
 
-Five suites pin behaviour rather than assert it, each with its own refresh flag:
+Four suites pin behaviour rather than assert it, each with its own refresh flag:
 
-- `tests/golden.rs`, `tests/golden_mdbook.rs`, `tests/backend_tantivy_golden.rs` and
-  `tests/backend_dense_hybrid_golden.rs` compare `eval` on a fixture corpus with an
-  `expected*.json` file. Refresh with `UPDATE_GOLDEN=1 cargo test --test <name>`.
+- `tests/golden.rs` and `tests/golden_mdbook.rs` compare the built-in index over a fixture
+  corpus with `expected.json`: the ids of the top ten pages for each query. Refresh with
+  `UPDATE_GOLDEN=1 cargo test --test <name>`.
 - `tests/snapshots/` holds rendered reports. Refresh with `UPDATE_SNAPSHOTS=1 cargo test`.
 - `tests/pipeline_pin.rs` pins the bytes of `manifest.json`, `residue.jsonl`,
   `duplicates.jsonl`, `report.md` and `residue list` written by a fresh resolve and a
   `--from-manifest` one. Refresh with `UPDATE_SNAPSHOTS=1 cargo test --test pipeline_pin`.
 - `tests/schema.rs` pins the JSON Schema of `manifest.json` at `docs/schemas/manifest.schema.json`
   byte for byte. Refresh with `UPDATE_SCHEMAS=1 cargo test --test schema`.
-- `tests/eval_cli.rs` and `tests/eval_compare_cli.rs` pin the CLI's JSON and table output for
-  `eval` through the binary; update the hand-written assertions directly when a change is
-  intended, there is no refresh flag.
 
 Refresh only when the change is intended, and say why in the commit body.
 
@@ -40,7 +37,7 @@ Refresh only when the change is intended, and say why in the commit body.
 `tests/` against fake fetchers and scripts, the golden corpus and the report snapshots. None of
 them touch the network, so they say nothing about whether the codeload download, the GitHub
 archived check or the example resolver still work against the real world. That is what the `e2e`
-job in CI covers: it builds the release binary and runs `resolve`, `verify`, `diff`, `eval` and
+job in CI covers: it builds the release binary and runs `resolve`, `verify`, `diff` and
 `report` on `examples/pinakes.yaml` against the two public repositories it names. It fails only
 on exit codes the commands do not document, so an upstream commit that changes the corpus (exit
 3 from `diff`) is reported, not treated as a failure. Run it locally:

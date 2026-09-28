@@ -106,7 +106,7 @@ pub struct Config {
     /// Corpus-wide policy.
     #[serde(default)]
     pub policy: Policy,
-    /// Evaluation settings (used by `eval`, part 2).
+    /// Evaluation settings: parsed and kept here, read by `kanon` (SPEC §21).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eval: Option<EvalConfig>,
     /// Maxima `check` compares `report.json` against (SPEC §2.11); absent means no gate.
@@ -333,7 +333,8 @@ impl Default for Policy {
     }
 }
 
-/// Evaluation settings (SPEC §2.1 `eval`).
+/// Evaluation settings (SPEC §2.1 `eval`). `kanon` acts on them; this crate only parses them, so
+/// an existing `pinakes.yaml` keeps loading.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EvalConfig {
@@ -342,14 +343,14 @@ pub struct EvalConfig {
     /// Cut-off for the result list.
     #[serde(default = "default_k")]
     pub k: usize,
-    /// `eval --gate` exits 2 when recall drops by more than this.
+    /// `kanon eval --gate` exits 2 when recall drops by more than this.
     #[serde(default)]
     pub max_recall_drop: f64,
-    /// `queries check` fails when the held-out share of `queries.jsonl` falls below this.
+    /// `kanon queries check` fails when the held-out share of `queries.jsonl` falls below this.
     #[serde(default = "default_holdout_min")]
     pub holdout_min: f64,
-    /// The backend a bare `eval` measures (SPEC §16.1): `bm25` (default), `bm25-tantivy`,
-    /// `dense`, `hybrid` or `external`; `--backend` overrides it.
+    /// The backend a bare `kanon eval` measures: `bm25` (default), `bm25-tantivy`, `dense`,
+    /// `hybrid` or `external`; `--backend` overrides it.
     #[serde(default)]
     pub backend: Option<String>,
     /// The consumer's search endpoint base URL for the `external` backend; `--backend-url`
@@ -360,7 +361,7 @@ pub struct EvalConfig {
     /// (default: `embeddings.bin` next to it); `--embeddings` overrides it.
     #[serde(default)]
     pub embeddings: Option<PathBuf>,
-    /// Backends a bare `eval` compares over the same query set, one table each; when set it
+    /// Backends a bare `kanon eval` compares over the same query set, one table each; when set it
     /// wins over `backend`. `--compare` or `--backend` on the command line overrides it.
     #[serde(default)]
     pub compare: Vec<String>,
@@ -372,7 +373,7 @@ fn default_k() -> usize {
 
 /// The gates `check` applies to `report.json` (SPEC §2.1 `gates`, §2.11). Every field is a
 /// maximum; a count above it violates the gate, and an absent field is a gate that is off.
-/// Recall is not gated here: that is `eval --gate`'s job.
+/// Recall is not gated here: that is `kanon eval --gate`'s job.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Gates {
@@ -830,7 +831,7 @@ gates:
         );
         assert_eq!(Gates::default().configured(), 0);
 
-        // A recall gate belongs to `eval`, and a typo must not silently switch a gate off.
+        // A recall gate belongs to `kanon eval`, and a typo must not silently switch a gate off.
         for bad in ["recall_drop_max: 0.05", "undecided_residue_mx: 0"] {
             let yaml = format!(
                 "{}gates:\n  {bad}\n",

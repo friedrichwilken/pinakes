@@ -1,7 +1,7 @@
 //! Python bindings for `pinakes`'s built-in BM25 measurement index (SPEC §17.2).
 //!
 //! This crate wraps [`pinakes_lib::index::Index`] as `pinakes.Index`: the same retrieval model
-//! the `pinakes eval` CLI command measures with, so a consumer importing this module searches
+//! `kanon eval` measures with, so a consumer importing this module searches
 //! the identical corpus the curator scored. `build` and `search` release the GIL (`Python::detach`)
 //! while the (CPU-bound, allocation-heavy) Rust code runs, so other Python threads keep going.
 //!
@@ -94,7 +94,7 @@ impl Page {
     }
 }
 
-/// One retrieval unit (SPEC §2.9): the same cut `pinakes chunks` emits and `pinakes eval` scores.
+/// One retrieval unit (SPEC §2.9): the same cut `pinakes chunks` emits and `kanon eval` scores.
 #[pyclass(module = "pinakes", frozen, skip_from_py_object)]
 #[derive(Debug, Clone)]
 struct Chunk {
@@ -110,7 +110,7 @@ struct Chunk {
     /// The unit's 0-based position within its page.
     #[pyo3(get)]
     ordinal: usize,
-    /// The unit text `embed` embeds: title, heading and body joined (SPEC §5 step 4); the
+    /// The unit text a consumer embeds: title, heading and body joined (SPEC §5 step 4); the
     /// built-in index scores the same three parts as separate fields.
     #[pyo3(get)]
     text: String,
@@ -147,7 +147,7 @@ impl From<chunks::Chunk> for Chunk {
     }
 }
 
-/// The in-memory BM25 index over an artifact directory (SPEC §5), the same index `pinakes eval`
+/// The in-memory BM25 index over an artifact directory (SPEC §5), the same index `kanon eval`
 /// measures the corpus with.
 #[pyclass(module = "pinakes")]
 struct Index {
@@ -221,7 +221,7 @@ impl Index {
     }
 
     /// Every retrieval unit of the searchable pages (SPEC §2.9), in page then unit order: the
-    /// same cut `pinakes chunks` writes and `eval` measures, so a consumer's own index can be
+    /// same cut `pinakes chunks` writes and `kanon eval` measures, so a consumer's own index can be
     /// built from, or checked against, exactly what was scored. Mirror pages yield no chunks.
     fn chunks(&self, py: Python<'_>) -> Vec<Chunk> {
         let inner = &self.inner;
