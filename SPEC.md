@@ -725,9 +725,22 @@ A missing endpoint is an error, not a silent skip.
 
 ### 15.1 Trail format (`trail.jsonl`, written by consumers)
 
-`{"at": "2026-09-16T12:00:00Z", "query": "…", "retrieved": ["<id>", …], "ranks": [1,2,…], "cited": ["<id>"], "outcome": "ok"|"bad"|"unknown", "session": "opaque"}`
+The shape of a `trail.jsonl` line is a contract shared with `kanon`, which defines it once as
+serde types and publishes it as a JSON Schema, `docs/schemas/trail-entry.schema.json` in its
+repository (<https://github.com/friedrichwilken/kanon>). The fields are not restated here; what
+this crate adds is the following.
 
-Consumers write this; pinakes only reads it. Ids are `<source>::<path>`.
+- `version` is an integer, and a missing one means 1. Within a version changes are additive
+  (a reader ignores fields it does not know); a removal, rename or change of meaning is a new
+  version. `trail::read_jsonl`, and so `usage`, checks each line's version before the rest of
+  the line is read and rejects a newer one with one line naming the file, the line and both
+  versions:
+  `trail.jsonl:3: version 2 is newer than the version 1 this pinakes reads; upgrade pinakes`.
+  The version this build reads is `trail::TRAIL_VERSION`, 1.
+- Ids in `retrieved` and `cited` are `<source>::<path>` (§2.2); a line with a differently
+  shaped id is rejected.
+
+Consumers write this; pinakes only reads it.
 
 ### 15.2 Grader
 
@@ -815,7 +828,7 @@ with a new major.
 | `chunks` | `Chunk`, `chunks`, `chunk_id`: the retrieval units of §2.9, the same cut the index searches and a consumer embeds |
 | `manifest`, `layout` | `manifest.json`'s types and loader (`Manifest` with `new`, `load`, `save`, `pages`, `page` and its `sources`; `ManifestSource`, `PageEntry`, `SelectedBy`, `page_id`, `split_page_id`, `now_rfc3339`, `ManifestError` with its `Io`, `Json` and `ArtifactVersion` variants), the artifact's file and directory names (`MANIFEST_FILE` and the rest) |
 | `text`, `jsonl`, `num` | content hashing and cleaning (`sha256_hex`), JSON Lines reading and writing (`read`, `write`, `parse`, `parse_lines`, `append`, `to_string`, `KeyOrder`, `JsonlError`, `LineError`), the one `usize -> f64` cast |
-| `trail` | `trail.jsonl`'s types and reader (§15.1: `read_jsonl`, `TrailEntry`, `Outcome`, `TrailError`); written by a serving consumer, read by `usage` here; `kanon` keeps its own reading of the same contract |
+| `trail` | `trail.jsonl`'s types and reader (§15.1: `read_jsonl`, `TrailEntry` with its `version`, `TRAIL_VERSION`, `Outcome`, `TrailError`); written by a serving consumer, read by `usage` here; `kanon` keeps its own reading of the same contract |
 | `residue` | `excerpt`: the leading words of a page's text, as residue entries and `kanon`'s grader show them |
 | `config` | `pinakes.yaml`'s schema, for a consumer that reads the `eval:` block or the source priorities (`kanon` uses its own lenient parser today) |
 | `llm` | the OpenAI-compatible chat client (`chat`, `ChatTransport`, `LlmConfig`, `UreqChatTransport`, `TransportError`, `ChatError` with its `Http` and `Json` variants) and its `testing` transport, shared by `classify` here and by `kanon`'s grader |
@@ -832,6 +845,13 @@ additive rule above has one exception: a new field on one of those four structs 
 `JsonlError` variant breaks `kanon`, and is made together with a `kanon` release. A new
 function, method, item, or variant of any other enum is additive and fails nothing. The `trail`
 items are pinned too, for the serving consumer; `kanon` does not use them today.
+
+The additive rule is source-level only for what a consumer reads. A struct a consumer builds by
+literal (a serving consumer writing `TrailEntry`, say) cannot gain a field without breaking that
+consumer, and none of these structs is `#[non_exhaustive]`, because that would forbid the
+literal outright. Such a field is added only when a contract requires it, in a minor release,
+and the CHANGELOG says so: `TrailEntry` gained `version` this way (issue #57), the trail
+contract's version field.
 
 Editing the test is editing this contract, so a commit that does says why in its body, and a
 removal waits for a new major version. After a change to the surface lands, `kanon` bumps the

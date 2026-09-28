@@ -2,16 +2,20 @@
 
 Evaluation with [`kanon`](measuring-retrieval.md) tunes the corpus against a judge
 (`queries.jsonl`) that a person or a model wrote ahead of time. Stage **c** (serving, a
-consumer's own job) sees something pinakes never does: what real users actually asked and whether the pages retrieved for
-them were any good. `trail.jsonl` is the bridge back — a consumer-written log pinakes only ever
-reads:
+consumer's own job) sees something pinakes never does: what real users actually asked and
+whether the pages retrieved for them were any good. `trail.jsonl` is the bridge back — a
+consumer-written log pinakes only ever reads:
 
 ```json
-{"at": "2026-09-16T12:00:00Z", "query": "how do I enable caching", "retrieved": ["handbook::docs/user/caching.md", "handbook::docs/user/quotas.md"], "ranks": [1, 2], "cited": ["handbook::docs/user/caching.md"], "outcome": "ok", "session": "s1"}
+{"version": 1, "at": "2026-09-16T12:00:00Z", "query": "how do I enable caching", "retrieved": ["handbook::docs/user/caching.md", "handbook::docs/user/quotas.md"], "ranks": [1, 2], "cited": ["handbook::docs/user/caching.md"], "outcome": "ok", "session": "s1"}
 ```
 
 Every field but `at` and `query` is optional — a consumer that only logs the query text and
-what it retrieved still gets useful output. See
+what it retrieved still gets useful output. `version` is the trail contract's version, which
+[`kanon`](https://github.com/friedrichwilken/kanon) defines and publishes as a JSON Schema
+(`docs/schemas/trail-entry.schema.json`); a missing one means 1, and a line of a newer version
+is rejected before the rest of the line is read, with one line naming the file, the line and
+both versions, so upgrade pinakes. See
 [`examples/trail.jsonl`](../../examples/trail.jsonl) for a dozen realistic lines against the
 example corpus; because it only reads the committed `manifest.json`,
 `pinakes usage --trail examples/trail.jsonl` (run from `examples/`) works offline, with no
