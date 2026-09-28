@@ -15,6 +15,7 @@ to stdout. `GITHUB_TOKEN` is used when set, to raise the GitHub API rate limit.
 | `report [--old M] [--new M] [--new-artifact DIR] [--old-artifact DIR] [--usage U] [--json OUT]` | manifests, residue, decisions, duplicates, usage JSON | `report.md` on stdout; with `--json`, its facts as JSON in `OUT` ([SPEC §2.8](../../SPEC.md#210-reportjson--the-reports-facts-machine-readable)) | 0 |
 | `check [--report FILE]` | config (`gates`), `report.json` | violated gates on stderr, a one-line JSON summary on stdout | 0 ok; 2 gate violated; 1 error (including no `report.json`) |
 | `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` on stdout or in `FILE`, summary on stderr | 0; 1 error |
+| `derive [--model NAME] [--dry-run]` | config, manifest, artifact | `derived` in `manifest.json`, `derived.jsonl` in the artifact (see [Derived retrieval text](derived-text.md)) | 0; 1 error (including no endpoint when there is something to ask) |
 | `classify [--model NAME] [--batch 20] [--dry-run]` | residue, duplicates, decisions, manifest, artifact | `decisions.jsonl` (or JSONL on stdout with `--dry-run`) | 0 |
 | `usage --trail FILE [--since DURATION] [--json OUT]` | trail, manifest, artifact (for gap candidates) | report on stdout or in `OUT`, summary on stderr | 0 |
 

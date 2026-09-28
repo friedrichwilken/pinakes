@@ -60,7 +60,11 @@ move; `chunks` (`Chunk`, `chunks.jsonl`'s schema, built on `index::iter_units`) 
 and `classify` (`ClassifyItem`, LLM judging of undecided residue/near-duplicates) both read a
 `&PageRegistry`; `report` (`ReportInput`, also `&PageRegistry`) depends on `page`, `duplicates`,
 `usage`, `diff`, `decisions`, `manifest`, `residue`; `usage` reads a trail; `diff` compares two
-manifests; `artifact` writes the artifact directory.
+manifests; `artifact` writes the artifact directory (and `derived.jsonl`, from the manifest);
+`derive` (the generated-questions prompt, input hash, reply cleaning and `carry_over`, SPEC
+§14.4) is pure and depends on `config`, `llm`, `manifest` and `text`: `pipeline::fresh` calls
+`derive::carry_over`, `commands::derive` does the file and model work, `corpus::load_derived`
+reads `derived.jsonl` and `index` adds it to the index.
 
 **Command layer:** `error` holds `CommandError`, the error type every command returns (it wraps
 nearly every module's error type — by design, not by drift). `commands/` is one file per

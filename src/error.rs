@@ -9,6 +9,7 @@ use crate::classify::ClassifyError;
 use crate::config::ConfigError;
 use crate::corpus::CorpusError;
 use crate::decisions::DecisionError;
+use crate::derive::DeriveError;
 use crate::duplicates::DuplicatesError;
 use crate::index::IndexError;
 use crate::llm::ChatError;
@@ -96,6 +97,12 @@ pub enum CommandError {
     /// Bad or unreadable `duplicates.jsonl`.
     #[error(transparent)]
     Duplicates(#[from] DuplicatesError),
+    /// `derive` failed, including talking to the model.
+    #[error(transparent)]
+    Derive(#[from] DeriveError),
+    /// `derive` found no source that configures `derive.questions`.
+    #[error("no source configures derive.questions in the config")]
+    NoDerive,
     /// `classify` failed, including talking to the model.
     #[error(transparent)]
     Classify(#[from] ClassifyError),

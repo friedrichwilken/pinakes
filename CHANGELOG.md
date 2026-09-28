@@ -7,6 +7,22 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Added
 
+- `pinakes derive [--model NAME] [--dry-run]` (issue #71, form 1 of #51, SPEC §14.4): a model
+  writes the questions each page answers, kept as search text. A source opts in with
+  `derive.questions` (`n`, `prompt`, per-`sections` overrides) in `pinakes.yaml`. The questions
+  are recorded in `manifest.json` under `derived` with the hash of what they came from (the
+  page, the count and the prompt), so they go stale exactly when one changes and are committed
+  and reviewed like the rest of the manifest; `resolve` calls no model, keeps fresh entries,
+  drops stale ones, and `resolve --from-manifest` rebuilds the artifact's new `derived.jsonl`
+  from the manifest byte for byte. `Index::build` reads it (new
+  `Index::from_pages_with_derived`, `corpus::load_derived`): each page's questions are one extra
+  index document credited to the page, not a retrieval unit, so `chunks.jsonl`, `Unit::text` and
+  the page files are unchanged. `verify` reports a `derived.jsonl` that differs from the
+  manifest. `manifest.json` gains an optional `derived` key (additive: `version` and
+  `artifact_version` stay 1, a manifest without it is unchanged byte for byte, and
+  `docs/schemas/manifest.schema.json` gains it) and the weekly workflow a `derive` input.
+  A query set is committed before derived text is generated and shares neither prompt nor
+  output with `kanon queries suggest`.
 - `trail.jsonl` honours the trail contract's `version` field (issue #57, SPEC §15.1):
   `TrailEntry` gains `version` (missing means 1) and `trail::TRAIL_VERSION` is 1. `read_jsonl`,
   and so `usage`, checks each line's version before the rest of the line is read and rejects a

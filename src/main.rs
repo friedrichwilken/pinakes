@@ -16,6 +16,7 @@ use cli::check::{CheckArgs, run_check};
 use cli::chunks::{ChunksArgs, run_chunks};
 use cli::classify::{ClassifyArgs, run_classify};
 use cli::decide::{DecideArgs, run_decide};
+use cli::derive::{DeriveArgs, run_derive};
 use cli::diff::run_diff;
 use cli::duplicates::{DuplicatesArgs, run_duplicates};
 use cli::init::{InitArgs, run_init};
@@ -85,6 +86,8 @@ enum Command {
     Chunks(ChunksArgs),
     /// Ask a model to judge undecided residue and near-duplicate candidates.
     Classify(ClassifyArgs),
+    /// Ask a model for the questions each page answers, kept as search text (SPEC §14.4).
+    Derive(DeriveArgs),
     /// Moved to `kanon grade` (SPEC §21): prints where to go and exits 1.
     Grade(MovedArgs),
     /// Report on a served-query trail: unused pages, uncited queries and gap candidates.
@@ -136,6 +139,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Command::Embed(_) => Ok(run_moved("embed")),
         Command::Chunks(args) => run_chunks(&paths, args),
         Command::Classify(args) => run_classify(&paths, args),
+        Command::Derive(args) => run_derive(&paths, args),
         Command::Grade(_) => Ok(run_moved("grade")),
         Command::Usage(args) => run_usage(&paths, args),
     }

@@ -32,7 +32,8 @@ pub(crate) mod bm25;
 pub(crate) mod sections;
 
 pub use crate::corpus::{
-    CorpusError, DEFAULT_PRIORITY, Page, Priorities, load_pages, load_residue_page, mark_mirrors,
+    CorpusError, DEFAULT_PRIORITY, Page, Priorities, load_derived, load_pages, load_residue_page,
+    mark_mirrors,
 };
 pub use crate::tokenizer::{
     PinakesTokenStream, PinakesTokenizer, STOPWORDS, TOKENIZER_NAME, is_stopword, title_key,

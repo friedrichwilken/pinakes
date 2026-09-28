@@ -76,6 +76,8 @@ query set against the corpus so a change can be scored before it is merged.
   near-identical pages across sources.
 - [Measuring retrieval](docs/manual/measuring-retrieval.md) — the query set, the metrics, the
   backends and the gate live in `kanon`; how the corpus hands over to it.
+- [Derived retrieval text](docs/manual/derived-text.md) — have a model write the questions each
+  page answers, kept as search text for the words users type.
 - [Classifying residue with a model](docs/manual/classify.md) and
   [curating with an agent](docs/manual/curating-with-an-agent.md) — review leftovers at scale
   instead of one at a time.

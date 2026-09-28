@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::config::{ArchivedPolicy, Config};
 use crate::decisions;
+use crate::derive;
 use crate::manifest::{Manifest, ManifestSource, now_rfc3339};
 use crate::page::PageRegistry;
 use crate::render;
@@ -112,6 +113,9 @@ pub(super) fn resolve_fresh(
         checkouts.insert(source.name.clone(), checkout);
     }
 
+    if let Some(previous) = &previous {
+        derive::carry_over(previous, &mut manifest, &config);
+    }
     let mut registry = PageRegistry::from_resolve(&manifest, &all_residue);
     let expired = decisions::expired(&effective, |id| registry.get(id).map(|r| r.sha256.clone()));
     let duplicates = write_outputs(paths, &manifest, &mut registry, &checkouts)?;

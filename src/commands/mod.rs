@@ -11,6 +11,7 @@ mod check;
 mod chunks;
 mod classify;
 mod decide;
+mod derive;
 mod diff;
 mod duplicates;
 mod init;
@@ -31,6 +32,7 @@ pub use check::{
 pub use chunks::{ChunksOptions, ChunksOutcome, chunks};
 pub use classify::{ClassifyOptions, ClassifyOutcome, classify};
 pub use decide::decide;
+pub use derive::{DeriveOptions, DeriveOutcome, derive};
 pub use diff::{DiffOptions, diff};
 pub use duplicates::{DuplicatesOptions, duplicates};
 pub use init::{

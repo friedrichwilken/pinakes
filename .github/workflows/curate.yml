@@ -25,6 +25,24 @@ on:
         required: false
         type: string
         default: eval-baseline.json
+      derive:
+        description: >
+          Run `pinakes derive` (SPEC §14.4) after resolving, so the generated questions of
+          changed pages are refreshed in the same pull request. Needs the PINAKES_LLM_URL
+          secret; a repository whose config has no `derive.questions` leaves it off.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      PINAKES_LLM_URL:
+        description: Base URL of the OpenAI-compatible endpoint `pinakes derive` asks.
+        required: false
+      PINAKES_LLM_KEY:
+        description: Bearer token for that endpoint, when it needs one.
+        required: false
+      PINAKES_LLM_MODEL:
+        description: The model `pinakes derive` asks for.
+        required: false
   workflow_dispatch:
     inputs:
       config:
@@ -42,6 +60,11 @@ on:
         required: false
         type: string
         default: eval-baseline.json
+      derive:
+        description: Run `pinakes derive` (needs the PINAKES_LLM_* repository secrets).
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -144,6 +167,19 @@ jobs:
             3) echo "changed=true" >> "$GITHUB_OUTPUT" ;;
             *) exit "$status" ;;
           esac
+
+      # Generated questions (SPEC §14.4). `resolve` never calls a model: it keeps the questions
+      # that are still fresh and drops the rest, so this asks only about the pages that changed
+      # (or whose prompt did), and the "after" measurement below sees the new text. The
+      # secrets are the caller's (`secrets: inherit`, or named); without PINAKES_LLM_URL the
+      # step fails, as `derive` does, instead of silently skipping.
+      - name: pinakes derive (only when asked to)
+        if: inputs.derive && steps.diff.outputs.changed == 'true'
+        env:
+          PINAKES_LLM_URL: ${{ secrets.PINAKES_LLM_URL }}
+          PINAKES_LLM_KEY: ${{ secrets.PINAKES_LLM_KEY }}
+          PINAKES_LLM_MODEL: ${{ secrets.PINAKES_LLM_MODEL }}
+        run: pinakes --config "${{ inputs.config }}" derive
 
       # `--gate` is only added when a baseline is actually committed, so a repository's first
       # ever run (no baseline yet) still produces the "after" measurement instead of erroring.
