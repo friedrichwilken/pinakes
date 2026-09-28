@@ -503,8 +503,12 @@ fail on a flaky network.
      ordinal, and the library's `Unit::id`, `Unit::ordinal` and `chunk_id` are their one
      implementation.
 - Generated questions (§14.4) are indexed as one extra document per page, matched through the
-  body field and attributed to that page. They are not a retrieval unit: the cut above, and
-  `chunks`, do not include them, and the page a consumer reads is unchanged.
+  body field (boost 1, no title or heading) and attributed to that page. They are not a
+  retrieval unit: the cut above, and `chunks`, do not include them, and the page a consumer
+  reads is unchanged. They are documents for the statistics, though: each counts in the
+  number of documents, the average length and the document frequencies, so giving one page
+  questions also moves the scores of pages that have none, and a page's own section can fall
+  below another page's questions. An index without derived text scores exactly as before.
 - Page score = max unit score. Results are de-duplicated by tokenised title; when two sources carry
   the same title (nav title or H1), only the higher `priority` source's page is indexed (mirror rule).
   Priorities come from `pinakes.yaml` alone (`priority`, default 1): a source the config does not
@@ -756,7 +760,10 @@ moved recall.
 For each selected page that is not a mirror (§5) in a source with `derive.questions` (§2.1),
 the model is asked for `n` different questions a user who does not know the page would type
 and the page answers, in everyday words, not copied from the page; the reply is JSON
-`{"questions": [...]}`, trimmed, deduplicated case-insensitively and cut to `n`. The system
+`{"questions": [...]}` (a bare array of strings, and either one inside a markdown code fence,
+is read too); each question is cut to one line, and dropped if blank, over 300 characters or
+holding a control character; repeats are dropped case-insensitively and the list is cut to
+`n`. A custom `prompt` should ask for that JSON: it replaces the built-in prompt whole. The system
 prompt is the configured `prompt` of the source (or of the page's navigation section), else a
 built-in one; `{n}` is the count. The page's title and cleaned content (at most 12,000
 characters) are the user message. Temperature 0.
@@ -775,9 +782,12 @@ characters) are the user message. Temperature 0.
   every entry that is still fresh and drops the rest, and `resolve --from-manifest` rebuilds
   the artifact's `derived.jsonl` from the manifest byte for byte. `derive` asks only about
   pages with no fresh entry (a second run asks nothing and needs no endpoint), drops entries
-  whose page is gone or whose source stopped deriving, and keeps what earlier pages earned
-  when the model fails on a later one. The weekly workflow (§17.1) runs it when its `derive`
-  input is set.
+  whose page is gone or whose source stopped deriving (when no source derives any more it
+  drops what is stored and succeeds, and is an error only when there is nothing to drop),
+  skips a page whose artifact copy is not the one the manifest records, and keeps what earlier
+  pages earned when the endpoint fails on a later one. A reply that is not the questions asked
+  for costs only its page: a warning, the page stays without questions, and the run goes on.
+  The weekly workflow (§17.1) runs it when its `derive` input is set.
 - **The artifact.** `derived.jsonl` at the artifact root has one line per page and kind,
   `{"kind": "questions", "page": "<id>", "text": [...]}`, sorted keys, in page id order; it is
   absent when there is no derived text. A reader ignores a `kind` it does not know. `verify`
@@ -787,9 +797,12 @@ characters) are the user message. Temperature 0.
   The two share neither a prompt nor an output: the prompt here asks for many plain-worded
   retrieval questions, kanon's for a few labelled test queries. The query set is committed
   before derived text is generated, and no query is ever taken from `derived`.
-- **Measuring it.** One `kanon eval` run on the artifact without `derived.jsonl` and one with
-  it, on the same query set, comparing recall@5 and MRR; `derive` reports how many pages got
-  questions.
+- **Measuring it.** One `kanon eval --backend bm25` run on the artifact without `derived.jsonl`
+  and one with it, on the same query set, comparing recall@5 and MRR; `derive` reports how many
+  pages got questions. The backend flag (or `eval.backend: bm25`) matters: `kanon`'s plain
+  path builds the index from the pages with `Index::from_pages` and does not read
+  `derived.jsonl`; only its `bm25` backend, which calls `Index::build`, does. That is `kanon`'s
+  to change (its plain path would call `Index::from_pages_with_derived`).
 
 ## 15. The loop from serving
 
@@ -843,7 +856,9 @@ against the config's `gates` (§2.11), then open or update one PR on branch `pin
 with the manifest, residue, duplicates and report committed (`report.json` is not committed).
 When the `derive` input is set, `pinakes derive` (§14.4) runs after the diff shows a change and
 before the "after" measurement, with the `PINAKES_LLM_*` secrets the caller passes, so the
-questions of changed pages are refreshed in the same pull request. A violated gate never fails
+questions of changed pages are refreshed in the same pull request; a failure of that step does
+not stop the pull request, and both measurements then run `kanon eval --backend bm25`, since
+kanon's plain path does not read the questions. A violated gate never fails
 the job: it puts `(gates failed: <names>)` in the PR title and the label `gate-failed` next to
 the label `pinakes`. Inputs:
 config path, queries path, gate baseline path (for `kanon eval --gate`), and `derive`. Uses
@@ -912,8 +927,9 @@ in a minor release.
 
 The derived-text items of §14.4 (`load_derived`, `Index::from_pages_with_derived`, `DerivedEntry`,
 `DerivedLine`, `DERIVED_QUESTIONS`, `DERIVED_FILE`) are offered to a consumer but not pinned
-below, because `kanon` does not use them yet; `Index::build` already reads `derived.jsonl`, so
-`kanon` measures with it without a change.
+below, because `kanon` does not use them yet. `Index::build` reads `derived.jsonl`, so `kanon`'s
+`bm25` backend measures with it; its plain path does not until it calls
+`Index::from_pages_with_derived`.
 
 The items `kanon` imports, checked against its source, are pinned by
 `tests/library_surface.rs` (issue #56): a function or method it names is bound to a function

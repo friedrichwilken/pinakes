@@ -19,7 +19,8 @@ sources:
     derive:
       questions:
         n: 5                          # questions per page, 1 to 20; default 5
-        # prompt: "Write {n} questions …"   # the system prompt; {n} is the count; default built in
+        # prompt: "Write {n} questions …"   # system prompt, {n} = the count; default built in
+        #   (a custom prompt should ask for JSON: {"questions": [...]} or a bare array of strings)
         # sections:                   # per navigation section (meta.json), overriding n and prompt
         #   Tutorials: { n: 3 }
 ```
@@ -30,6 +31,11 @@ pinakes derive --dry-run        # which pages would be asked about
 pinakes derive                  # ask, then write manifest.json and artifact/derived.jsonl
 pinakes verify                  # still green: the manifest, the artifact and derived.jsonl agree
 ```
+
+A reply that is not those questions (prose, the wrong JSON) costs only its page: `derive` warns
+with the page id, leaves it without questions and goes on. A reply in a markdown code fence, or
+a bare array, is read as it is. Each question is cut to one line and dropped if it is over 300
+characters. If the endpoint itself fails, the run stops and keeps the pages before it.
 
 ## What it stores and when it goes stale
 
@@ -58,21 +64,28 @@ manifest, and it is never regenerated behind your back:
 
 The [weekly workflow](weekly-workflow.md) runs `derive` after it finds a change when it is
 called with `derive: true` and the `PINAKES_LLM_*` secrets. A prompt or count change alone does
-not open a pull request; run `pinakes derive` yourself, or wait for the next page change.
+not open a pull request; run `pinakes derive` yourself, or wait for the next page change. When
+no source derives questions any more, `pinakes derive` drops what is stored (a `resolve` drops
+it too) instead of failing, and a page whose artifact copy is not the one the manifest records is
+skipped with a warning, so questions are never filed under a hash the page does not have.
 
 ## How the index uses it
 
 `artifact/derived.jsonl` has one line per page, `{"kind": "questions", "page": "<id>", "text":
-[…]}`. `Index::build`, and so `kanon eval` and the Python `Index`, reads it: each page's
-questions become one extra document in the built-in index, matched like body text and credited
-to the page. They are not retrieval units, so `chunks.jsonl`, `Unit::text` and the page files do
-not change. Questions for a mirror page are ignored (it is not searchable).
+[…]}`. `Index::build`, and so the Python `Index` and `kanon eval --backend bm25`, reads it: each
+page's questions become one extra document in the built-in index, matched like body text and
+credited to the page. Those documents count in the index statistics, so they also move the
+scores of pages that have no questions. They are not retrieval units, so `chunks.jsonl`,
+`Unit::text` and the page files do not change. Questions for a mirror page are ignored (it is
+not searchable).
 
 ## Measuring it
 
 Run [`kanon eval`](measuring-retrieval.md) twice on the same query set: once on an artifact
 without `derived.jsonl`, once with it, and compare recall@5 and MRR. `derive` prints how many
-pages got questions.
+pages got questions. Use `--backend bm25` (or `eval.backend: bm25` in the config) for both runs:
+a bare `kanon eval` builds its plain index from the pages alone and does not read
+`derived.jsonl` (that is for `kanon` to change), so it would show no effect.
 
 The query set must not be written from the questions. `kanon queries suggest` also has a model
 write questions from pages, for the query set; the two use different prompts and never share

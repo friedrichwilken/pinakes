@@ -38,7 +38,7 @@ pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub enum ChatError {
     /// `PINAKES_LLM_URL` is not set.
     #[error(
-        "PINAKES_LLM_URL is not set: classify needs an OpenAI-compatible chat \
+        "PINAKES_LLM_URL is not set: classify and derive need an OpenAI-compatible chat \
          completions endpoint"
     )]
     MissingUrl,
@@ -150,6 +150,21 @@ pub fn chat<T: DeserializeOwned>(
     system: &str,
     user: &str,
 ) -> Result<T, ChatError> {
+    let content = chat_text(transport, config, system, user)?;
+    serde_json::from_str(&content).map_err(|source| ChatError::Json {
+        raw: content,
+        source,
+    })
+}
+
+/// Like [`chat`], but return the model's reply as text, for a caller that wants to clean it up
+/// before parsing it (a reply wrapped in a markdown code fence, say).
+pub fn chat_text(
+    transport: &dyn ChatTransport,
+    config: &LlmConfig,
+    system: &str,
+    user: &str,
+) -> Result<String, ChatError> {
     let url = format!("{}/chat/completions", config.url.trim_end_matches('/'));
     let body = serde_json::json!({
         "model": config.model,
@@ -163,13 +178,7 @@ pub fn chat<T: DeserializeOwned>(
     loop {
         attempt += 1;
         match transport.post(&url, config.key.as_deref(), &body) {
-            Ok(response) => {
-                let content = message_content(&response)?;
-                return serde_json::from_str(&content).map_err(|source| ChatError::Json {
-                    raw: content,
-                    source,
-                });
-            }
+            Ok(response) => return message_content(&response),
             Err(TransportError::Status(status, message)) => {
                 if is_retryable(status) && attempt < MAX_ATTEMPTS {
                     std::thread::sleep(BACKOFF[attempt - 1]);

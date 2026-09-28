@@ -142,12 +142,19 @@ jobs:
             --from-manifest "$RUNNER_TEMP/old-manifest.json" \
             --artifact "$RUNNER_TEMP/before-artifact"
 
+      # With `derive`, both measurements use kanon's `bm25` backend: its plain path builds the
+      # index from the pages alone and would not read the generated questions (SPEC §14.4).
       - name: eval (before)
         run: |
+          backend_args=()
+          if [ "${{ inputs.derive }}" = "true" ]; then
+            backend_args+=(--backend bm25)
+          fi
           kanon --config "${{ inputs.config }}" eval \
             --artifact "$RUNNER_TEMP/before-artifact" \
             --queries "${{ inputs.queries }}" \
-            --json "$RUNNER_TEMP/eval-before.json"
+            --json "$RUNNER_TEMP/eval-before.json" \
+            "${backend_args[@]}"
 
       - name: pinakes resolve
         env:
@@ -171,10 +178,12 @@ jobs:
       # Generated questions (SPEC §14.4). `resolve` never calls a model: it keeps the questions
       # that are still fresh and drops the rest, so this asks only about the pages that changed
       # (or whose prompt did), and the "after" measurement below sees the new text. The
-      # secrets are the caller's (`secrets: inherit`, or named); without PINAKES_LLM_URL the
-      # step fails, as `derive` does, instead of silently skipping.
+      # secrets are the caller's (`secrets: inherit`, or named). A failure here is reported
+      # but must not stop the corpus pull request: the pages that got questions are kept, the
+      # rest are asked again next week.
       - name: pinakes derive (only when asked to)
         if: inputs.derive && steps.diff.outputs.changed == 'true'
+        continue-on-error: true
         env:
           PINAKES_LLM_URL: ${{ secrets.PINAKES_LLM_URL }}
           PINAKES_LLM_KEY: ${{ secrets.PINAKES_LLM_KEY }}
@@ -189,14 +198,17 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         continue-on-error: true
         run: |
-          gate_args=()
+          eval_args=()
           if [ -f "${{ inputs.baseline }}" ]; then
-            gate_args+=(--gate "${{ inputs.baseline }}")
+            eval_args+=(--gate "${{ inputs.baseline }}")
+          fi
+          if [ "${{ inputs.derive }}" = "true" ]; then
+            eval_args+=(--backend bm25)
           fi
           kanon --config "${{ inputs.config }}" eval \
             --queries "${{ inputs.queries }}" \
             --json "$RUNNER_TEMP/eval-after.json" \
-            "${gate_args[@]}"
+            "${eval_args[@]}"
 
       - name: duplicates (only when this build has the subcommand)
         if: steps.diff.outputs.changed == 'true'

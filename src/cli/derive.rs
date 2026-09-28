@@ -36,19 +36,28 @@ pub(crate) fn run_derive(paths: &Paths, args: DeriveArgs) -> Result<ExitCode> {
             outcome.considered,
             outcome.fresh
         );
-    } else if outcome.written {
-        eprintln!(
-            "questions for {} pages ({} fresh, {} dropped); wrote {} and the artifact's derived.jsonl",
-            outcome.derived,
-            outcome.fresh,
-            outcome.dropped,
-            paths.manifest.display()
-        );
     } else {
-        eprintln!(
-            "nothing to do: {} of {} pages are fresh",
-            outcome.fresh, outcome.considered
-        );
+        if outcome.written {
+            eprintln!(
+                "questions for {} pages ({} fresh, {} dropped); wrote {} and the artifact's \
+                 derived.jsonl",
+                outcome.derived,
+                outcome.fresh,
+                outcome.dropped,
+                paths.manifest.display()
+            );
+        } else if outcome.pending.is_empty() {
+            eprintln!(
+                "nothing to do: {} of {} pages are fresh",
+                outcome.fresh, outcome.considered
+            );
+        }
+        if !outcome.pending.is_empty() {
+            eprintln!(
+                "{} pages got no usable questions and stay pending: run derive again to retry",
+                outcome.pending.len()
+            );
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
