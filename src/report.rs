@@ -1,7 +1,7 @@
 //! `report.md`: the rendered PR body (SPEC §2.7), and `report.json`, its facts (SPEC §2.10).
 //!
-//! Sections, in order: summary counts; added pages; removed pages (with reason); changed pages (with line counts and
-//! an upstream compare link, SPEC §13); new residue grouped by reason with excerpt; expired
+//! Sections, in order: summary counts; added pages; removed pages (with reason); changed pages
+//! (with line counts and an upstream compare link, SPEC §13); new residue grouped by reason with excerpt; expired
 //! decisions; unresolved links; archived sources; duplicates (SPEC §11); usage (SPEC §15.3),
 //! only when a usage report is given.
 //!
@@ -1678,8 +1678,10 @@ mod tests {
             serde_json::from_str(&facts.to_json().unwrap()).unwrap();
         document["version"] = 1.into();
         document["eval"] = serde_json::json!({
-            "after": {"tuning": {"overall": {"recall@5": 0.85, "recall@10": 0.9, "mrr": 0.7, "n": 40},
-                                 "per_kind": {}}}
+            "after": {"tuning": {
+                "overall": {"recall@5": 0.85, "recall@10": 0.9, "mrr": 0.7, "n": 40},
+                "per_kind": {}
+            }}
         });
         let back: ReportFacts = serde_json::from_value(document).unwrap();
         assert_eq!(back.version, 1);

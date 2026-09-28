@@ -90,7 +90,7 @@ decision (`decide` or `classify`) > the resolver's own selection.
 | `decisions.jsonl` | you or an agent | yes | Append-only verdicts on residue or a duplicate: `include`, `exclude` or `unsure`, tied to the page hash. Later lines win; a changed page expires the decision. |
 | `queries.jsonl` | you or a grader | yes | The judge `kanon eval` scores against: query, expected page ids or prefixes, kind, holdout flag. See [Measuring retrieval](measuring-retrieval.md). |
 | `report.md` | `report` | no | The PR body: counts, added/removed/changed pages, new residue, expired decisions, unresolved links, archived sources, duplicates. See [Commands](commands.md). |
-| `report.json` | `report --json` | no | The same facts as `report.md`, as JSON ([SPEC §2.10](../../SPEC.md#28-reportjson--the-reports-facts-machine-readable)); what `check` reads. |
+| `report.json` | `report --json` | no | The same facts as `report.md`, as JSON ([SPEC §2.10](../../SPEC.md#210-reportjson--the-reports-facts-machine-readable)); what `check` reads. |
 
 The artifact directory is not committed; it is rebuilt from the manifest with
 `resolve --from-manifest` wherever it is needed (locally, in CI, or by a consumer's build step).

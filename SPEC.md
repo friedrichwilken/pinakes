@@ -219,9 +219,10 @@ unchanged:
 
 ### 2.7 `report.md` — rendered PR body
 
-Sections, in order: summary counts; added pages; removed pages (with reason: gone upstream, dropped by resolver, excluded by decision);
-changed pages (hash changed; link to upstream compare when both commits known); new residue grouped
-by rule with excerpt; expired decisions; unresolved links; archived sources.
+Sections, in order: summary counts; added pages; removed pages (with reason: gone upstream,
+dropped by resolver, excluded by decision); changed pages (hash changed; link to upstream compare
+when both commits known); new residue grouped by rule with excerpt; expired decisions;
+unresolved links; archived sources.
 
 "New residue" groups undecided entries new since the previous report by `rule` (§2.4), not by
 `reason`: each group's heading is the rule's own sentence, e.g. "not linked from
@@ -291,7 +292,7 @@ newline. Shown here compacted, this is the document for the report the test fixt
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "summary": {"sources": 1, "pages": 3, "residue": 5, "undecided": 3, "excluded": 0, "decisions": 4, "changes": {"since": "2026-09-01T00:00:00Z", "added": 1, "removed": 3, "changed": 1}},
   "pages": {
     "added": ["handbook::docs/new.md"],
@@ -412,7 +413,7 @@ All commands take `--config pinakes.yaml` (default) and print human output to st
 
 `eval`, `embed`, `grade` and `queries` moved to `kanon` (§21). For one minor release each stays
 as a stub that prints one line naming the `kanon` command to run instead, accepts and ignores
-any arguments, and exits 1.
+the arguments that follow it, and exits 1.
 
 `resolve` downloads codeload tarballs (no git needed), reads the resolved commit from the tarball's
 pax `comment` header, falls back to the wrapper directory suffix; unauthenticated, `GITHUB_TOKEN`
@@ -504,7 +505,7 @@ computes them.
 3. Golden corpus: `tests/fixtures/golden` holds a synthetic artifact of about thirty small
    Markdown pages across three sources with different priorities, sidebar-like titles in each
    `meta.json`, deliberate mirrors across sources, one frontmatter-only title, one page with H2/H3
-   sections and a `_residue` directory, plus a `queries.jsonl` of twelve queries of which two are
+   sections and a `_residue` directory, plus a `queries.jsonl` of fourteen queries of which two are
    held out. `expected` entries may be `<source>::<path>`, `<source>::<dir>/` or the legacy
    `<source>/<path>` prefix form. The built-in index over it must return exactly the pages
    pinned in `expected.json` (the top ten for each query); the pin is whatever the
@@ -747,8 +748,8 @@ Schema each; the unit cut they refer to is §5 and §2.9 here.
 `.github/workflows/curate.yml` in this repository as a reusable workflow (`workflow_call`) plus
 `examples/curate-weekly.yml` showing how a consumer calls it: resolve, diff against the
 committed manifest, stop when empty, `kanon eval` before and after (§21), duplicates, report
-(Markdown, with `kanon report`'s evaluation sections appended, and `report.json`), `check` against the config's `gates` (§2.11), then open or update one PR on
-branch `pinakes/weekly` with the manifest, residue, duplicates and report committed
+(Markdown, with `kanon report`'s evaluation sections appended, and `report.json`), `check`
+against the config's `gates` (§2.11), then open or update one PR on branch `pinakes/weekly` with the manifest, residue, duplicates and report committed
 (`report.json` is not committed). A violated gate never fails the job: it puts `(gates failed:
 <names>)` in the PR title and the label `gate-failed` next to the label `pinakes`. Inputs:
 config path, queries path, gate baseline path (for `kanon eval --gate`). Uses
@@ -808,8 +809,9 @@ with a new major.
 | `manifest`, `layout` | `manifest.json`'s types and loader, the artifact's file and directory names |
 | `text`, `jsonl`, `num` | content hashing and cleaning, JSON Lines reading and writing, the one `usize -> f64` cast |
 | `trail` | `trail.jsonl`'s types (§15.1); written by a serving consumer, read by `usage` here and by `kanon` |
+| `residue` | `excerpt`: the leading words of a page's text, as residue entries and `kanon`'s grader show them |
 | `config` | `pinakes.yaml`'s schema, for a consumer that reads the `eval:` block or the source priorities |
-| `llm` | the OpenAI-compatible chat client, shared by `classify` here and by `kanon`'s grader |
+| `llm` | the OpenAI-compatible chat client (`chat`, `ChatTransport`, `LlmConfig`, `UreqChatTransport`, `TransportError`, `ChatError`) and its `testing` transport, shared by `classify` here and by `kanon`'s grader |
 
 Everything else in the crate is an implementation detail of the pinakes commands and may change
 in a minor release.
@@ -823,8 +825,7 @@ this order, so both repositories stay green at every step:
 
 1. `kanon` builds the moved code against this crate's library surface, with the same flags and
    file formats, so an existing `queries.jsonl` and `eval:` block keep working. The moved code
-   uses nothing outside §20 except `residue::excerpt` (the grader's candidate excerpts), which
-   `kanon` carries as its own helper.
+   uses nothing outside §20.
 2. This crate deletes the moved commands, `src/backend/`, `report`'s `--eval-before` /
    `--eval-after` flags and `ReportInput`'s eval fields (§2.7's before/after tables are then
    `kanon`'s), and the matching `CommandError` variants. `report.json` (§2.10) loses its `eval`

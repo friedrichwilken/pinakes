@@ -10,14 +10,14 @@ All notable changes to this project are documented in this file. The format is b
 - `manifest.json` and every `<source>/meta.json` carry `artifact_version` (issue #49, SPEC
   §2.8): the artifact contract they follow (directory layout, `meta.json` fields, manifest
   fields), currently 1. Missing means 1; a newer major is rejected on read by the manifest reader
-  and by the artifact reader every backend, `eval`, `embed` and the Python wheel go through, with
+  and by the artifact reader a consumer, `kanon` and the Python wheel go through, with
   one line: `artifact version 2 is newer than this pinakes supports (1); upgrade pinakes`.
 - A JSON Schema for `manifest.json`, generated from the manifest types with the new `schemars`
   dependency and committed at `docs/schemas/manifest.schema.json`; `tests/schema.rs` pins it
   (refresh with `UPDATE_SCHEMAS=1 cargo test --test schema`, also part of `just update-golden`).
-- `pinakes chunks [--artifact DIR] [--out FILE]` (SPEC §2.9) writes the retrieval units `eval`
-  measures as JSONL (`id`, `page`, `heading`, `ordinal`, `text`, `sha256`), cut by the same
-  code, so a consumer's own index can agree with the measured one; SPEC §5 now states the
+- `pinakes chunks [--artifact DIR] [--out FILE]` (SPEC §2.9) writes the retrieval units the
+  built-in index searches as JSONL (`id`, `page`, `heading`, `ordinal`, `text`, `sha256`), cut by
+  the same code, so a consumer's own index can agree with the measured one; SPEC §5 now states the
   splitting rules precisely enough to reimplement. The Python wheel gains `Index.chunks()`
   (issue #19).
 - `pinakes init [REPO_URL…] [--workflow] [--dir DIR]` (issue #25): scaffold a commented
@@ -35,7 +35,6 @@ All notable changes to this project are documented in this file. The format is b
   the fixture's queries, `tests/fixtures/golden/expected.json`) instead of `eval`'s metrics. The
   pinned lists are identical to the `top` lists the old `expected.json` recorded for every
   query, so the index itself did not change.
-
 - `verify` exits 3 on an artifact materialised by a previous release, since its `manifest.json`
   and `meta.json` files lack `artifact_version`; run `resolve --from-manifest` and commit the
   one-line manifest diff.
@@ -50,9 +49,9 @@ All notable changes to this project are documented in this file. The format is b
   `eval`, `embed`, `grade` and `queries` (`add`, `check`, `import`), the `bm25-tantivy`, `dense`,
   `hybrid` and `external` backends (`src/backend/`), `--gate`, and `report`'s `--eval-before` and
   `--eval-after`. The four subcommands remain for one minor release as stubs that print one line
-  naming the `kanon` command to run instead, accept and ignore any arguments, and exit 1; the
-  release after removes them. `queries.jsonl` and the `eval:` block of `pinakes.yaml` keep their
-  formats and are read by `kanon`.
+  naming the `kanon` command to run instead, accept and ignore the arguments that follow, and
+  exit 1; the release after removes them. `queries.jsonl` and the `eval:` block of
+  `pinakes.yaml` keep their formats and are read by `kanon`.
 - `report.json` no longer has an `eval` key, and `report.md` no longer has its "Eval
   before/after" section; `kanon report` renders those. `report.json`'s `version` is now 2
   (SPEC §2.10: a field removal bumps it); a version 1 document still loads and `check` ignores

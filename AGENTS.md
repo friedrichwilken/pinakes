@@ -71,7 +71,8 @@ depends on effectively everything beneath it — that is its job as the library'
 
 **The binary:** `main.rs` holds only `Cli`, the `Command` enum (clap derives `--help` text and
 subcommand order from its doc comments — do not reorder without checking), `main` and the `run`
-dispatch match. `src/cli/` (binary-only; not declared in `lib.rs`) has one file per subcommand:
+dispatch match. `src/cli/` (binary-only; not declared in `lib.rs`) has one file per subcommand,
+except `moved.rs`, which serves the four stubs for the commands that went to `kanon` (SPEC §21):
 `*Args` struct(s) and `run_*` function(s) that build an `Options`, call `commands::...`, and
 print the result; `src/cli/mod.rs` also holds `EXIT_GATE`/`EXIT_DIFFERENCES`/`EXIT_POLICY`. `cli`
 depends on `commands` plus a handful of library types needed only for printing (e.g.
@@ -169,10 +170,10 @@ assertion, just to make a red test green without that justification.
 
 pinakes must not know about any particular product, company, documentation site or consumer.
 No product names in code, prompts, fixtures, examples or docs; no behaviour that exists only
-because one consumer wants it. Anything consumer-specific goes behind the two extension
-points the spec defines: the **resolver contract** (SPEC §3, an external command that selects
-pages) and the **backend contract** (`kanon`'s: a consumer's own stage-b index over the artifact
-layout of SPEC §2.3). If a feature cannot be expressed through those, it does not belong here.
+because one consumer wants it. Anything consumer-specific goes behind the extension point the
+spec defines here, the **resolver contract** (SPEC §3, an external command that selects pages);
+the backend contract, a consumer's own stage-b index over the artifact layout of SPEC §2.3, is
+`kanon`'s (SPEC §16). If a feature cannot be expressed through those, it does not belong here.
 
 ## Commit messages
 

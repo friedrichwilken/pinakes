@@ -12,7 +12,7 @@ to stdout. `GITHUB_TOKEN` is used when set, to raise the GitHub API rate limit.
 | `residue list [--source S] [--reason R] [--include-excluded]` | `residue.jsonl`, decisions | JSONL on stdout | 0 |
 | `duplicates [--artifact DIR] [--threshold 0.8] [--json OUT]` | artifact, manifest and config (optional) | JSONL on stdout or in `OUT`, summary on stderr | 0 |
 | `decide ID include\|exclude\|unsure --reason "…" [--by NAME] [--superseded-by ID]` | residue, manifest | appends to `decisions.jsonl` | 0; 1 unknown id |
-| `report [--old M] [--new M] [--new-artifact DIR] [--old-artifact DIR] [--usage U] [--json OUT]` | manifests, residue, decisions, duplicates, usage JSON | `report.md` on stdout; with `--json`, its facts as JSON in `OUT` ([SPEC §2.8](../../SPEC.md#28-reportjson--the-reports-facts-machine-readable)) | 0 |
+| `report [--old M] [--new M] [--new-artifact DIR] [--old-artifact DIR] [--usage U] [--json OUT]` | manifests, residue, decisions, duplicates, usage JSON | `report.md` on stdout; with `--json`, its facts as JSON in `OUT` ([SPEC §2.8](../../SPEC.md#210-reportjson--the-reports-facts-machine-readable)) | 0 |
 | `check [--report FILE]` | config (`gates`), `report.json` | violated gates on stderr, a one-line JSON summary on stdout | 0 ok; 2 gate violated; 1 error (including no `report.json`) |
 | `chunks [--artifact DIR] [--out FILE]` | artifact, config (optional, for priorities) | `chunks.jsonl` on stdout or in `FILE`, summary on stderr | 0; 1 error |
 | `classify [--model NAME] [--batch 20] [--dry-run]` | residue, duplicates, decisions, manifest, artifact | `decisions.jsonl` (or JSONL on stdout with `--dry-run`) | 0 |
@@ -90,7 +90,7 @@ pinakes check
 Exit 2 when a gate is violated, 1 when the report is missing (the message says to run
 `report --json` first). Recall stays with `kanon eval --gate`. The [weekly
 workflow](weekly-workflow.md) turns a violation into the pull request's title and label. The
-exact contract is [SPEC §2.11](../../SPEC.md#29-check--gates-on-reportjson).
+exact contract is [SPEC §2.11](../../SPEC.md#211-check--gates-on-reportjson).
 
 ## `diff`
 

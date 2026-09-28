@@ -1,8 +1,8 @@
 # Learning from serving: the trail and usage
 
 Evaluation with [`kanon`](measuring-retrieval.md) tunes the corpus against a judge
-(`queries.jsonl`) that a person or a model wrote ahead of time. Stage **c** (serving, a consumer's own job) sees
-something pinakes never does: what real users actually asked and whether the pages retrieved for
+(`queries.jsonl`) that a person or a model wrote ahead of time. Stage **c** (serving, a
+consumer's own job) sees something pinakes never does: what real users actually asked and whether the pages retrieved for
 them were any good. `trail.jsonl` is the bridge back — a consumer-written log pinakes only ever
 reads:
 

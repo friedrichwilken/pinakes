@@ -13,11 +13,11 @@ same flags and file formats these commands had here. Install it with
 | `pinakes embed` | `kanon embed` |
 | `pinakes grade` | `kanon grade` |
 | `pinakes queries add`, `check`, `import` | `kanon queries add`, `check`, `import` |
-| `pinakes report --eval-before E --eval-after E` | `kanon report --eval-before E --eval-after E` |
+| the evaluation sections of `pinakes report` (`--eval-before E --eval-after E`) | `kanon report --eval-before E --eval-after E`, which renders only those sections; `pinakes report` keeps the corpus sections |
 | the `bm25-tantivy`, `dense`, `hybrid` and `external` backends | the same names in `kanon eval --backend` |
 
 The four subcommands stay in `pinakes` for one minor release as stubs: each prints one line
-naming the `kanon` command to run instead, whatever arguments it was given, and exits 1. The
+naming the `kanon` command to run instead, whatever arguments follow it, and exits 1. The
 release after removes them. `pinakes report` no longer takes `--eval-before` or `--eval-after`,
 and its `report.json` is now version 2, without the `eval` key; a version 1 `report.json` written
 by an earlier release still loads, and `check` ignores the key.

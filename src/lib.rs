@@ -36,7 +36,8 @@
 //!
 //! Consumers of an artifact (an evaluation tool, a serving system) depend on the modules SPEC
 //! §20 lists — [`corpus`], [`index`], [`chunks`], [`tokenizer`], [`manifest`], [`layout`],
-//! [`text`], [`jsonl`], [`num`], [`trail`], [`config`] and [`llm`] — and those follow the
+//! [`text`], [`jsonl`], [`num`], [`trail`], [`config`], [`llm`] and [`residue::excerpt`] — and
+//! those follow the
 //! compatibility rule stated there; every other module is an implementation detail of the
 //! commands. SPEC §21 records which commands moved out to the separate evaluation tool.
 //!

@@ -2,8 +2,8 @@ name: curate
 
 # The weekly curation workflow (SPEC §17.1): a reusable workflow a consumer calls on a schedule
 # (see examples/curate-weekly.yml) to re-resolve its corpus, measure the effect with `kanon`, and
-# open one PR with the result for a human (or the `curate` skill) to review. `workflow_dispatch` lets it be
-# run by hand, including inside this repository's own CI to exercise it end to end.
+# open one PR with the result for a human (or the `curate` skill) to review. `workflow_dispatch`
+# lets it be run by hand, including inside this repository's own CI to exercise it end to end.
 
 on:
   workflow_call:
