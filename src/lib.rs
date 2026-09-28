@@ -37,9 +37,10 @@
 //! Consumers of an artifact (an evaluation tool, a serving system) depend on the modules SPEC
 //! §20 lists — [`corpus`], [`index`], [`chunks`], [`tokenizer`], [`manifest`], [`layout`],
 //! [`text`], [`jsonl`], [`num`], [`trail`], [`config`], [`llm`] and [`residue::excerpt`] — and
-//! those follow the
-//! compatibility rule stated there; every other module is an implementation detail of the
-//! commands. SPEC §21 records which commands moved out to the separate evaluation tool.
+//! those follow the compatibility rule stated there (additive within a major version; a
+//! removal or rename only with a new one); every other module is an implementation detail of
+//! the commands. The items `kanon` imports are pinned by `tests/library_surface.rs`. SPEC §21
+//! records which commands moved out to the separate evaluation tool.
 //!
 //! [`error`] holds [`error::CommandError`], the error type every command returns. [`commands`]
 //! is one file per subcommand, each owning its options and outcome, re-exported by name from

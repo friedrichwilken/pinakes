@@ -135,7 +135,7 @@ cargo test                                            # unit, integration, golde
 CI runs the same plus `cargo doc --no-deps` with `RUSTDOCFLAGS=-D warnings`, a build on the
 `rust-version` from `Cargo.toml`, the end-to-end example against the network, and `cargo audit`.
 
-Four suites pin behaviour rather than assert it:
+Five suites pin behaviour rather than assert it:
 
 - `tests/golden.rs` compares the built-in index over `tests/fixtures/golden` with
   `expected.json`: the ids of the top ten pages for each query in its `queries.jsonl`. Refresh
@@ -149,6 +149,10 @@ Four suites pin behaviour rather than assert it:
 - `tests/schema.rs` pins the JSON Schema of `manifest.json`, generated from the `manifest`
   types, at `docs/schemas/manifest.schema.json`. Refresh with
   `UPDATE_SCHEMAS=1 cargo test --test schema`.
+- `tests/library_surface.rs` pins, at compile time, every item `kanon` imports from the library
+  (SPEC §20): exact signatures, exact field types. It has no refresh flag; a change to it is a
+  change to the contract, so say why in the commit body and never edit it just to make a
+  `kanon` break disappear.
 
 Refresh only when the change is intended. The commit that updates a golden or snapshot file must
 say, in its body, which rule changed and why
